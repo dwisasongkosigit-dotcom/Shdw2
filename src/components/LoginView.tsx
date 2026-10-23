@@ -238,7 +238,7 @@ export function LoginView({ branding, onLoginSuccess }: LoginViewProps) {
         <div className="mt-6 text-center text-xs text-slate-500">
           <p>TMM & BMA Advisory Internal Enterprise Platform</p>
           <p className="text-[11px] text-slate-600 mt-1">
-            Mode preview sementara; data dapat hilang saat server restart · Kata sandi memakai PBKDF2
+            Data tersimpan di Neon PostgreSQL · Kata sandi dilindungi PBKDF2
           </p>
         </div>
       </div>

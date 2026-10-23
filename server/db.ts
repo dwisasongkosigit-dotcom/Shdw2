@@ -1,21 +1,21 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { and, eq, notInArray, sql } from 'drizzle-orm';
+import { appState, backupSnapshots } from '../db/schema.ts';
+import { db as postgres } from '../db/index.ts';
 import { getInitialSeedData } from './seed.ts';
 import { hashPassword } from './auth.ts';
 import initialData from '../data/tmm_bma_database.json' with { type: 'json' };
 import type { DatabaseSchema, BackupInfo, AuditLog } from './types.ts';
 
 const MAX_BACKUPS = 35;
-
-let inMemoryState: DatabaseSchema | null = null;
-let inMemoryVersion = 0;
-const inMemoryBackups = new Map<string, DatabaseSchema>();
+const APP_STATE_ID = 'main';
 
 // Legacy asset paths that only worked with the Vite dev server
 const LEGACY_LOGO_PATH = '/src/assets/images/tmm_bma_logo_1792761458459.jpg';
 export const DEFAULT_LOGO_PATH = '/images/tmm_bma_logo_1792761458459.jpg';
 
-// Request-scoped copy of the dataset. Changes are committed to process memory only;
-// they are lost when the server process restarts.
+// Request-scoped copy of the dataset. Writes use a database version check so
+// concurrent serverless requests cannot silently overwrite one another.
 interface DbContext {
   data: DatabaseSchema | null;
   loadedVersion: number;
@@ -127,29 +127,43 @@ function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
   return db;
 }
 
-// Initial dataset: the bundled data export if valid, otherwise the built-in seed
+// Bootstrap once from the bundled export when Neon has no app-state record.
 function buildInitialData(): DatabaseSchema {
   const imported = structuredClone(initialData) as unknown as DatabaseSchema;
   if (imported && Array.isArray(imported.clients) && Array.isArray(imported.users)) {
-    // Snapshot files from the old disk storage are not available here
+    // Legacy disk snapshots are not imported during the one-time bootstrap.
     imported.backups = [];
     return upgradeSchema(imported);
   }
   return upgradeSchema(getInitialSeedData());
 }
 
-// Load the latest in-memory dataset for the current request, creating it on first use
+// Load the shared dataset from Neon, creating the initial record once if needed.
 export async function loadDatabase(): Promise<DatabaseSchema> {
   const context = ctx();
+  let [record] = await postgres
+    .select({ data: appState.data, version: appState.version })
+    .from(appState)
+    .where(eq(appState.id, APP_STATE_ID))
+    .limit(1);
 
-  if (!inMemoryState) {
-    console.log('[DB] Memulai mode preview sementara dengan data awal...');
-    inMemoryState = buildInitialData();
-    inMemoryVersion = 1;
+  if (!record) {
+    await postgres
+      .insert(appState)
+      .values({ id: APP_STATE_ID, data: buildInitialData(), version: 1 })
+      .onConflictDoNothing({ target: appState.id });
+
+    [record] = await postgres
+      .select({ data: appState.data, version: appState.version })
+      .from(appState)
+      .where(eq(appState.id, APP_STATE_ID))
+      .limit(1);
   }
 
-  context.data = upgradeSchema(structuredClone(inMemoryState));
-  context.loadedVersion = inMemoryVersion;
+  if (!record) throw new Error('Data aplikasi belum dapat dibuat di database Neon.');
+
+  context.data = upgradeSchema(structuredClone(record.data as DatabaseSchema));
+  context.loadedVersion = record.version;
   context.dirty = false;
   context.poisoned = false;
   return context.data;
@@ -182,19 +196,27 @@ export function mutateDb(mutator: (db: DatabaseSchema) => void): DatabaseSchema 
   return db;
 }
 
-// Commit pending changes to process memory; reject stale concurrent requests
+// Commit with an atomic optimistic-version check to protect shared edits.
 export async function persistDatabase(): Promise<void> {
   const context = ctx();
   if (!context.dirty || context.poisoned || !context.data) return;
 
-  if (context.loadedVersion !== inMemoryVersion) {
+  context.data.lastSaved = new Date().toISOString();
+  const [saved] = await postgres
+    .update(appState)
+    .set({
+      data: context.data,
+      version: sql`${appState.version} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(appState.id, APP_STATE_ID), eq(appState.version, context.loadedVersion)))
+    .returning({ version: appState.version });
+
+  if (!saved) {
     throw new Error('Data telah diubah oleh pengguna lain secara bersamaan. Silakan muat ulang halaman dan coba lagi.');
   }
 
-  context.data.lastSaved = new Date().toISOString();
-  inMemoryState = structuredClone(context.data);
-  inMemoryVersion += 1;
-  context.loadedVersion = inMemoryVersion;
+  context.loadedVersion = saved.version;
   context.dirty = false;
 }
 
@@ -248,7 +270,13 @@ export async function createBackupSnapshot(
 
   const snapshot = structuredClone(db);
   const sizeBytes = Buffer.byteLength(JSON.stringify(snapshot, null, 2), 'utf-8');
-  inMemoryBackups.set(filename, snapshot);
+  await postgres
+    .insert(backupSnapshots)
+    .values({ filename, data: snapshot, createdAt: now })
+    .onConflictDoUpdate({
+      target: backupSnapshots.filename,
+      set: { data: snapshot, createdAt: now },
+    });
 
   const backupInfo: BackupInfo = {
     id: `BKP-${Date.now()}`,
@@ -288,18 +316,22 @@ export async function createBackupSnapshot(
     );
   });
 
-  // Drop snapshots that fell out of the retention window
-  const kept = new Set(db.backups.map((backup) => backup.filename));
-  for (const filename of inMemoryBackups.keys()) {
-    if (!kept.has(filename)) inMemoryBackups.delete(filename);
+  // Keep the snapshot table aligned with the retained backup catalogue.
+  const keptFilenames = db.backups.map((backup) => backup.filename);
+  if (keptFilenames.length) {
+    await postgres.delete(backupSnapshots).where(notInArray(backupSnapshots.filename, keptFilenames));
   }
 
   return backupInfo;
 }
 
 export async function getBackupSnapshot(filename: string): Promise<DatabaseSchema | null> {
-  const snapshot = inMemoryBackups.get(filename);
-  return snapshot ? structuredClone(snapshot) : null;
+  const [record] = await postgres
+    .select({ data: backupSnapshots.data })
+    .from(backupSnapshots)
+    .where(eq(backupSnapshots.filename, filename))
+    .limit(1);
+  return record ? structuredClone(record.data as DatabaseSchema) : null;
 }
 
 // Restore database from a verified backup snapshot (Admin only)
@@ -361,10 +393,10 @@ export function getDbHealthInfo() {
   const fileSizeBytes = Buffer.byteLength(JSON.stringify(db), 'utf-8');
 
   return {
-    status: 'temporary',
-    storageEngine: 'Memori server sementara (tanpa persistensi)',
+    status: 'persistent',
+    storageEngine: 'Neon PostgreSQL',
     databaseFilePath: null,
-    existsOnDisk: false,
+    existsOnDisk: true,
     fileSizeBytes,
     lastSaved: db.lastSaved,
     version: db.version,

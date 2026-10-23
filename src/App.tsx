@@ -146,7 +146,7 @@ function MainApp() {
     return (
       <div className="min-h-screen bg-[#070d1e] flex flex-col items-center justify-center text-white">
         <div className="w-10 h-10 border-2 border-amber-500 border-t-transparent rounded-full animate-spin mb-4" />
-        <h2 className="text-base font-bold tracking-tight">Memuat Preview Sementara...</h2>
+        <h2 className="text-base font-bold tracking-tight">Menghubungkan ke Database...</h2>
         <p className="text-xs text-slate-400 mt-1">TMM/BMA Client Control Center</p>
       </div>
     );

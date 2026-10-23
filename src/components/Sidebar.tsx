@@ -155,13 +155,29 @@ export function Sidebar({
           })}
         </nav>
 
-        <div className="px-4 py-3 mx-3 my-2 rounded-lg bg-amber-950/30 border border-amber-800/50 text-[11px] text-slate-300" role="status">
+        <div
+          className={`px-4 py-3 mx-3 my-2 rounded-lg border text-[11px] text-slate-300 ${
+            dbStatus?.status === 'persistent'
+              ? 'bg-emerald-950/30 border-emerald-800/50'
+              : 'bg-amber-950/30 border-amber-800/50'
+          }`}
+          role="status"
+        >
           <div className="flex items-center gap-2 mb-1">
-            <span className="inline-block w-2 h-2 rounded-full bg-amber-400 shrink-0" />
-            <span className="font-semibold text-amber-200">Preview Sementara</span>
+            <span
+              className={`inline-block w-2 h-2 rounded-full shrink-0 ${
+                dbStatus?.status === 'persistent' ? 'bg-emerald-400' : 'bg-amber-400'
+              }`}
+            />
+            <span className={`font-semibold ${dbStatus?.status === 'persistent' ? 'text-emerald-200' : 'text-amber-200'}`}>
+              {dbStatus?.status === 'persistent' ? 'Database Produksi' : 'Penyimpanan Tidak Tersedia'}
+            </span>
           </div>
           <p className="text-[10px] text-slate-300">
-            {dbStatus?.storageEngine || 'Penyimpanan memori sementara'}. Data dan sesi login dapat hilang saat server restart.
+            {dbStatus?.storageEngine || 'Neon PostgreSQL'}.
+            {dbStatus?.status === 'persistent'
+              ? ' Data bersama tersimpan permanen.'
+              : ' Periksa koneksi database sebelum melanjutkan pekerjaan.'}
           </p>
         </div>
 

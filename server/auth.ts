@@ -1,4 +1,7 @@
 import crypto from 'node:crypto';
+import { eq, lt } from 'drizzle-orm';
+import { db } from '../db/index.ts';
+import { sessions } from '../db/schema.ts';
 import type { Request, Response, NextFunction } from 'express';
 import type { User, UserRole } from './types.ts';
 
@@ -11,9 +14,11 @@ export interface SessionInfo {
   expiresAt: number;
 }
 
-// Sessions live in memory and are cleared whenever the server process restarts.
 const SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
-const inMemorySessions = new Map<string, SessionInfo>();
+
+function hashSessionToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
 
 export function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
   const actualSalt = salt || crypto.randomBytes(16).toString('hex');
@@ -37,28 +42,48 @@ export async function createSession(user: User): Promise<SessionInfo> {
     role: user.role,
     expiresAt,
   };
-  // Opportunistically clear expired sessions
-  for (const [sessionToken, session] of inMemorySessions) {
-    if (session.expiresAt < Date.now()) inMemorySessions.delete(sessionToken);
-  }
-  inMemorySessions.set(token, sessionInfo);
+  const tokenHash = hashSessionToken(token);
+  await db.delete(sessions).where(lt(sessions.expiresAt, Date.now()));
+  await db.insert(sessions).values({
+    token: tokenHash,
+    userId: sessionInfo.userId,
+    username: sessionInfo.username,
+    name: sessionInfo.name,
+    role: sessionInfo.role,
+    expiresAt,
+  });
   return sessionInfo;
 }
 
 export async function getSession(token?: string): Promise<SessionInfo | null> {
   if (!token) return null;
-  const session = inMemorySessions.get(token);
-  if (!session) return null;
-  if (Date.now() > session.expiresAt) {
-    inMemorySessions.delete(token);
+  const [stored] = await db
+    .select()
+    .from(sessions)
+    .where(eq(sessions.token, hashSessionToken(token)))
+    .limit(1);
+  if (!stored) return null;
+  if (Date.now() > stored.expiresAt) {
+    await db.delete(sessions).where(eq(sessions.token, stored.token));
     return null;
   }
-  return { ...session, role: session.role as UserRole };
+  return {
+    token,
+    userId: stored.userId,
+    username: stored.username,
+    name: stored.name,
+    role: stored.role as UserRole,
+    expiresAt: stored.expiresAt,
+  };
 }
 
 export async function destroySession(token?: string): Promise<boolean> {
   if (!token) return false;
-  return inMemorySessions.delete(token);
+  const deleted = await db
+    .delete(sessions)
+    .where(eq(sessions.token, hashSessionToken(token)))
+    .returning({ token: sessions.token });
+  return deleted.length > 0;
 }
 
 // Express extended request interface
