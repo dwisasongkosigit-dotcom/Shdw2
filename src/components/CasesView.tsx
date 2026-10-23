@@ -67,6 +67,14 @@ export function CasesView({ cases, clients, currentUser, onRefresh }: CasesViewP
   });
 
   const isReadOnly = currentUser.role === 'Owner' || currentUser.role === 'Manager';
+  const currentDivision = currentUser.role.includes('Accounting') ? 'Accounting' : 'Tax';
+  const canEditCase = (item: Case) =>
+    !isReadOnly &&
+    (currentUser.role === 'Admin' ||
+      (item.division === currentDivision &&
+        (!currentUser.role.startsWith('Staff') ||
+          item.picId === currentUser.id ||
+          item.followUpPicId === currentUser.id)));
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<string>(
     new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date())
@@ -568,9 +576,9 @@ export function CasesView({ cases, clients, currentUser, onRefresh }: CasesViewP
                 </div>
 
                 {/* Form to add a new dated activity log inside this case */}
-                {isReadOnly ? (
+                {!canEditCase(selectedCase) ? (
                   <div className="p-3 bg-slate-100 border border-slate-200 rounded-lg text-slate-500 text-xs italic">
-                    Mode Read-Only ({currentUser.role}): Anda hanya dapat melihat kronologi tindakan kasus tanpa izin menambah atau mengubah.
+                    Mode Read-Only: Anda dapat melihat semua divisi, tetapi hanya PIC divisi terkait yang dapat mengubah kasus.
                   </div>
                 ) : (
                   <div className="mt-3 p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
@@ -613,7 +621,7 @@ export function CasesView({ cases, clients, currentUser, onRefresh }: CasesViewP
               </div>
 
               {/* Status & Resolution Form */}
-              {!isReadOnly && (
+              {canEditCase(selectedCase) && (
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
                   <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                     Perbarui Status Kasus & Penyelesaian

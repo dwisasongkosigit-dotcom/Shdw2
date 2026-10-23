@@ -44,6 +44,14 @@ export function FollowUpView({
   const [clearingFollowUp, setClearingFollowUp] = useState(false);
 
   const isReadOnly = currentUser.role === 'Owner' || currentUser.role === 'Manager';
+  const currentDivision = currentUser.role.includes('Accounting') ? 'Accounting' : 'Tax';
+  const canEditCase = (item: Case) =>
+    !isReadOnly &&
+    (currentUser.role === 'Admin' ||
+      (item.division === currentDivision &&
+        (!currentUser.role.startsWith('Staff') ||
+          item.picId === currentUser.id ||
+          item.followUpPicId === currentUser.id)));
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -316,15 +324,15 @@ export function FollowUpView({
                   </div>
 
                   <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                    <button
+                    {canEditCase(item) && <button
                       onClick={() => handleQuickExtend(item, 7)}
                       disabled={updatingId === item.id}
                       className="px-2 py-1.5 border border-slate-200 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-50 text-xs font-medium transition-colors"
                       title="Perpanjang 7 hari"
                     >
                       +7 Hari
-                    </button>
-                    {!isReadOnly && (
+                    </button>}
+                    {canEditCase(item) && (
                       <button
                         onClick={() => setCaseToClearFollowUp(item)}
                         className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-semibold transition-colors"

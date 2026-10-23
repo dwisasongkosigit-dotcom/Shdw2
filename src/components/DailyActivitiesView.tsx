@@ -67,6 +67,7 @@ export function DailyActivitiesView({
   });
 
   const isReadOnly = currentUser.role === 'Owner' || currentUser.role === 'Manager';
+  const currentDivision = currentUser.role.includes('Accounting') ? 'Accounting' : 'Tax';
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<string>(
     new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date())
@@ -306,8 +307,8 @@ export function DailyActivitiesView({
             const canDelete =
               !isReadOnly &&
               (currentUser.role === 'Admin' ||
-                currentUser.role.startsWith('SPV') ||
-                act.picId === currentUser.id);
+                (act.division === currentDivision &&
+                  (currentUser.role.startsWith('SPV') || act.picId === currentUser.id)));
 
             return (
               <div
@@ -436,7 +437,8 @@ export function DailyActivitiesView({
                   <select
                     value={newActivity.division}
                     onChange={(e) => setNewActivity({ ...newActivity, division: e.target.value as any })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900"
+                    disabled={currentUser.role !== 'Admin'}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 disabled:cursor-not-allowed disabled:opacity-70"
                   >
                     <option value="Accounting">Accounting</option>
                     <option value="Tax">Tax</option>
