@@ -1,48 +1,48 @@
-import fs from 'node:fs';
-import path from 'node:path';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { and, eq, notInArray, sql } from 'drizzle-orm';
+import { db as pg } from '../db/index.ts';
+import { appState, backupSnapshots } from '../db/schema.ts';
 import { getInitialSeedData } from './seed.ts';
 import { hashPassword } from './auth.ts';
-import type { DatabaseSchema, BackupInfo, AuditLog, Client } from './types.ts';
+import initialData from '../data/tmm_bma_database.json' with { type: 'json' };
+import type { DatabaseSchema, BackupInfo, AuditLog } from './types.ts';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
-const DB_FILE = path.join(DATA_DIR, 'tmm_bma_database.json');
-const BACKUP_FILE = path.join(DATA_DIR, 'tmm_bma_database.backup.json');
+const STATE_ID = 'main';
+const MAX_BACKUPS = 35;
 
-let inMemoryDb: DatabaseSchema | null = null;
-let lastScheduledBackupDate = '';
+// Legacy asset paths that only worked with the Vite dev server
+const LEGACY_LOGO_PATH = '/src/assets/images/tmm_bma_logo_1792761458459.jpg';
+export const DEFAULT_LOGO_PATH = '/images/tmm_bma_logo_1792761458459.jpg';
 
-// Ensure data & backup directories exist
-function ensureDirs(): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(BACKUPS_DIR)) {
-    fs.mkdirSync(BACKUPS_DIR, { recursive: true });
-  }
+// Request-scoped copy of the dataset. Each request loads the latest state from
+// Netlify Database, mutates it in memory, and persists it once before responding.
+interface DbContext {
+  data: DatabaseSchema | null;
+  loadedVersion: number;
+  dirty: boolean;
+  poisoned: boolean;
 }
 
-// Atomic file write using temporary file and rename
-function atomicWriteFile(filePath: string, data: string): void {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  const tempPath = `${filePath}.${Date.now()}.${Math.random().toString(36).substring(2, 8)}.tmp`;
-  fs.writeFileSync(tempPath, data, 'utf-8');
-  fs.renameSync(tempPath, filePath);
+const storage = new AsyncLocalStorage<DbContext>();
+
+function ctx(): DbContext {
+  const context = storage.getStore();
+  if (!context) throw new Error('Konteks database tidak tersedia untuk permintaan ini.');
+  return context;
 }
 
-// Persist database schema to disk atomically
-function saveDatabase(db: DatabaseSchema): void {
-  ensureDirs();
-  const serialized = JSON.stringify(db, null, 2);
-  atomicWriteFile(DB_FILE, serialized);
-  atomicWriteFile(BACKUP_FILE, serialized);
+export function runWithDb<T>(fn: () => T): T {
+  return storage.run({ data: null, loadedVersion: 0, dirty: false, poisoned: false }, fn);
 }
 
 // Migrate/upgrade in-memory schema safely to ensure Prompt 2 compatibility
 function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
   if (!Array.isArray(db.auditLogs)) db.auditLogs = [];
   if (!Array.isArray(db.backups)) db.backups = [];
+
+  if (db.branding && (!db.branding.logoUrl || db.branding.logoUrl === LEGACY_LOGO_PATH)) {
+    db.branding.logoUrl = DEFAULT_LOGO_PATH;
+  }
 
   // Ensure Owner and Manager users exist
   const hasOwner = db.users.some((u) => u.role === 'Owner');
@@ -127,83 +127,82 @@ function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
   return db;
 }
 
-// Load database or initialize only if not present
-export function initDatabase(): DatabaseSchema {
-  ensureDirs();
+// Initial dataset: the bundled data export if valid, otherwise the built-in seed
+function buildInitialData(): DatabaseSchema {
+  const imported = structuredClone(initialData) as unknown as DatabaseSchema;
+  if (imported && Array.isArray(imported.clients) && Array.isArray(imported.users)) {
+    // Snapshot files from the old disk storage are not available here
+    imported.backups = [];
+    return upgradeSchema(imported);
+  }
+  return upgradeSchema(getInitialSeedData());
+}
 
-  if (fs.existsSync(DB_FILE)) {
-    try {
-      const raw = fs.readFileSync(DB_FILE, 'utf-8');
-      const parsed: DatabaseSchema = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.clients) && Array.isArray(parsed.users)) {
-        inMemoryDb = upgradeSchema(parsed);
-        saveDatabase(inMemoryDb);
-        console.log(`[DB] Database persisten berhasil dimuat dari ${DB_FILE}. Total klien: ${inMemoryDb.clients.length}, Jobs: ${inMemoryDb.jobs.length}`);
-        startBackupScheduler();
-        return inMemoryDb;
-      }
-    } catch (err) {
-      console.error('[DB] Gagal membaca DB_FILE utama, mencoba memulihkan dari backup...', err);
-      if (fs.existsSync(BACKUP_FILE)) {
-        try {
-          const backupRaw = fs.readFileSync(BACKUP_FILE, 'utf-8');
-          const backupParsed: DatabaseSchema = JSON.parse(backupRaw);
-          inMemoryDb = upgradeSchema(backupParsed);
-          atomicWriteFile(DB_FILE, backupRaw);
-          console.log('[DB] Berhasil dipulihkan dari backup.');
-          startBackupScheduler();
-          return inMemoryDb;
-        } catch (backupErr) {
-          console.error('[DB] Backup juga gagal dibaca:', backupErr);
-        }
-      }
-    }
+// Load the latest dataset for the current request, creating it on first use
+export async function loadDatabase(): Promise<DatabaseSchema> {
+  const context = ctx();
+
+  let [row] = await pg.select().from(appState).where(eq(appState.id, STATE_ID));
+  if (!row) {
+    console.log('[DB] Inisialisasi database baru TMM/BMA...');
+    await pg
+      .insert(appState)
+      .values({ id: STATE_ID, data: buildInitialData(), version: 1 })
+      .onConflictDoNothing();
+    [row] = await pg.select().from(appState).where(eq(appState.id, STATE_ID));
   }
 
-  // If absent, initialize fresh from seed
-  console.log('[DB] Inisialisasi database baru TMM/BMA...');
-  const seed = getInitialSeedData();
-  inMemoryDb = upgradeSchema(seed);
-
-  try {
-    const serialized = JSON.stringify(inMemoryDb, null, 2);
-    atomicWriteFile(DB_FILE, serialized);
-    atomicWriteFile(BACKUP_FILE, serialized);
-    console.log(`[DB] Inisialisasi database persisten tersimpan di ${DB_FILE}`);
-  } catch (err) {
-    console.error('[DB] Gagal menyimpan inisialisasi awal database:', err);
-  }
-
-  startBackupScheduler();
-  return inMemoryDb;
+  context.data = upgradeSchema(row.data as DatabaseSchema);
+  context.loadedVersion = row.version;
+  context.dirty = false;
+  context.poisoned = false;
+  return context.data;
 }
 
 export function getDb(): DatabaseSchema {
-  if (!inMemoryDb) {
-    return initDatabase();
-  }
-  return inMemoryDb;
+  const context = ctx();
+  if (!context.data) throw new Error('Database belum dimuat.');
+  return context.data;
+}
+
+export function isDbDirty(): boolean {
+  const context = storage.getStore();
+  return Boolean(context && context.dirty && !context.poisoned);
 }
 
 export function mutateDb(mutator: (db: DatabaseSchema) => void): DatabaseSchema {
+  const context = ctx();
   const db = getDb();
-  mutator(db);
+  try {
+    mutator(db);
+  } catch (err) {
+    // A failed mutation may leave partial changes in memory; never persist them
+    context.poisoned = true;
+    throw err;
+  }
   db.lastSaved = new Date().toISOString();
   db.version = (db.version || 1) + 1;
+  context.dirty = true;
+  return db;
+}
 
-  try {
-    ensureDirs();
-    const serialized = JSON.stringify(db, null, 2);
-    atomicWriteFile(DB_FILE, serialized);
-    if (db.version % 2 === 0 || !fs.existsSync(BACKUP_FILE)) {
-      atomicWriteFile(BACKUP_FILE, serialized);
-    }
-  } catch (err) {
-    console.error('[DB] Gagal menyimpan perubahan ke disk:', err);
-    throw new Error('Gagal menyimpan data ke penyimpanan persisten server.');
+// Persist pending changes; rejects if another request saved in the meantime
+export async function persistDatabase(): Promise<void> {
+  const context = ctx();
+  if (!context.dirty || context.poisoned || !context.data) return;
+
+  const updated = await pg
+    .update(appState)
+    .set({ data: context.data, version: sql`${appState.version} + 1`, updatedAt: new Date() })
+    .where(and(eq(appState.id, STATE_ID), eq(appState.version, context.loadedVersion)))
+    .returning({ version: appState.version });
+
+  if (updated.length === 0) {
+    throw new Error('Data telah diubah oleh pengguna lain secara bersamaan. Silakan muat ulang halaman dan coba lagi.');
   }
 
-  return db;
+  context.loadedVersion = updated[0].version;
+  context.dirty = false;
 }
 
 // Log audit trail
@@ -237,33 +236,32 @@ export function logAudit(
     if (db.auditLogs.length > 5000) {
       db.auditLogs = db.auditLogs.slice(0, 5000);
     }
+    ctx().dirty = true;
   } catch (err) {
     console.error('[Audit] Gagal mencatat audit log:', err);
   }
 }
 
 // Manual or Scheduled Backup Snapshot creation
-export function createBackupSnapshot(
+export async function createBackupSnapshot(
   type: 'manual' | 'scheduled',
   notes?: string,
   user?: { userId: string; name: string; role: string }
-): BackupInfo {
-  ensureDirs();
+): Promise<BackupInfo> {
   const db = getDb();
   const now = new Date();
   const timestampStr = now.toISOString().replace(/[:.]/g, '-');
   const filename = `tmm_bma_backup_${type}_${timestampStr}.json`;
-  const filePath = path.join(BACKUPS_DIR, filename);
 
-  const snapshotData = JSON.stringify(db, null, 2);
-  atomicWriteFile(filePath, snapshotData);
+  const snapshot = structuredClone(db);
+  const sizeBytes = Buffer.byteLength(JSON.stringify(snapshot, null, 2), 'utf-8');
+  await pg.insert(backupSnapshots).values({ filename, data: snapshot });
 
-  const stats = fs.statSync(filePath);
   const backupInfo: BackupInfo = {
     id: `BKP-${Date.now()}`,
     filename,
     timestamp: now.toISOString(),
-    sizeBytes: stats.size,
+    sizeBytes,
     type,
     recordsCount: {
       clients: db.clients.length,
@@ -281,16 +279,8 @@ export function createBackupSnapshot(
     database.backups.unshift(backupInfo);
 
     // Retain up to 30 days of snapshots
-    if (database.backups.length > 35) {
-      const removed = database.backups.splice(35);
-      removed.forEach((b) => {
-        try {
-          const oldFile = path.join(BACKUPS_DIR, b.filename);
-          if (fs.existsSync(oldFile)) fs.unlinkSync(oldFile);
-        } catch {
-          // ignore
-        }
-      });
+    if (database.backups.length > MAX_BACKUPS) {
+      database.backups.splice(MAX_BACKUPS);
     }
 
     // Log to audit trail
@@ -298,51 +288,52 @@ export function createBackupSnapshot(
     logAudit(
       type === 'manual' ? 'MANUAL_BACKUP_CREATED' : 'SCHEDULED_BACKUP_CREATED',
       'Backup',
-      `Berhasil membuat backup berkas ${filename} (${(stats.size / 1024).toFixed(1)} KB) mencakup ${db.clients.length} klien dan ${db.jobs.length} pekerjaan.`,
+      `Berhasil membuat backup berkas ${filename} (${(sizeBytes / 1024).toFixed(1)} KB) mencakup ${db.clients.length} klien dan ${db.jobs.length} pekerjaan.`,
       auditUser,
       backupInfo.id,
       filename
     );
   });
 
+  // Drop stored snapshots that fell out of the retention window
+  const kept = db.backups.map((b) => b.filename);
+  await pg.delete(backupSnapshots).where(notInArray(backupSnapshots.filename, kept));
+
   return backupInfo;
 }
 
+export async function getBackupSnapshot(filename: string): Promise<DatabaseSchema | null> {
+  const [row] = await pg.select().from(backupSnapshots).where(eq(backupSnapshots.filename, filename));
+  return row ? (row.data as DatabaseSchema) : null;
+}
+
 // Restore database from a verified backup snapshot (Admin only)
-export function restoreFromSnapshot(
+export async function restoreFromSnapshot(
   backupFilename: string,
   user: { userId: string; name: string; role: string }
-): { success: boolean; message: string; version: number } {
-  ensureDirs();
-  const targetPath = path.join(BACKUPS_DIR, backupFilename);
-
-  if (!fs.existsSync(targetPath)) {
+): Promise<{ success: boolean; message: string; version: number }> {
+  const restoredData = await getBackupSnapshot(backupFilename);
+  if (!restoredData) {
     throw new Error(`Berkas cadangan '${backupFilename}' tidak ditemukan di penyimpanan server.`);
   }
 
-  // Pre-validate file
-  let restoredData: DatabaseSchema;
-  try {
-    const raw = fs.readFileSync(targetPath, 'utf-8');
-    restoredData = JSON.parse(raw);
-    if (!Array.isArray(restoredData.clients) || !Array.isArray(restoredData.users)) {
-      throw new Error('Struktur berkas cadangan tidak valid atau rusak.');
-    }
-  } catch (err: any) {
-    throw new Error(`Validasi berkas cadangan gagal: ${err.message}`);
+  // Pre-validate snapshot
+  if (!Array.isArray(restoredData.clients) || !Array.isArray(restoredData.users)) {
+    throw new Error('Validasi berkas cadangan gagal: Struktur berkas cadangan tidak valid atau rusak.');
   }
 
   // Create safety pre-restore backup of current state
-  createBackupSnapshot('manual', 'Pre-restore Safety Auto-Backup', user);
+  await createBackupSnapshot('manual', 'Pre-restore Safety Auto-Backup', user);
 
-  // Apply restoration
-  inMemoryDb = upgradeSchema(restoredData);
-  inMemoryDb.lastSaved = new Date().toISOString();
-  inMemoryDb.version = (inMemoryDb.version || 1) + 1;
-
-  const serialized = JSON.stringify(inMemoryDb, null, 2);
-  atomicWriteFile(DB_FILE, serialized);
-  atomicWriteFile(BACKUP_FILE, serialized);
+  // Apply restoration, keeping the current backup catalogue so snapshots stay listed
+  const context = ctx();
+  const currentBackups = getDb().backups;
+  const restored = upgradeSchema(restoredData);
+  restored.backups = currentBackups;
+  restored.lastSaved = new Date().toISOString();
+  restored.version = (restored.version || 1) + 1;
+  context.data = restored;
+  context.dirty = true;
 
   logAudit(
     'DATABASE_RESTORE_EXECUTED',
@@ -356,53 +347,29 @@ export function restoreFromSnapshot(
   return {
     success: true,
     message: `Database berhasil dipulihkan dari '${backupFilename}'.`,
-    version: inMemoryDb.version,
+    version: restored.version,
   };
 }
 
-// Background scheduler for automatic daily backup at 23:00 WIB (16:00 UTC)
-function startBackupScheduler(): void {
-  // Check every 60 seconds
-  setInterval(() => {
-    try {
-      const now = new Date();
-      // WIB is UTC+7
-      const wibHour = (now.getUTCHours() + 7) % 24;
-      const todayDateStr = now.toISOString().split('T')[0];
-
-      // If it is 23:00 WIB and today's scheduled backup hasn't run yet
-      if (wibHour === 23 && lastScheduledBackupDate !== todayDateStr) {
-        lastScheduledBackupDate = todayDateStr;
-        console.log(`[Backup Scheduler] Menjalankan cadangan otomatis harian 23:00 WIB (${todayDateStr})...`);
-        createBackupSnapshot('scheduled', 'Backup harian otomatis 23:00 WIB');
-      }
-    } catch (err) {
-      console.error('[Backup Scheduler] Error saat menjalankan backup otomatis:', err);
-    }
-  }, 60 * 1000);
+// Automatic daily backup (invoked by the scheduled function at 23:00 WIB / 16:00 UTC)
+export async function runScheduledBackup(): Promise<BackupInfo> {
+  return runWithDb(async () => {
+    await loadDatabase();
+    const info = await createBackupSnapshot('scheduled', 'Backup harian otomatis 23:00 WIB');
+    await persistDatabase();
+    return info;
+  });
 }
 
 export function getDbHealthInfo() {
-  ensureDirs();
   const db = getDb();
-  let fileSizeBytes = 0;
-  let fileExists = false;
-
-  try {
-    if (fs.existsSync(DB_FILE)) {
-      const stat = fs.statSync(DB_FILE);
-      fileSizeBytes = stat.size;
-      fileExists = true;
-    }
-  } catch {
-    // ignore
-  }
+  const fileSizeBytes = Buffer.byteLength(JSON.stringify(db), 'utf-8');
 
   return {
     status: 'connected',
-    storageEngine: 'Disk Persistent JSON with Atomic Swaps (ACID-safe)',
-    databaseFilePath: DB_FILE,
-    existsOnDisk: fileExists,
+    storageEngine: 'Netlify Database (Postgres JSONB, optimistic locking)',
+    databaseFilePath: 'netlify-database://app_state/main',
+    existsOnDisk: true,
     fileSizeBytes,
     lastSaved: db.lastSaved,
     version: db.version,

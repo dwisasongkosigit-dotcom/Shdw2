@@ -1,5 +1,8 @@
 import crypto from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
+import { eq, lt } from 'drizzle-orm';
+import { db } from '../db/index.ts';
+import { sessions } from '../db/schema.ts';
 import type { User, UserRole } from './types.ts';
 
 export interface SessionInfo {
@@ -10,9 +13,6 @@ export interface SessionInfo {
   role: UserRole;
   expiresAt: number;
 }
-
-// In-memory active session tokens mapped to user session info
-const sessions = new Map<string, SessionInfo>();
 
 // 12 hours session validity
 const SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
@@ -28,7 +28,7 @@ export function verifyPassword(password: string, hash: string, salt: string): bo
   return crypto.timingSafeEqual(Buffer.from(check, 'hex'), Buffer.from(hash, 'hex'));
 }
 
-export function createSession(user: User): SessionInfo {
+export async function createSession(user: User): Promise<SessionInfo> {
   const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = Date.now() + SESSION_DURATION_MS;
   const sessionInfo: SessionInfo = {
@@ -39,24 +39,27 @@ export function createSession(user: User): SessionInfo {
     role: user.role,
     expiresAt,
   };
-  sessions.set(token, sessionInfo);
+  // Opportunistically clear expired sessions
+  await db.delete(sessions).where(lt(sessions.expiresAt, Date.now()));
+  await db.insert(sessions).values(sessionInfo);
   return sessionInfo;
 }
 
-export function getSession(token?: string): SessionInfo | null {
+export async function getSession(token?: string): Promise<SessionInfo | null> {
   if (!token) return null;
-  const session = sessions.get(token);
+  const [session] = await db.select().from(sessions).where(eq(sessions.token, token));
   if (!session) return null;
   if (Date.now() > session.expiresAt) {
-    sessions.delete(token);
+    await db.delete(sessions).where(eq(sessions.token, token));
     return null;
   }
-  return session;
+  return { ...session, role: session.role as UserRole };
 }
 
-export function destroySession(token?: string): boolean {
+export async function destroySession(token?: string): Promise<boolean> {
   if (!token) return false;
-  return sessions.delete(token);
+  const deleted = await db.delete(sessions).where(eq(sessions.token, token)).returning({ token: sessions.token });
+  return deleted.length > 0;
 }
 
 // Express extended request interface
@@ -65,7 +68,7 @@ export interface AuthenticatedRequest extends Request {
 }
 
 // Auth Middleware: extracts token from Authorization: Bearer <token> or X-Session-Token
-export function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+export async function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith('Bearer ')
     ? authHeader.substring(7)
@@ -76,7 +79,13 @@ export function authenticateToken(req: AuthenticatedRequest, res: Response, next
     return;
   }
 
-  const session = getSession(token);
+  let session: SessionInfo | null;
+  try {
+    session = await getSession(token);
+  } catch (err) {
+    next(err);
+    return;
+  }
   if (!session) {
     res.status(401).json({ error: 'Sesi kedaluwarsa atau tidak valid. Silakan login kembali.' });
     return;

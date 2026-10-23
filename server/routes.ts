@@ -1,15 +1,16 @@
 import { Router } from 'express';
-import type { Request, Response } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import ExcelJS from 'exceljs';
 import path from 'node:path';
-import fs from 'node:fs';
 import {
   getDb,
   mutateDb,
   getDbHealthInfo,
   createBackupSnapshot,
   restoreFromSnapshot,
+  getBackupSnapshot,
   logAudit,
+  DEFAULT_LOGO_PATH,
 } from './db.ts';
 import {
   authenticateToken,
@@ -35,6 +36,13 @@ import type {
 
 export const apiRouter = Router();
 
+// Forward async handler rejections to the Express error middleware
+function asyncHandler<R extends Request>(fn: (req: R, res: Response, next: NextFunction) => Promise<void>) {
+  return (req: R, res: Response, next: NextFunction) => {
+    fn(req, res, next).catch(next);
+  };
+}
+
 // ==========================================
 // 1. HEALTH & PERSISTENCE VERIFICATION
 // ==========================================
@@ -50,7 +58,7 @@ apiRouter.get('/health', (req: Request, res: Response) => {
 // ==========================================
 // 2. AUTHENTICATION (Login, Me, Change Password, Logout)
 // ==========================================
-apiRouter.post('/auth/login', (req: Request, res: Response) => {
+apiRouter.post('/auth/login', asyncHandler(async (req: Request, res: Response) => {
   const { username, password } = req.body;
   if (!username || !password) {
     res.status(400).json({ error: 'Username dan kata sandi wajib diisi.' });
@@ -78,7 +86,7 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
     return;
   }
 
-  const session = createSession(user);
+  const session = await createSession(user);
 
   logAudit(
     'USER_LOGIN',
@@ -99,7 +107,7 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
     },
     branding: db.branding,
   });
-});
+}));
 
 apiRouter.get('/auth/me', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) {
@@ -162,16 +170,16 @@ apiRouter.post('/auth/change-password', authenticateToken, (req: AuthenticatedRe
   res.json({ success: true, message: 'Kata sandi berhasil diperbarui.' });
 });
 
-apiRouter.post('/auth/logout', (req: Request, res: Response) => {
+apiRouter.post('/auth/logout', asyncHandler(async (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith('Bearer ')
     ? authHeader.substring(7)
     : (req.headers['x-session-token'] as string | undefined);
   if (token) {
-    destroySession(token);
+    await destroySession(token);
   }
   res.json({ success: true, message: 'Berhasil keluar.' });
-});
+}));
 
 // ==========================================
 // 3. BRANDING SETTINGS (Admin Only)
@@ -196,7 +204,7 @@ apiRouter.put(
           appName: 'TMM/BMA Client Control Center',
           companyName: 'TMM & BMA Advisory',
           subtitle: 'Tax & Accounting Client Control Center',
-          logoUrl: '/src/assets/images/tmm_bma_logo_1792761458459.jpg',
+          logoUrl: DEFAULT_LOGO_PATH,
           updatedAt: new Date().toISOString(),
           updatedBy: currentUser.name,
         };
@@ -1610,9 +1618,9 @@ apiRouter.post(
   authenticateToken,
   requireRole('Admin'),
   requireWritable,
-  (req: AuthenticatedRequest, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { notes } = req.body;
-    const backupInfo = createBackupSnapshot('manual', notes, {
+    const backupInfo = await createBackupSnapshot('manual', notes, {
       userId: req.user!.userId,
       name: req.user!.name,
       role: req.user!.role,
@@ -1622,7 +1630,7 @@ apiRouter.post(
       backup: backupInfo,
       message: `Cadangan data manual '${backupInfo.filename}' berhasil dibuat dan diverifikasi di server.`,
     });
-  }
+  })
 );
 
 apiRouter.get(
@@ -1639,18 +1647,20 @@ apiRouter.get(
   '/backup/download/:filename',
   authenticateToken,
   requireRole('Admin'),
-  (req: AuthenticatedRequest, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { filename } = req.params;
     const cleanFilename = path.basename(filename);
-    const filePath = path.join(process.cwd(), 'data', 'backups', cleanFilename);
+    const snapshot = await getBackupSnapshot(cleanFilename);
 
-    if (!fs.existsSync(filePath)) {
+    if (!snapshot) {
       res.status(404).json({ error: 'Berkas cadangan tidak ditemukan di server.' });
       return;
     }
 
-    res.download(filePath, cleanFilename);
-  }
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${cleanFilename}"`);
+    res.send(JSON.stringify(snapshot, null, 2));
+  })
 );
 
 apiRouter.post(
@@ -1658,7 +1668,7 @@ apiRouter.post(
   authenticateToken,
   requireRole('Admin'),
   requireWritable,
-  (req: AuthenticatedRequest, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { filename } = req.body;
     if (!filename) {
       res.status(400).json({ error: 'Nama berkas cadangan wajib disertakan untuk restore.' });
@@ -1666,14 +1676,14 @@ apiRouter.post(
     }
 
     const cleanFilename = path.basename(filename);
-    const result = restoreFromSnapshot(cleanFilename, {
+    const result = await restoreFromSnapshot(cleanFilename, {
       userId: req.user!.userId,
       name: req.user!.name,
       role: req.user!.role,
     });
 
     res.json(result);
-  }
+  })
 );
 
 // ==========================================
@@ -1696,7 +1706,7 @@ apiRouter.get(
 apiRouter.get(
   '/reports/excel',
   authenticateToken,
-  async (req: AuthenticatedRequest, res: Response) => {
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const db = getDb();
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'TMM/BMA Client Control Center';
@@ -2008,7 +2018,7 @@ apiRouter.get(
       `attachment; filename="TMM_BMA_Management_Activity_Report_${Date.now()}.xlsx"`
     );
 
-    await workbook.xlsx.write(res);
-    res.end();
-  }
+    const buffer = await workbook.xlsx.writeBuffer();
+    res.send(Buffer.from(buffer));
+  })
 );
