@@ -530,15 +530,28 @@ apiRouter.post(
     const nextNumber = db.clients.length + 1;
     const newId = `CLI-${String(nextNumber).padStart(3, '0')}`;
 
-    // Verify 4 PIC assignments
-    const accStaffId = data.accountingStaffPicId || '';
-    const accStaffName = data.accountingStaffPicName || '-';
-    const taxStaffId = data.taxStaffPicId || '';
-    const taxStaffName = data.taxStaffPicName || '-';
-    const accSpvId = data.accountingSpvId || '';
-    const accSpvName = data.accountingSpvName || '-';
-    const taxSpvId = data.taxSpvId || '';
-    const taxSpvName = data.taxSpvName || '-';
+    const resolveAssignment = (userId: string | undefined, role: User['role']) => {
+      if (!userId) return { id: '', name: '-' };
+      const user = db.users.find((candidate) => candidate.id === userId && candidate.active && candidate.role === role);
+      return user ? { id: user.id, name: user.name } : null;
+    };
+    const accountingStaff = resolveAssignment(data.accountingStaffPicId, 'Staff Accounting');
+    const taxStaff = resolveAssignment(data.taxStaffPicId, 'Staff Tax');
+    const accountingSpv = resolveAssignment(data.accountingSpvId, 'SPV Accounting');
+    const taxSpv = resolveAssignment(data.taxSpvId, 'SPV Tax');
+    if (!accountingStaff || !taxStaff || !accountingSpv || !taxSpv) {
+      res.status(400).json({ error: 'PIC harus dipilih dari pengguna aktif dengan peran divisi yang sesuai.' });
+      return;
+    }
+
+    const accStaffId = accountingStaff.id;
+    const accStaffName = accountingStaff.name;
+    const taxStaffId = taxStaff.id;
+    const taxStaffName = taxStaff.name;
+    const accSpvId = accountingSpv.id;
+    const accSpvName = accountingSpv.name;
+    const taxSpvId = taxSpv.id;
+    const taxSpvName = taxSpv.name;
 
     const isComplete =
       Boolean(accStaffName && accStaffName !== '-' && accStaffName.trim()) &&
@@ -652,6 +665,34 @@ apiRouter.put(
         );
       }
 
+      const picDefinitions = [
+        { idField: 'accountingStaffPicId', nameField: 'accountingStaffPicName', role: 'Staff Accounting' },
+        { idField: 'taxStaffPicId', nameField: 'taxStaffPicName', role: 'Staff Tax' },
+        { idField: 'accountingSpvId', nameField: 'accountingSpvName', role: 'SPV Accounting' },
+        { idField: 'taxSpvId', nameField: 'taxSpvName', role: 'SPV Tax' },
+      ] as const;
+      for (const assignment of picDefinitions) {
+        const requestedId = updates[assignment.idField];
+        if (requestedId === undefined) {
+          delete updates[assignment.nameField];
+          continue;
+        }
+        if (requestedId === client[assignment.idField]) {
+          const currentUser = database.users.find((user) =>
+            user.id === requestedId && user.active && user.role === assignment.role
+          );
+          updates[assignment.nameField] = currentUser?.name || client[assignment.nameField];
+          continue;
+        }
+        const selectedUser = database.users.find((user) =>
+          user.id === requestedId && user.active && user.role === assignment.role
+        );
+        if (requestedId && !selectedUser) {
+          throw new Error(`PIC ${assignment.role} harus dipilih dari pengguna aktif dengan peran yang sesuai.`);
+        }
+        updates[assignment.nameField] = selectedUser?.name || '-';
+      }
+
       // Check for PIC Assignment Changes
       const picChanged =
         (updates.accountingStaffPicName !== undefined && updates.accountingStaffPicName !== client.accountingStaffPicName) ||
@@ -734,12 +775,12 @@ apiRouter.put(
       }
 
       // Synchronize backward compat fields
-      if (updates.accountingStaffPicId) updates.accountingPicId = updates.accountingStaffPicId;
-      if (updates.accountingStaffPicName) updates.accountingPicName = updates.accountingStaffPicName;
-      if (updates.taxStaffPicId) updates.taxPicId = updates.taxStaffPicId;
-      if (updates.taxStaffPicName) updates.taxPicName = updates.taxStaffPicName;
-      if (updates.accountingSpvId) updates.spvId = updates.accountingSpvId;
-      if (updates.accountingSpvName) updates.spvName = updates.accountingSpvName;
+      if (updates.accountingStaffPicId !== undefined) updates.accountingPicId = updates.accountingStaffPicId;
+      if (updates.accountingStaffPicName !== undefined) updates.accountingPicName = updates.accountingStaffPicName;
+      if (updates.taxStaffPicId !== undefined) updates.taxPicId = updates.taxStaffPicId;
+      if (updates.taxStaffPicName !== undefined) updates.taxPicName = updates.taxStaffPicName;
+      if (updates.accountingSpvId !== undefined) updates.spvId = updates.accountingSpvId;
+      if (updates.accountingSpvName !== undefined) updates.spvName = updates.accountingSpvName;
 
       // Update version and timestamp
       client.version = (client.version || 1) + 1;
@@ -857,16 +898,16 @@ apiRouter.get('/jobs', authenticateToken, (req: AuthenticatedRequest, res: Respo
   const db = getDb();
   let results = [...db.jobs];
   const { division, status, picId, spvId, clientId, priority } = req.query;
+  const currentUser = req.user!;
 
-  // Scoping according to user role
-  if (req.user?.role === 'Staff Accounting') {
-    results = results.filter((j) => j.division === 'Accounting');
-  } else if (req.user?.role === 'Staff Tax') {
-    results = results.filter((j) => j.division === 'Tax');
-  } else if (req.user?.role === 'SPV Accounting') {
-    if (!division) results = results.filter((j) => j.division === 'Accounting');
-  } else if (req.user?.role === 'SPV Tax') {
-    if (!division) results = results.filter((j) => j.division === 'Tax');
+  if (currentUser.role === 'Staff Accounting') {
+    results = results.filter((job) => job.division === 'Accounting' && job.picId === currentUser.userId);
+  } else if (currentUser.role === 'Staff Tax') {
+    results = results.filter((job) => job.division === 'Tax' && job.picId === currentUser.userId);
+  } else if (currentUser.role === 'SPV Accounting') {
+    results = results.filter((job) => job.division === 'Accounting');
+  } else if (currentUser.role === 'SPV Tax') {
+    results = results.filter((job) => job.division === 'Tax');
   }
 
   if (division) results = results.filter((j) => j.division === division);
@@ -886,96 +927,113 @@ apiRouter.post(
   requireWritable,
   (req: AuthenticatedRequest, res: Response) => {
     const data = req.body;
-    if (!data.clientId || !data.title || !data.division || !data.deadline) {
+    if (!data.clientId || !data.title?.trim() || !data.division || !data.deadline) {
       res.status(400).json({ error: 'Klien, judul pekerjaan, divisi, dan deadline wajib diisi.' });
       return;
     }
 
-    if (req.user?.role === 'SPV Accounting' && data.division !== 'Accounting') {
-      res.status(403).json({ error: 'SPV Accounting hanya dapat membuat pekerjaan di Divisi Accounting.' });
+    const selectedDivisions: Job['division'][] = data.division === 'Both'
+      ? ['Accounting', 'Tax']
+      : [data.division];
+    if (selectedDivisions.some((division) => division !== 'Accounting' && division !== 'Tax')) {
+      res.status(400).json({ error: 'Divisi pekerjaan tidak valid.' });
       return;
     }
-    if (req.user?.role === 'SPV Tax' && data.division !== 'Tax') {
-      res.status(403).json({ error: 'SPV Tax hanya dapat membuat pekerjaan di Divisi Tax.' });
+
+    const currentUser = req.user!;
+    if (currentUser.role !== 'Admin' && selectedDivisions.some((division) =>
+      (currentUser.role === 'SPV Accounting' && division !== 'Accounting') ||
+      (currentUser.role === 'SPV Tax' && division !== 'Tax')
+    )) {
+      res.status(403).json({ error: 'SPV hanya dapat membuat pekerjaan untuk divisinya sendiri.' });
       return;
     }
 
     const db = getDb();
-    const nextNumber = db.jobs.length + 1;
-    const year = new Date().getFullYear();
-    const newId = `JOB-${year}-${String(nextNumber).padStart(3, '0')}`;
-
-    // Auto-assign PIC and SPV from Client based on division if not manually overridden
-    const client = db.clients.find((c) => c.id === data.clientId);
-    let assignedPicId = data.picId;
-    let assignedPicName = data.picName;
-    let assignedSpvId = data.spvId;
-    let assignedSpvName = data.spvName;
-
-    if (client) {
-      if (data.division === 'Accounting') {
-        if (!assignedPicId) assignedPicId = client.accountingStaffPicId;
-        if (!assignedPicName) assignedPicName = client.accountingStaffPicName;
-        if (!assignedSpvId) assignedSpvId = client.accountingSpvId;
-        if (!assignedSpvName) assignedSpvName = client.accountingSpvName;
-      } else {
-        if (!assignedPicId) assignedPicId = client.taxStaffPicId;
-        if (!assignedPicName) assignedPicName = client.taxStaffPicName;
-        if (!assignedSpvId) assignedSpvId = client.taxSpvId;
-        if (!assignedSpvName) assignedSpvName = client.taxSpvName;
-      }
+    const client = db.clients.find((candidate) => candidate.id === data.clientId);
+    if (!client) {
+      res.status(404).json({ error: 'Klien tidak ditemukan.' });
+      return;
     }
 
-    const newJob: Job = {
-      id: newId,
-      clientId: data.clientId,
-      clientName: client?.name || data.clientName || 'Klien',
-      division: data.division,
-      title: data.title.trim(),
-      picId: assignedPicId || req.user?.userId || '',
-      picName: assignedPicName || req.user?.name || '',
-      spvId: assignedSpvId || req.user?.userId || '',
-      spvName: assignedSpvName || req.user?.name || '',
-      createdAt: new Date().toISOString(),
-      startDate: data.startDate || new Date().toISOString().split('T')[0],
-      deadline: data.deadline,
-      priority: data.priority || 'Sedang',
-      description: data.description || '',
-      notes: data.notes || '',
-      status: 'Belum Dimulai',
-      progressPercent: 0,
-      version: 1,
-      history: [
-        {
-          id: `JH-${Date.now()}-1`,
-          timestamp: new Date().toISOString(),
-          userId: req.user?.userId || '',
-          userName: req.user?.name || 'User',
-          action: 'Pekerjaan Dibuat & Ditugaskan Otomatis Sesuai PIC Klien',
+    const now = new Date().toISOString();
+    const year = new Date().getFullYear();
+    const createdJobs: Job[] = [];
+
+    for (const [index, division] of selectedDivisions.entries()) {
+      const staffRole = division === 'Accounting' ? 'Staff Accounting' : 'Staff Tax';
+      const spvRole = division === 'Accounting' ? 'SPV Accounting' : 'SPV Tax';
+      const defaultPicId = division === 'Accounting' ? client.accountingStaffPicId : client.taxStaffPicId;
+      const defaultSpvId = division === 'Accounting' ? client.accountingSpvId : client.taxSpvId;
+      const requestedPicId = data.picAssignments?.[division]?.picId || defaultPicId;
+      const assignedPic = db.users.find((user) => user.id === requestedPicId && user.active && user.role === staffRole);
+      const assignedSpv = db.users.find((user) => user.id === defaultSpvId && user.active && user.role === spvRole)
+        || db.users.find((user) => user.active && user.role === spvRole);
+
+      if (!assignedPic) {
+        res.status(400).json({ error: `Pilih PIC aktif dengan peran ${staffRole} untuk divisi ${division}.` });
+        return;
+      }
+      if (!assignedSpv) {
+        res.status(400).json({ error: `Belum ada SPV aktif untuk divisi ${division}.` });
+        return;
+      }
+
+      const newJob: Job = {
+        id: `JOB-${year}-${String(db.jobs.length + index + 1).padStart(3, '0')}`,
+        clientId: client.id,
+        clientName: client.name,
+        division,
+        title: data.title.trim(),
+        picId: assignedPic.id,
+        picName: assignedPic.name,
+        spvId: assignedSpv.id,
+        spvName: assignedSpv.name,
+        createdAt: now,
+        startDate: data.startDate || now.split('T')[0],
+        deadline: data.deadline,
+        priority: data.priority || 'Sedang',
+        description: data.description || '',
+        notes: data.notes || '',
+        status: 'Belum Dimulai',
+        progressPercent: 0,
+        version: 1,
+        history: [{
+          id: `JH-${Date.now()}-${index + 1}`,
+          timestamp: now,
+          userId: currentUser.userId,
+          userName: currentUser.name,
+          action: 'Pekerjaan Dibuat dan Ditugaskan ke PIC Divisi',
           toStatus: 'Belum Dimulai',
-          notes: data.notes || `Ditugaskan kepada ${assignedPicName} (Reviewer: ${assignedSpvName}).`,
-        },
-      ],
-      updatedAt: new Date().toISOString(),
-      updatedBy: req.user?.name,
-    };
+          notes: data.notes || `Ditugaskan kepada ${assignedPic.name} (Reviewer: ${assignedSpv.name}).`,
+        }],
+        updatedAt: now,
+        updatedBy: currentUser.name,
+      };
+      createdJobs.push(newJob);
+    }
 
     mutateDb((database) => {
-      database.jobs.unshift(newJob);
-      logAudit(
-        'JOB_CREATED',
-        'Job',
-        `Pekerjaan ${newJob.id} (${newJob.title}) dibuat untuk ${newJob.clientName} (PIC: ${newJob.picName}, SPV: ${newJob.spvName}).`,
-        { userId: req.user!.userId, name: req.user!.name, role: req.user!.role },
-        newJob.id,
-        newJob.title
-      );
+      database.jobs.unshift(...createdJobs);
+      for (const job of createdJobs) {
+        logAudit(
+          'JOB_CREATED',
+          'Job',
+          `Pekerjaan ${job.id} (${job.title}) dibuat untuk ${job.clientName}, Divisi ${job.division} (PIC: ${job.picName}, SPV: ${job.spvName}).`,
+          { userId: currentUser.userId, name: currentUser.name, role: currentUser.role },
+          job.id,
+          job.title
+        );
+      }
     });
 
     res.status(201).json({
       success: true,
-      job: newJob,
-      message: 'Pekerjaan berhasil dibuat di memori server sementara.',
+      job: createdJobs[0],
+      jobs: createdJobs,
+      message: createdJobs.length === 2
+        ? 'Pekerjaan Accounting dan Tax berhasil dibuat sebagai dua tugas terpisah.'
+        : 'Pekerjaan berhasil dibuat dan ditugaskan kepada PIC divisi.',
     });
   }
 );
@@ -994,6 +1052,19 @@ apiRouter.put(
     mutateDb((database) => {
       const job = database.jobs.find((j) => j.id === id);
       if (!job) throw new Error('Pekerjaan tidak ditemukan.');
+
+      if (currentUser.role === 'Staff Accounting' && (job.division !== 'Accounting' || job.picId !== currentUser.userId)) {
+        throw new Error('Akses ditolak: pekerjaan ini bukan tugas Accounting yang ditugaskan kepada Anda.');
+      }
+      if (currentUser.role === 'Staff Tax' && (job.division !== 'Tax' || job.picId !== currentUser.userId)) {
+        throw new Error('Akses ditolak: pekerjaan ini bukan tugas Tax yang ditugaskan kepada Anda.');
+      }
+      if (currentUser.role === 'SPV Accounting' && job.division !== 'Accounting') {
+        throw new Error('Akses ditolak: SPV Accounting hanya dapat memperbarui pekerjaan Accounting.');
+      }
+      if (currentUser.role === 'SPV Tax' && job.division !== 'Tax') {
+        throw new Error('Akses ditolak: SPV Tax hanya dapat memperbarui pekerjaan Tax.');
+      }
 
       // Concurrency version check
       if (updates.expectedVersion !== undefined && job.version !== updates.expectedVersion) {
@@ -1680,73 +1751,99 @@ apiRouter.delete(
 // ==========================================
 apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const db = getDb();
+  const currentUser = req.user!;
   const today = new Date().toISOString().split('T')[0];
+  const requestedDivision = req.query.division === 'Accounting' || req.query.division === 'Tax'
+    ? req.query.division
+    : undefined;
+  const roleDivision = currentUser.role.includes('Accounting')
+    ? 'Accounting'
+    : currentUser.role.includes('Tax')
+      ? 'Tax'
+      : undefined;
+  const division = roleDivision || requestedDivision;
+  const isAccountingStaff = currentUser.role === 'Staff Accounting';
+  const isTaxStaff = currentUser.role === 'Staff Tax';
+  const isStaff = isAccountingStaff || isTaxStaff;
 
-  const totalClients = db.clients.length;
-  const activeClients = db.clients.filter((c) => c.status === 'Aktif').length;
-  const badanClients = db.clients.filter((c) => c.type === 'Badan').length;
-  const opClients = db.clients.filter((c) => c.type === 'OP').length;
+  const visibleJobs = db.jobs.filter((job) => {
+    if (division && job.division !== division) return false;
+    if (isStaff && job.picId !== currentUser.userId) return false;
+    return true;
+  });
+  const directlyAssignedClients = db.clients.filter((client) => {
+    if (isAccountingStaff) return client.accountingStaffPicId === currentUser.userId;
+    if (isTaxStaff) return client.taxStaffPicId === currentUser.userId;
+    if (currentUser.role === 'SPV Accounting') return client.accountingSpvId === currentUser.userId;
+    if (currentUser.role === 'SPV Tax') return client.taxSpvId === currentUser.userId;
+    return true;
+  });
+  const visibleClientIds = new Set([
+    ...directlyAssignedClients.map((client) => client.id),
+    ...visibleJobs.map((job) => job.clientId),
+  ]);
+  const dashboardClients = db.clients.filter((client) => visibleClientIds.has(client.id));
+  const visibleCases = db.cases.filter((item) =>
+    (!division || item.division === division) &&
+    (!isStaff || item.picId === currentUser.userId)
+  );
+  const visibleActivities = db.activities.filter((item) =>
+    (!division || item.division === division) &&
+    (!isStaff || item.picId === currentUser.userId)
+  );
 
-  const pkpCount = db.clients.filter((c) => c.pkpStatus === 'PKP').length;
-  const nonPkpCount = db.clients.filter((c) => c.pkpStatus === 'Non-PKP').length;
-  const unassignedPkp = db.clients.filter((c) => c.pkpStatus === 'Belum Diisi').length;
+  const activeClients = dashboardClients.filter((client) => client.status === 'Aktif').length;
+  const badanClients = dashboardClients.filter((client) => client.type === 'Badan').length;
+  const opClients = dashboardClients.filter((client) => client.type === 'OP').length;
+  const pkpCount = dashboardClients.filter((client) => client.pkpStatus === 'PKP').length;
+  const nonPkpCount = dashboardClients.filter((client) => client.pkpStatus === 'Non-PKP').length;
+  const unassignedPkp = dashboardClients.filter((client) => client.pkpStatus === 'Belum Diisi').length;
+  const completePicCount = dashboardClients.filter((client) => client.picAssignmentStatus === 'Lengkap').length;
+  const incompletePicCount = dashboardClients.filter((client) => client.picAssignmentStatus === 'Belum Lengkap').length;
 
-  // PIC completeness count
-  const completePicCount = db.clients.filter((c) => c.picAssignmentStatus === 'Lengkap').length;
-  const incompletePicCount = db.clients.filter((c) => c.picAssignmentStatus === 'Belum Lengkap').length;
-
-  // PPh Regimes
   const pphRegimes: Record<string, number> = {};
-  db.clients.forEach((c) => {
-    pphRegimes[c.pphRegime] = (pphRegimes[c.pphRegime] || 0) + 1;
+  dashboardClients.forEach((client) => {
+    pphRegimes[client.pphRegime] = (pphRegimes[client.pphRegime] || 0) + 1;
   });
 
-  // Accounting & Tax Risks
   const accRisks = {
-    High: db.clients.filter((c) => c.accountingRisk === 'High').length,
-    Medium: db.clients.filter((c) => c.accountingRisk === 'Medium').length,
-    Low: db.clients.filter((c) => c.accountingRisk === 'Low').length,
-    NotAssessed: db.clients.filter((c) => c.accountingRisk === 'Not Assessed').length,
+    High: dashboardClients.filter((client) => client.accountingRisk === 'High').length,
+    Medium: dashboardClients.filter((client) => client.accountingRisk === 'Medium').length,
+    Low: dashboardClients.filter((client) => client.accountingRisk === 'Low').length,
+    NotAssessed: dashboardClients.filter((client) => client.accountingRisk === 'Not Assessed').length,
   };
-
   const taxRisks = {
-    High: db.clients.filter((c) => c.taxRisk === 'High').length,
-    Medium: db.clients.filter((c) => c.taxRisk === 'Medium').length,
-    Low: db.clients.filter((c) => c.taxRisk === 'Low').length,
-    NotAssessed: db.clients.filter((c) => c.taxRisk === 'Not Assessed').length,
+    High: dashboardClients.filter((client) => client.taxRisk === 'High').length,
+    Medium: dashboardClients.filter((client) => client.taxRisk === 'Medium').length,
+    Low: dashboardClients.filter((client) => client.taxRisk === 'Low').length,
+    NotAssessed: dashboardClients.filter((client) => client.taxRisk === 'Not Assessed').length,
   };
 
-  // Jobs
-  const totalJobs = db.jobs.length;
-  const completedJobs = db.jobs.filter((j) => j.status === 'Selesai').length;
-  const readyForReviewJobs = db.jobs.filter((j) => j.status === 'Siap Direview').length;
-  const needsRevisionJobs = db.jobs.filter((j) => j.status === 'Perlu Revisi').length;
-  const inProgressJobs = db.jobs.filter((j) => j.status === 'Dalam Proses').length;
-  const overdueJobs = db.jobs.filter((j) => j.status !== 'Selesai' && j.deadline < today);
-
-  // Cases & Follow-up
-  const openCases = db.cases.filter((c) => c.status !== 'Resolved' && c.status !== 'Closed').length;
-  const overdueFollowUps = db.cases.filter(
-    (c) => c.status !== 'Resolved' && c.status !== 'Closed' && c.nextFollowUpDate < today
+  const completedJobs = visibleJobs.filter((job) => job.status === 'Selesai').length;
+  const readyForReviewJobs = visibleJobs.filter((job) => job.status === 'Siap Direview').length;
+  const needsRevisionJobs = visibleJobs.filter((job) => job.status === 'Perlu Revisi').length;
+  const inProgressJobs = visibleJobs.filter((job) => job.status === 'Dalam Proses').length;
+  const overdueJobs = visibleJobs.filter((job) => job.status !== 'Selesai' && job.deadline < today);
+  const openCases = visibleCases.filter((item) => item.status !== 'Resolved' && item.status !== 'Closed').length;
+  const overdueFollowUps = visibleCases.filter(
+    (item) => item.status !== 'Resolved' && item.status !== 'Closed' && item.nextFollowUpDate < today
   ).length;
 
-  // Workload per PIC
   const workloadByPic: Record<string, { name: string; activeJobs: number; readyReview: number; overdue: number }> = {};
-  db.jobs.forEach((j) => {
-    if (j.status !== 'Selesai') {
-      const picKey = j.picName || 'Unassigned';
-      if (!workloadByPic[picKey]) {
-        workloadByPic[picKey] = { name: picKey, activeJobs: 0, readyReview: 0, overdue: 0 };
-      }
-      workloadByPic[picKey].activeJobs += 1;
-      if (j.status === 'Siap Direview') workloadByPic[picKey].readyReview += 1;
-      if (j.deadline < today) workloadByPic[picKey].overdue += 1;
+  visibleJobs.forEach((job) => {
+    if (job.status === 'Selesai') return;
+    const picKey = job.picId || job.picName || 'Unassigned';
+    if (!workloadByPic[picKey]) {
+      workloadByPic[picKey] = { name: job.picName || 'Unassigned', activeJobs: 0, readyReview: 0, overdue: 0 };
     }
+    workloadByPic[picKey].activeJobs += 1;
+    if (job.status === 'Siap Direview') workloadByPic[picKey].readyReview += 1;
+    if (job.deadline < today) workloadByPic[picKey].overdue += 1;
   });
 
   res.json({
     clients: {
-      total: totalClients,
+      total: dashboardClients.length,
       active: activeClients,
       badan: badanClients,
       op: opClients,
@@ -1760,7 +1857,7 @@ apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Resp
       taxRisks,
     },
     jobs: {
-      total: totalJobs,
+      total: visibleJobs.length,
       completed: completedJobs,
       readyForReview: readyForReviewJobs,
       needsRevision: needsRevisionJobs,
@@ -1771,11 +1868,11 @@ apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Resp
     cases: {
       open: openCases,
       overdueFollowUps,
-      total: db.cases.length,
+      total: visibleCases.length,
     },
     activities: {
-      todayCount: db.activities.filter((a) => a.date === today).length,
-      total: db.activities.length,
+      todayCount: visibleActivities.filter((activity) => activity.date === today).length,
+      total: visibleActivities.length,
     },
     workload: Object.values(workloadByPic),
   });

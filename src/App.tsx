@@ -9,6 +9,7 @@ import {
   type Case,
   type DailyActivity,
   type MeetingMinute,
+  type UserAccount,
 } from './lib/api';
 import { ToastProvider, useToast } from './components/Toast';
 import { Sidebar, type NavTab } from './components/Sidebar';
@@ -47,6 +48,7 @@ function MainApp() {
   // Core Data
   const [clients, setClients] = useState<Client[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [users, setUsers] = useState<UserAccount[]>([]);
   const [cases, setCases] = useState<Case[]>([]);
   const [activities, setActivities] = useState<DailyActivity[]>([]);
   const [meetingMinutes, setMeetingMinutes] = useState<MeetingMinute[]>([]);
@@ -84,25 +86,27 @@ function MainApp() {
   }, []);
 
   // Fetch business data from the server's temporary in-memory store
-  const loadAllBusinessData = useCallback(async () => {
+  const loadAllBusinessData = useCallback(async (statsDivision: 'All' | 'Accounting' | 'Tax' = 'All') => {
     if (!currentUser) return;
     setIsRefreshing(true);
     setConnectionError(null);
 
     try {
-      const [clientsData, jobsData, casesData, activitiesData, meetingMinutesData, statsData, healthData] =
+      const [clientsData, jobsData, casesData, activitiesData, meetingMinutesData, statsData, healthData, usersData] =
         await Promise.all([
           api.getClients(),
           api.getJobs(),
           api.getCases(),
           api.getDailyActivities(),
           api.getMeetingMinutes(),
-          api.getStats(),
+          api.getStats(statsDivision === 'All' ? undefined : { division: statsDivision }),
           api.getHealth(),
+          api.getUsers(),
         ]);
 
       setClients(clientsData);
       setJobs(jobsData);
+      setUsers(usersData);
       setCases(casesData);
       setActivities(activitiesData);
       setMeetingMinutes(meetingMinutesData);
@@ -186,7 +190,7 @@ function MainApp() {
           mobileMenuOpen={mobileSidebarOpen}
           currentUser={currentUser}
           branding={branding}
-          onRefreshData={loadAllBusinessData}
+          onRefreshData={() => loadAllBusinessData()}
           isRefreshing={isRefreshing}
         />
 
@@ -204,7 +208,7 @@ function MainApp() {
               </div>
             </div>
             <button
-              onClick={loadAllBusinessData}
+              onClick={() => loadAllBusinessData()}
               disabled={isRefreshing}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-700 hover:bg-rose-600 text-white rounded-lg font-semibold shrink-0"
             >
@@ -221,15 +225,25 @@ function MainApp() {
               stats={stats}
               currentUser={currentUser}
               onNavigateTab={(tab) => setCurrentTab(tab)}
-              onRefresh={loadAllBusinessData}
+              onRefresh={(division) => loadAllBusinessData(division)}
+              onDivisionChange={async (division) => {
+                try {
+                  const nextStats = await api.getStats(division === 'All' ? undefined : { division });
+                  setStats(nextStats);
+                  setConnectionError(null);
+                } catch (err: any) {
+                  setConnectionError(err.message || 'Metrik dashboard gagal diperbarui.');
+                }
+              }}
             />
           )}
 
           {currentTab === 'clients' && (
             <ClientsView
               clients={clients}
+              users={users}
               currentUser={currentUser}
-              onRefresh={loadAllBusinessData}
+              onRefresh={() => loadAllBusinessData()}
             />
           )}
 
@@ -237,8 +251,9 @@ function MainApp() {
             <JobsView
               jobs={jobs}
               clients={clients}
+              users={users}
               currentUser={currentUser}
-              onRefresh={loadAllBusinessData}
+              onRefresh={() => loadAllBusinessData()}
             />
           )}
 
@@ -247,7 +262,7 @@ function MainApp() {
               cases={cases}
               clients={clients}
               currentUser={currentUser}
-              onRefresh={loadAllBusinessData}
+              onRefresh={() => loadAllBusinessData()}
             />
           )}
 
@@ -255,7 +270,7 @@ function MainApp() {
             <FollowUpView
               cases={cases}
               currentUser={currentUser}
-              onRefresh={loadAllBusinessData}
+              onRefresh={() => loadAllBusinessData()}
               onOpenCaseDetail={() => setCurrentTab('cases')}
             />
           )}
@@ -267,7 +282,7 @@ function MainApp() {
               jobs={jobs}
               cases={cases}
               currentUser={currentUser}
-              onRefresh={loadAllBusinessData}
+              onRefresh={() => loadAllBusinessData()}
             />
           )}
 
@@ -276,7 +291,7 @@ function MainApp() {
               meetings={meetingMinutes}
               currentUser={currentUser}
               companyName={branding.companyName}
-              onRefresh={loadAllBusinessData}
+              onRefresh={() => loadAllBusinessData()}
             />
           )}
 
@@ -293,7 +308,7 @@ function MainApp() {
           {currentTab === 'backup' && currentUser.role === 'Admin' && (
             <BackupRestoreView
               currentUser={currentUser}
-              onRefreshAllData={loadAllBusinessData}
+              onRefreshAllData={() => loadAllBusinessData()}
             />
           )}
 

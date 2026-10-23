@@ -428,8 +428,11 @@ export const api = {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';
     return request<Job[]>(`/api/jobs${qs}`);
   },
-  createJob: (data: Partial<Job>) =>
-    request<{ success: boolean; job: Job; message: string }>('/api/jobs', {
+  createJob: (data: Omit<Partial<Job>, 'division'> & {
+    division?: JobDivision | 'Both';
+    picAssignments?: Partial<Record<JobDivision, { picId: string; picName: string }>>;
+  }) =>
+    request<{ success: boolean; job: Job; jobs?: Job[]; message: string }>('/api/jobs', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
@@ -510,7 +513,10 @@ export const api = {
     }),
 
   // Stats
-  getStats: () => request<any>('/api/stats'),
+  getStats: (params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return request<any>(`/api/stats${qs}`);
+  },
 
   // Backup & Restore
   createBackupNow: (notes?: string) =>
