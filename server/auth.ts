@@ -1,8 +1,5 @@
 import crypto from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
-import { eq, lt } from 'drizzle-orm';
-import { db } from '../db/index.ts';
-import { sessions } from '../db/schema.ts';
 import type { User, UserRole } from './types.ts';
 
 export interface SessionInfo {
@@ -14,8 +11,9 @@ export interface SessionInfo {
   expiresAt: number;
 }
 
-// 12 hours session validity
+// Sessions live in memory and are cleared whenever the server process restarts.
 const SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
+const inMemorySessions = new Map<string, SessionInfo>();
 
 export function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
   const actualSalt = salt || crypto.randomBytes(16).toString('hex');
@@ -40,17 +38,19 @@ export async function createSession(user: User): Promise<SessionInfo> {
     expiresAt,
   };
   // Opportunistically clear expired sessions
-  await db.delete(sessions).where(lt(sessions.expiresAt, Date.now()));
-  await db.insert(sessions).values(sessionInfo);
+  for (const [sessionToken, session] of inMemorySessions) {
+    if (session.expiresAt < Date.now()) inMemorySessions.delete(sessionToken);
+  }
+  inMemorySessions.set(token, sessionInfo);
   return sessionInfo;
 }
 
 export async function getSession(token?: string): Promise<SessionInfo | null> {
   if (!token) return null;
-  const [session] = await db.select().from(sessions).where(eq(sessions.token, token));
+  const session = inMemorySessions.get(token);
   if (!session) return null;
   if (Date.now() > session.expiresAt) {
-    await db.delete(sessions).where(eq(sessions.token, token));
+    inMemorySessions.delete(token);
     return null;
   }
   return { ...session, role: session.role as UserRole };
@@ -58,8 +58,7 @@ export async function getSession(token?: string): Promise<SessionInfo | null> {
 
 export async function destroySession(token?: string): Promise<boolean> {
   if (!token) return false;
-  const deleted = await db.delete(sessions).where(eq(sessions.token, token)).returning({ token: sessions.token });
-  return deleted.length > 0;
+  return inMemorySessions.delete(token);
 }
 
 // Express extended request interface

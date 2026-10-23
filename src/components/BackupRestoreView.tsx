@@ -158,7 +158,7 @@ export function BackupRestoreView({ currentUser, onRefreshAllData }: BackupResto
             <span>Cadangan Data & Pemulihan (Backup & Restore)</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Manajemen snapshot database persisten server, retensi 30 hari, dan otomatisasi harian 23:00 WIB
+            Mode preview: snapshot manual hanya tersimpan sementara di memori server dan hilang saat proses restart.
           </p>
         </div>
 
@@ -187,14 +187,12 @@ export function BackupRestoreView({ currentUser, onRefreshAllData }: BackupResto
             <div className="flex items-center gap-2">
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-xs font-bold uppercase tracking-wider text-amber-300">
-                Sistem Cadangan Otomatis Aktif
+                Cadangan Otomatis Nonaktif
               </span>
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              Server secara berkala membuat snapshot lengkap database setiap hari pada pukul{' '}
-              <span className="font-semibold text-white">23:00 WIB</span> dengan retensi penyimpanan hingga{' '}
-              <span className="font-semibold text-amber-300">30 hari</span> di folder terisolasi server.
+              Dalam mode preview tanpa database, snapshot manual hanya hidup selama proses server ini berjalan. Backup terjadwal dan penyimpanan jangka panjang tidak tersedia.
             </p>
 
             <div className="p-3 bg-slate-800/80 border border-slate-700 rounded-lg text-xs space-y-1.5 text-slate-300">
@@ -204,14 +202,14 @@ export function BackupRestoreView({ currentUser, onRefreshAllData }: BackupResto
               </div>
               <div className="flex justify-between items-center text-[11px]">
                 <span className="text-slate-400">Proteksi Pemulihan:</span>
-                <span className="text-emerald-400 font-semibold">Auto Pre-Restore Backup</span>
+                <span className="text-amber-300 font-semibold">Snapshot sementara</span>
               </div>
             </div>
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-800 text-[10px] text-slate-400 flex items-center gap-1.5">
             <HardDrive className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-            <span>Folder Server: /data/backups/</span>
+            <span>Penyimpanan: Memori proses sementara</span>
           </div>
         </div>
 

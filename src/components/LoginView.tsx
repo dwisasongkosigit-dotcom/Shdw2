@@ -238,7 +238,7 @@ export function LoginView({ branding, onLoginSuccess }: LoginViewProps) {
         <div className="mt-6 text-center text-xs text-slate-500">
           <p>TMM & BMA Advisory Internal Enterprise Platform</p>
           <p className="text-[11px] text-slate-600 mt-1">
-            Penyimpanan data persisten ACID di disk server · Kata sandi terenkripsi PBKDF2
+            Mode preview sementara; data dapat hilang saat server restart · Kata sandi memakai PBKDF2
           </p>
         </div>
       </div>

@@ -246,7 +246,7 @@ export function JobsView({
         reviewNotes: actionNotes || 'Disetujui oleh SPV. Pekerjaan dinyatakan Selesai.',
         historyNote: actionNotes || 'Persetujuan resmi dari SPV.',
       });
-      success('Pekerjaan Disetujui', 'Pekerjaan berhasil diselesaikan dan dicatat secara persisten.');
+      success('Pekerjaan Disetujui', 'Pekerjaan selesai; perubahan hanya tersimpan sementara selama server berjalan.');
       setSelectedJob(null);
       onRefresh();
     } catch (err: any) {
@@ -303,7 +303,7 @@ export function JobsView({
         expectedVersion: selectedJob.version,
         historyNote: actionNotes || `Update status ke ${updateStatus} (Progres: ${progressPercent}%)`,
       });
-      success('Berhasil Disimpan', 'Pembaruan pekerjaan berhasil tersimpan di database persisten.');
+      success('Berhasil Disimpan', 'Pembaruan pekerjaan hanya tersimpan sementara selama server berjalan.');
       setSelectedJob(null);
       onRefresh();
     } catch (err: any) {

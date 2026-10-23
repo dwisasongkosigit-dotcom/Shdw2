@@ -235,7 +235,7 @@ apiRouter.put(
     });
 
     const updated = getDb().branding;
-    res.json({ success: true, branding: updated, message: 'Pengaturan branding berhasil disimpan secara persisten.' });
+    res.json({ success: true, branding: updated, message: 'Pengaturan branding tersimpan sementara di memori server.' });
   }
 );
 
@@ -569,7 +569,7 @@ apiRouter.post(
     res.status(201).json({
       success: true,
       client: newClient,
-      message: 'Klien baru berhasil ditambahkan dan disimpan di database persisten.',
+      message: 'Klien baru berhasil ditambahkan ke memori server sementara.',
     });
   }
 );
@@ -711,7 +711,7 @@ apiRouter.put(
     res.json({
       success: true,
       client: savedClient,
-      message: 'Data klien berhasil diperbarui dan disimpan secara persisten.',
+      message: 'Data klien berhasil diperbarui di memori server sementara.',
     });
   }
 );
@@ -787,7 +787,7 @@ apiRouter.delete(
 
     res.json({
       success: true,
-      message: `Klien '${deletedClientName}' (${id}) berhasil dihapus dari database persisten.`,
+      message: `Klien '${deletedClientName}' (${id}) berhasil dihapus dari memori server sementara.`,
     });
   }
 );
@@ -917,7 +917,7 @@ apiRouter.post(
     res.status(201).json({
       success: true,
       job: newJob,
-      message: 'Pekerjaan berhasil dibuat dan disimpan di database persisten.',
+      message: 'Pekerjaan berhasil dibuat di memori server sementara.',
     });
   }
 );
@@ -1035,7 +1035,7 @@ apiRouter.put(
     res.json({
       success: true,
       job: savedJob,
-      message: 'Pekerjaan berhasil diperbarui dan tersimpan di database persisten.',
+      message: 'Pekerjaan berhasil diperbarui di memori server sementara.',
     });
   }
 );
@@ -1166,7 +1166,7 @@ apiRouter.post(
     res.status(201).json({
       success: true,
       case: newCase,
-      message: 'Kasus berhasil dicatat di Case Register dan tersimpan secara persisten.',
+      message: 'Kasus berhasil dicatat di Case Register dan tersimpan sementara di memori server.',
     });
   }
 );
@@ -1270,7 +1270,7 @@ apiRouter.post(
     res.status(201).json({
       success: true,
       case: updatedCase,
-      message: 'Catatan tindakan kasus berhasil ditambahkan secara persisten.',
+      message: 'Catatan tindakan kasus berhasil ditambahkan ke memori server sementara.',
     });
   }
 );

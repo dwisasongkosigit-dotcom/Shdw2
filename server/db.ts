@@ -1,21 +1,21 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { and, eq, notInArray, sql } from 'drizzle-orm';
-import { db as pg } from '../db/index.ts';
-import { appState, backupSnapshots } from '../db/schema.ts';
 import { getInitialSeedData } from './seed.ts';
 import { hashPassword } from './auth.ts';
 import initialData from '../data/tmm_bma_database.json' with { type: 'json' };
 import type { DatabaseSchema, BackupInfo, AuditLog } from './types.ts';
 
-const STATE_ID = 'main';
 const MAX_BACKUPS = 35;
+
+let inMemoryState: DatabaseSchema | null = null;
+let inMemoryVersion = 0;
+const inMemoryBackups = new Map<string, DatabaseSchema>();
 
 // Legacy asset paths that only worked with the Vite dev server
 const LEGACY_LOGO_PATH = '/src/assets/images/tmm_bma_logo_1792761458459.jpg';
 export const DEFAULT_LOGO_PATH = '/images/tmm_bma_logo_1792761458459.jpg';
 
-// Request-scoped copy of the dataset. Each request loads the latest state from
-// Netlify Database, mutates it in memory, and persists it once before responding.
+// Request-scoped copy of the dataset. Changes are committed to process memory only;
+// they are lost when the server process restarts.
 interface DbContext {
   data: DatabaseSchema | null;
   loadedVersion: number;
@@ -138,22 +138,18 @@ function buildInitialData(): DatabaseSchema {
   return upgradeSchema(getInitialSeedData());
 }
 
-// Load the latest dataset for the current request, creating it on first use
+// Load the latest in-memory dataset for the current request, creating it on first use
 export async function loadDatabase(): Promise<DatabaseSchema> {
   const context = ctx();
 
-  let [row] = await pg.select().from(appState).where(eq(appState.id, STATE_ID));
-  if (!row) {
-    console.log('[DB] Inisialisasi database baru TMM/BMA...');
-    await pg
-      .insert(appState)
-      .values({ id: STATE_ID, data: buildInitialData(), version: 1 })
-      .onConflictDoNothing();
-    [row] = await pg.select().from(appState).where(eq(appState.id, STATE_ID));
+  if (!inMemoryState) {
+    console.log('[DB] Memulai mode preview sementara dengan data awal...');
+    inMemoryState = buildInitialData();
+    inMemoryVersion = 1;
   }
 
-  context.data = upgradeSchema(row.data as DatabaseSchema);
-  context.loadedVersion = row.version;
+  context.data = upgradeSchema(structuredClone(inMemoryState));
+  context.loadedVersion = inMemoryVersion;
   context.dirty = false;
   context.poisoned = false;
   return context.data;
@@ -186,22 +182,19 @@ export function mutateDb(mutator: (db: DatabaseSchema) => void): DatabaseSchema 
   return db;
 }
 
-// Persist pending changes; rejects if another request saved in the meantime
+// Commit pending changes to process memory; reject stale concurrent requests
 export async function persistDatabase(): Promise<void> {
   const context = ctx();
   if (!context.dirty || context.poisoned || !context.data) return;
 
-  const updated = await pg
-    .update(appState)
-    .set({ data: context.data, version: sql`${appState.version} + 1`, updatedAt: new Date() })
-    .where(and(eq(appState.id, STATE_ID), eq(appState.version, context.loadedVersion)))
-    .returning({ version: appState.version });
-
-  if (updated.length === 0) {
+  if (context.loadedVersion !== inMemoryVersion) {
     throw new Error('Data telah diubah oleh pengguna lain secara bersamaan. Silakan muat ulang halaman dan coba lagi.');
   }
 
-  context.loadedVersion = updated[0].version;
+  context.data.lastSaved = new Date().toISOString();
+  inMemoryState = structuredClone(context.data);
+  inMemoryVersion += 1;
+  context.loadedVersion = inMemoryVersion;
   context.dirty = false;
 }
 
@@ -255,7 +248,7 @@ export async function createBackupSnapshot(
 
   const snapshot = structuredClone(db);
   const sizeBytes = Buffer.byteLength(JSON.stringify(snapshot, null, 2), 'utf-8');
-  await pg.insert(backupSnapshots).values({ filename, data: snapshot });
+  inMemoryBackups.set(filename, snapshot);
 
   const backupInfo: BackupInfo = {
     id: `BKP-${Date.now()}`,
@@ -295,16 +288,18 @@ export async function createBackupSnapshot(
     );
   });
 
-  // Drop stored snapshots that fell out of the retention window
-  const kept = db.backups.map((b) => b.filename);
-  await pg.delete(backupSnapshots).where(notInArray(backupSnapshots.filename, kept));
+  // Drop snapshots that fell out of the retention window
+  const kept = new Set(db.backups.map((backup) => backup.filename));
+  for (const filename of inMemoryBackups.keys()) {
+    if (!kept.has(filename)) inMemoryBackups.delete(filename);
+  }
 
   return backupInfo;
 }
 
 export async function getBackupSnapshot(filename: string): Promise<DatabaseSchema | null> {
-  const [row] = await pg.select().from(backupSnapshots).where(eq(backupSnapshots.filename, filename));
-  return row ? (row.data as DatabaseSchema) : null;
+  const snapshot = inMemoryBackups.get(filename);
+  return snapshot ? structuredClone(snapshot) : null;
 }
 
 // Restore database from a verified backup snapshot (Admin only)
@@ -366,10 +361,10 @@ export function getDbHealthInfo() {
   const fileSizeBytes = Buffer.byteLength(JSON.stringify(db), 'utf-8');
 
   return {
-    status: 'connected',
-    storageEngine: 'Netlify Database (Postgres JSONB, optimistic locking)',
-    databaseFilePath: 'netlify-database://app_state/main',
-    existsOnDisk: true,
+    status: 'temporary',
+    storageEngine: 'Memori server sementara (tanpa persistensi)',
+    databaseFilePath: null,
+    existsOnDisk: false,
     fileSizeBytes,
     lastSaved: db.lastSaved,
     version: db.version,
