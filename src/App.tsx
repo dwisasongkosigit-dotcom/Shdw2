@@ -34,7 +34,7 @@ function MainApp() {
     appName: 'TMM/BMA Client Control Center',
     companyName: 'TMM & BMA Advisory',
     subtitle: 'Tax & Accounting Client Control Center',
-    logoUrl: '/src/assets/images/tmm_bma_logo_1792761458459.jpg',
+    logoUrl: '/images/tmm_bma_logo_1792761458459.jpg',
     updatedAt: new Date().toISOString(),
     updatedBy: 'System',
   });

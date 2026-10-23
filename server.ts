@@ -2,29 +2,11 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'node:path';
 import fs from 'node:fs';
-import { initDatabase } from './server/db.ts';
-import { apiRouter } from './server/routes.ts';
+import { createApp } from './server/app.ts';
 
+// Standalone server for local use; on Netlify the API runs as a function (netlify/functions/api.ts)
 async function startServer() {
-  // Initialize or load existing persistent database
-  initDatabase();
-
-  const app = express();
-  app.use(express.json({ limit: '15mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '15mb' }));
-
-  // Mount API endpoints
-  app.use('/api', apiRouter);
-
-  // API Error handling middleware
-  app.use('/api', (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    const isForbidden =
-      err.message?.includes('HAK AKSES') ||
-      err.message?.includes('Akses ditolak') ||
-      err.message?.includes('tidak memiliki izin');
-    const statusCode = isForbidden ? 403 : 400;
-    res.status(statusCode).json({ error: err.message || 'Terjadi kesalahan pada server.' });
-  });
+  const app = createApp();
 
   const isProduction = process.env.NODE_ENV === 'production';
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;

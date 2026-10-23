@@ -78,7 +78,7 @@ export function LoginView({ branding, onLoginSuccess }: LoginViewProps) {
       {/* Background visual asset */}
       <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
         <img
-          src="/src/assets/images/tmm_bma_login_backdrop_1792761460059.jpg"
+          src="/images/tmm_bma_login_backdrop_1792761460059.jpg"
           alt="Office backdrop"
           className="w-full h-full object-cover"
         />

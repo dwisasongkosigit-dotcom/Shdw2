@@ -708,7 +708,7 @@ export function getInitialSeedData(): DatabaseSchema {
       appName: 'TMM/BMA Client Control Center',
       companyName: 'TMM & BMA Advisory',
       subtitle: 'Tax & Accounting Client Control Center',
-      logoUrl: '/src/assets/images/tmm_bma_logo_1792761458459.jpg',
+      logoUrl: '/images/tmm_bma_logo_1792761458459.jpg',
       updatedAt: '2026-01-05T08:00:00.000Z',
       updatedBy: 'Sigit Dwi Santoso, S.Ak., BKP',
     },
