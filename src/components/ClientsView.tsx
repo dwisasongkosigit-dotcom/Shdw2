@@ -25,6 +25,7 @@ import type { ColumnDef } from '../lib/exportUtils';
 
 interface ClientsViewProps {
   clients: Client[];
+  users: UserAccount[];
   currentUser: CurrentUser;
   onRefresh: () => void;
   isRefreshing?: boolean;
@@ -33,6 +34,7 @@ interface ClientsViewProps {
 
 export function ClientsView({
   clients,
+  users,
   currentUser,
   onRefresh,
   isRefreshing = false,
@@ -118,7 +120,15 @@ export function ClientsView({
     setIsEditMode(!isReadOnly && edit);
   };
 
+  const getActiveUserForRole = (role: UserAccount['role']) =>
+    users.find((user) => user.active && user.role === role);
+
   const handleOpenAddModal = () => {
+    const accountingStaff = getActiveUserForRole('Staff Accounting');
+    const taxStaff = getActiveUserForRole('Staff Tax');
+    const accountingSpv = getActiveUserForRole('SPV Accounting');
+    const taxSpv = getActiveUserForRole('SPV Tax');
+
     setFormData({
       type: 'Badan',
       entityType: 'PT',
@@ -128,14 +138,14 @@ export function ClientsView({
       taxYearEffective: new Date().getFullYear(),
       accountingRisk: 'Not Assessed',
       taxRisk: 'Not Assessed',
-      accountingStaffPicName: 'Budi Pratama, S.Ak.',
-      accountingStaffPicId: 'USR-STF-ACC',
-      taxStaffPicName: 'Dewi Lestari, S.Tr.Akt.',
-      taxStaffPicId: 'USR-STF-TAX',
-      accountingSpvName: 'Hendra Wijaya, SE, Ak., CA',
-      accountingSpvId: 'USR-SPV-ACC',
-      taxSpvName: 'Ratna Kartika, SE, BKP',
-      taxSpvId: 'USR-SPV-TAX',
+      accountingStaffPicName: accountingStaff?.name || '',
+      accountingStaffPicId: accountingStaff?.id || '',
+      taxStaffPicName: taxStaff?.name || '',
+      taxStaffPicId: taxStaff?.id || '',
+      accountingSpvName: accountingSpv?.name || '',
+      accountingSpvId: accountingSpv?.id || '',
+      taxSpvName: taxSpv?.name || '',
+      taxSpvId: taxSpv?.id || '',
     });
     setPicChangeNote('');
     setIsAddModalOpen(true);
@@ -706,56 +716,108 @@ export function ClientsView({
                     <label className="block text-slate-700 font-semibold mb-1">
                       1. Staff Accounting PIC
                     </label>
-                    <input
-                      type="text"
+                    <select
                       disabled={!isEditMode && !isAddModalOpen}
-                      value={formData.accountingStaffPicName || ''}
-                      onChange={(e) => setFormData({ ...formData, accountingStaffPicName: e.target.value })}
-                      placeholder="Nama Staf Accounting..."
+                      value={formData.accountingStaffPicId || ''}
+                      onChange={(e) => {
+                        const user = users.find((candidate) => candidate.id === e.target.value);
+                        setFormData({
+                          ...formData,
+                          accountingStaffPicId: user?.id || '',
+                          accountingStaffPicName: user?.name || '',
+                        });
+                      }}
                       className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-900 font-medium disabled:bg-slate-100"
-                    />
+                    >
+                      <option value="">Pilih Staff Accounting</option>
+                      {formData.accountingStaffPicId && !users.some((user) => user.id === formData.accountingStaffPicId && user.active && user.role === 'Staff Accounting') && (
+                        <option value={formData.accountingStaffPicId}>{formData.accountingStaffPicName || 'PIC lama'} (perlu diperbarui)</option>
+                      )}
+                      {users.filter((user) => user.active && user.role === 'Staff Accounting').map((user) => (
+                        <option key={user.id} value={user.id}>{user.name}</option>
+                      ))}
+                    </select>
                   </div>
 
                   <div>
                     <label className="block text-slate-700 font-semibold mb-1">
                       2. Staff Tax PIC
                     </label>
-                    <input
-                      type="text"
+                    <select
                       disabled={!isEditMode && !isAddModalOpen}
-                      value={formData.taxStaffPicName || ''}
-                      onChange={(e) => setFormData({ ...formData, taxStaffPicName: e.target.value })}
-                      placeholder="Nama Staf Tax..."
+                      value={formData.taxStaffPicId || ''}
+                      onChange={(e) => {
+                        const user = users.find((candidate) => candidate.id === e.target.value);
+                        setFormData({
+                          ...formData,
+                          taxStaffPicId: user?.id || '',
+                          taxStaffPicName: user?.name || '',
+                        });
+                      }}
                       className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-900 font-medium disabled:bg-slate-100"
-                    />
+                    >
+                      <option value="">Pilih Staff Tax</option>
+                      {formData.taxStaffPicId && !users.some((user) => user.id === formData.taxStaffPicId && user.active && user.role === 'Staff Tax') && (
+                        <option value={formData.taxStaffPicId}>{formData.taxStaffPicName || 'PIC lama'} (perlu diperbarui)</option>
+                      )}
+                      {users.filter((user) => user.active && user.role === 'Staff Tax').map((user) => (
+                        <option key={user.id} value={user.id}>{user.name}</option>
+                      ))}
+                    </select>
                   </div>
 
                   <div>
                     <label className="block text-slate-700 font-semibold mb-1">
                       3. SPV Accounting Reviewer
                     </label>
-                    <input
-                      type="text"
+                    <select
                       disabled={!isEditMode && !isAddModalOpen}
-                      value={formData.accountingSpvName || ''}
-                      onChange={(e) => setFormData({ ...formData, accountingSpvName: e.target.value })}
-                      placeholder="Nama SPV Accounting..."
+                      value={formData.accountingSpvId || ''}
+                      onChange={(e) => {
+                        const user = users.find((candidate) => candidate.id === e.target.value);
+                        setFormData({
+                          ...formData,
+                          accountingSpvId: user?.id || '',
+                          accountingSpvName: user?.name || '',
+                        });
+                      }}
                       className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-900 font-medium disabled:bg-slate-100"
-                    />
+                    >
+                      <option value="">Pilih SPV Accounting</option>
+                      {formData.accountingSpvId && !users.some((user) => user.id === formData.accountingSpvId && user.active && user.role === 'SPV Accounting') && (
+                        <option value={formData.accountingSpvId}>{formData.accountingSpvName || 'PIC lama'} (perlu diperbarui)</option>
+                      )}
+                      {users.filter((user) => user.active && user.role === 'SPV Accounting').map((user) => (
+                        <option key={user.id} value={user.id}>{user.name}</option>
+                      ))}
+                    </select>
                   </div>
 
                   <div>
                     <label className="block text-slate-700 font-semibold mb-1">
                       4. SPV Tax Reviewer
                     </label>
-                    <input
-                      type="text"
+                    <select
                       disabled={!isEditMode && !isAddModalOpen}
-                      value={formData.taxSpvName || ''}
-                      onChange={(e) => setFormData({ ...formData, taxSpvName: e.target.value })}
-                      placeholder="Nama SPV Tax..."
+                      value={formData.taxSpvId || ''}
+                      onChange={(e) => {
+                        const user = users.find((candidate) => candidate.id === e.target.value);
+                        setFormData({
+                          ...formData,
+                          taxSpvId: user?.id || '',
+                          taxSpvName: user?.name || '',
+                        });
+                      }}
                       className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-900 font-medium disabled:bg-slate-100"
-                    />
+                    >
+                      <option value="">Pilih SPV Tax</option>
+                      {formData.taxSpvId && !users.some((user) => user.id === formData.taxSpvId && user.active && user.role === 'SPV Tax') && (
+                        <option value={formData.taxSpvId}>{formData.taxSpvName || 'PIC lama'} (perlu diperbarui)</option>
+                      )}
+                      {users.filter((user) => user.active && user.role === 'SPV Tax').map((user) => (
+                        <option key={user.id} value={user.id}>{user.name}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 

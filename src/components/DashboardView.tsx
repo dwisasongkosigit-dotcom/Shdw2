@@ -14,9 +14,10 @@ interface DashboardViewProps {
   stats: any;
   currentUser: CurrentUser;
   onNavigateTab: (tab: any) => void;
-  onRefresh: () => void;
+  onRefresh: (division?: 'All' | 'Accounting' | 'Tax') => void;
   isRefreshing?: boolean;
   lastUpdated?: string;
+  onDivisionChange: (division: 'All' | 'Accounting' | 'Tax') => void;
 }
 
 export function DashboardView({
@@ -26,8 +27,17 @@ export function DashboardView({
   onRefresh,
   isRefreshing = false,
   lastUpdated,
+  onDivisionChange,
 }: DashboardViewProps) {
-  const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>('All');
+  const isDivisionRestricted = currentUser.role.startsWith('Staff') || currentUser.role.startsWith('SPV');
+  const userDivision = currentUser.role.includes('Accounting') ? 'Accounting' : 'Tax';
+  const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>(
+    isDivisionRestricted ? userDivision : 'All'
+  );
+  const changeDivision = (division: 'All' | 'Accounting' | 'Tax') => {
+    setDivisionFilter(division);
+    onDivisionChange(division);
+  };
 
   if (!stats) {
     return (
@@ -66,8 +76,8 @@ export function DashboardView({
         <div className="flex items-center gap-3 self-start sm:self-auto">
           {/* Division Filter */}
           <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg text-xs">
-            <button
-              onClick={() => setDivisionFilter('All')}
+            {!isDivisionRestricted && <button
+              onClick={() => changeDivision('All')}
               className={`px-3 py-1.5 rounded-md font-medium transition-all ${
                 divisionFilter === 'All'
                   ? 'bg-white text-slate-900 shadow-sm font-semibold'
@@ -75,9 +85,9 @@ export function DashboardView({
               }`}
             >
               Semua Divisi
-            </button>
-            <button
-              onClick={() => setDivisionFilter('Accounting')}
+            </button>}
+            {!isDivisionRestricted && <button
+              onClick={() => changeDivision('Accounting')}
               className={`px-3 py-1.5 rounded-md font-medium transition-all ${
                 divisionFilter === 'Accounting'
                   ? 'bg-white text-slate-900 shadow-sm font-semibold'
@@ -85,9 +95,9 @@ export function DashboardView({
               }`}
             >
               Accounting
-            </button>
-            <button
-              onClick={() => setDivisionFilter('Tax')}
+            </button>}
+            {!isDivisionRestricted && <button
+              onClick={() => changeDivision('Tax')}
               className={`px-3 py-1.5 rounded-md font-medium transition-all ${
                 divisionFilter === 'Tax'
                   ? 'bg-white text-slate-900 shadow-sm font-semibold'
@@ -95,13 +105,14 @@ export function DashboardView({
               }`}
             >
               Tax
-            </button>
+            </button>}
+            {isDivisionRestricted && <span className="px-3 py-1.5 rounded-md bg-white text-slate-900 shadow-sm font-semibold">{userDivision}</span>}
           </div>
 
           {/* Refresh Button with Last Updated Timestamp */}
           <div className="flex items-center gap-2">
             <button
-              onClick={onRefresh}
+              onClick={() => onRefresh(divisionFilter)}
               disabled={isRefreshing}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold shadow-sm transition-colors disabled:opacity-50"
               title="Segarkan data bersama dari database"

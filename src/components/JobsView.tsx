@@ -20,7 +20,7 @@ import {
   Download,
   AlertOctagon,
 } from 'lucide-react';
-import { api, type Job, type Client, type CurrentUser, type JobStatus } from '../lib/api';
+import { api, type Job, type JobDivision, type Client, type CurrentUser, type JobStatus, type UserAccount } from '../lib/api';
 import { useToast } from './Toast';
 import { ExportDropdown } from './ExportDropdown';
 import type { ColumnDef } from '../lib/exportUtils';
@@ -28,6 +28,7 @@ import type { ColumnDef } from '../lib/exportUtils';
 interface JobsViewProps {
   jobs: Job[];
   clients: Client[];
+  users: UserAccount[];
   currentUser: CurrentUser;
   onRefresh: () => void;
   isRefreshing?: boolean;
@@ -37,13 +38,18 @@ interface JobsViewProps {
 export function JobsView({
   jobs,
   clients,
+  users,
   currentUser,
   onRefresh,
   isRefreshing = false,
   lastUpdated,
 }: JobsViewProps) {
   const { success, error, warning } = useToast();
-  const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>('All');
+  const isDivisionRestricted = currentUser.role.startsWith('Staff') || currentUser.role.startsWith('SPV');
+  const currentDivision = currentUser.role.includes('Accounting') ? 'Accounting' : 'Tax';
+  const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>(
+    isDivisionRestricted ? currentDivision : 'All'
+  );
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [priorityFilter, setPriorityFilter] = useState<string>('All');
   const [searchTerm, setSearchTerm] = useState('');
@@ -68,7 +74,14 @@ export function JobsView({
   const [deletingJob, setDeletingJob] = useState(false);
 
   // New job form
-  const [newJobData, setNewJobData] = useState<Partial<Job>>({
+  type JobDivisionSelection = JobDivision | 'Both';
+  type JobPicAssignment = { picId: string; picName: string };
+  type NewJobData = Omit<Partial<Job>, 'division'> & {
+    division?: JobDivisionSelection;
+    picAssignments?: Partial<Record<JobDivision, JobPicAssignment>>;
+  };
+
+  const [newJobData, setNewJobData] = useState<NewJobData>({
     division: currentUser.role.includes('Tax') ? 'Tax' : 'Accounting',
     priority: 'Sedang',
     startDate: new Date().toISOString().split('T')[0],
@@ -119,39 +132,45 @@ export function JobsView({
     setAutoSaveStatus('idle');
   };
 
-  // Section 3: When client or division selected, automatically pre-fill assigned PIC and SPV
-  const handleClientOrDivisionChange = (clientId: string, division: 'Accounting' | 'Tax') => {
-    const cl = clients.find((c) => c.id === clientId);
-    if (!cl) return;
+  const getClientPicAssignment = (client: Client | undefined, division: JobDivision): JobPicAssignment => {
+    const requiredRole = division === 'Accounting' ? 'Staff Accounting' : 'Staff Tax';
+    const clientPicId = division === 'Accounting' ? client?.accountingStaffPicId : client?.taxStaffPicId;
+    const clientPic = users.find((user) => user.active && user.id === clientPicId && user.role === requiredRole)
+      || users.find((user) => user.active && user.role === requiredRole);
+    return { picId: clientPic?.id || '', picName: clientPic?.name || '' };
+  };
 
-    if (division === 'Accounting') {
-      setNewJobData((prev) => ({
-        ...prev,
-        clientId,
-        clientName: cl.name,
-        division: 'Accounting',
-        picId: cl.accountingStaffPicId,
-        picName: cl.accountingStaffPicName,
-        spvId: cl.accountingSpvId,
-        spvName: cl.accountingSpvName,
-      }));
-    } else {
-      setNewJobData((prev) => ({
-        ...prev,
-        clientId,
-        clientName: cl.name,
-        division: 'Tax',
-        picId: cl.taxStaffPicId,
-        picName: cl.taxStaffPicName,
-        spvId: cl.taxSpvId,
-        spvName: cl.taxSpvName,
-      }));
-    }
+  const handleClientOrDivisionChange = (clientId: string, division: JobDivisionSelection) => {
+    const client = clients.find((candidate) => candidate.id === clientId);
+    if (!client) return;
+
+    const picAssignments = {
+      Accounting: getClientPicAssignment(client, 'Accounting'),
+      Tax: getClientPicAssignment(client, 'Tax'),
+    };
+    const defaultDivision = division === 'Tax' ? 'Tax' : 'Accounting';
+
+    setNewJobData((previous) => ({
+      ...previous,
+      clientId,
+      clientName: client.name,
+      division,
+      picAssignments,
+      picId: division === 'Both' ? undefined : picAssignments[defaultDivision].picId,
+      picName: division === 'Both' ? undefined : picAssignments[defaultDivision].picName,
+      spvId: defaultDivision === 'Accounting' ? client.accountingSpvId : client.taxSpvId,
+      spvName: defaultDivision === 'Accounting' ? client.accountingSpvName : client.taxSpvName,
+    }));
   };
 
   const handleOpenAddModal = () => {
     const initialClient = clients[0];
-    const initialDiv = currentUser.role.includes('Tax') ? 'Tax' : 'Accounting';
+    const initialDiv: JobDivisionSelection = currentUser.role.includes('Tax') ? 'Tax' : 'Accounting';
+    const picAssignments = {
+      Accounting: getClientPicAssignment(initialClient, 'Accounting'),
+      Tax: getClientPicAssignment(initialClient, 'Tax'),
+    };
+    const defaultDivision = initialDiv === 'Tax' ? 'Tax' : 'Accounting';
 
     setNewJobData({
       division: initialDiv,
@@ -160,10 +179,11 @@ export function JobsView({
       deadline: new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
       clientId: initialClient?.id || '',
       clientName: initialClient?.name || '',
-      picId: initialDiv === 'Accounting' ? initialClient?.accountingStaffPicId : initialClient?.taxStaffPicId,
-      picName: initialDiv === 'Accounting' ? initialClient?.accountingStaffPicName : initialClient?.taxStaffPicName,
-      spvId: initialDiv === 'Accounting' ? initialClient?.accountingSpvId : initialClient?.taxSpvId,
-      spvName: initialDiv === 'Accounting' ? initialClient?.accountingSpvName : initialClient?.taxSpvName,
+      picAssignments,
+      picId: picAssignments[defaultDivision].picId,
+      picName: picAssignments[defaultDivision].picName,
+      spvId: defaultDivision === 'Accounting' ? initialClient?.accountingSpvId : initialClient?.taxSpvId,
+      spvName: defaultDivision === 'Accounting' ? initialClient?.accountingSpvName : initialClient?.taxSpvName,
     });
     setIsAddModalOpen(true);
   };
@@ -174,6 +194,14 @@ export function JobsView({
       return;
     }
 
+    const assignedDivisions: JobDivision[] = newJobData.division === 'Both'
+      ? ['Accounting', 'Tax']
+      : [newJobData.division || 'Accounting'];
+    if (assignedDivisions.some((division) => !newJobData.picAssignments?.[division]?.picId)) {
+      error('PIC Belum Dipilih', 'Pilih PIC aktif untuk setiap divisi yang ditugaskan.');
+      return;
+    }
+
     setSaving(true);
     try {
       const selectedClient = clients.find((c) => c.id === newJobData.clientId);
@@ -181,7 +209,9 @@ export function JobsView({
         ...newJobData,
         clientName: selectedClient?.name || 'Klien',
       });
-      success('Pekerjaan Dibuat', 'Pekerjaan baru berhasil disimpan dan ditugaskan sesuai PIC klien.');
+      success('Pekerjaan Dibuat', assignedDivisions.length === 2
+        ? 'Pekerjaan Accounting dan Tax berhasil dibuat dengan PIC masing-masing.'
+        : `Pekerjaan ${assignedDivisions[0]} berhasil ditugaskan kepada PIC terpilih.`);
       setIsAddModalOpen(false);
       onRefresh();
     } catch (err: any) {
@@ -350,6 +380,16 @@ export function JobsView({
     [filteredJobs]
   );
 
+  const selectableJobDivisions: JobDivisionSelection[] = currentUser.role === 'Admin'
+    ? ['Accounting', 'Tax', 'Both']
+    : currentUser.role === 'SPV Accounting'
+      ? ['Accounting']
+      : ['Tax'];
+  const selectedClientForJob = clients.find((client) => client.id === newJobData.clientId);
+  const activeJobDivisions: JobDivision[] = newJobData.division === 'Both'
+    ? ['Accounting', 'Tax']
+    : [newJobData.division || 'Accounting'];
+
   return (
     <div className="space-y-6">
       {/* Top Action Bar & Filter Row */}
@@ -408,30 +448,31 @@ export function JobsView({
       <div className="p-3.5 bg-white border border-slate-200 rounded-xl flex flex-wrap gap-2.5 items-center text-xs">
         {/* Division Tab */}
         <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
-          <button
+          {!isDivisionRestricted && <button
             onClick={() => setDivisionFilter('All')}
             className={`px-3 py-1 rounded-md font-medium transition-colors ${
               divisionFilter === 'All' ? 'bg-white text-slate-900 shadow-sm font-semibold' : 'text-slate-600'
             }`}
           >
             Semua Divisi
-          </button>
-          <button
+          </button>}
+          {!isDivisionRestricted && <button
             onClick={() => setDivisionFilter('Accounting')}
             className={`px-3 py-1 rounded-md font-medium transition-colors ${
               divisionFilter === 'Accounting' ? 'bg-white text-slate-900 shadow-sm font-semibold' : 'text-slate-600'
             }`}
           >
             Accounting
-          </button>
-          <button
+          </button>}
+          {!isDivisionRestricted && <button
             onClick={() => setDivisionFilter('Tax')}
             className={`px-3 py-1 rounded-md font-medium transition-colors ${
               divisionFilter === 'Tax' ? 'bg-white text-slate-900 shadow-sm font-semibold' : 'text-slate-600'
             }`}
           >
             Tax
-          </button>
+          </button>}
+          {isDivisionRestricted && <span className="px-3 py-1 rounded-md bg-white text-slate-900 shadow-sm font-semibold">{currentDivision}</span>}
         </div>
 
         {/* Status Dropdown */}
@@ -909,31 +950,58 @@ export function JobsView({
               </div>
 
               <div>
-                <label className="block text-slate-700 font-semibold mb-1">Divisi Pekerjaan</label>
+                <label className="block text-slate-700 font-semibold mb-1">Ditugaskan ke divisi</label>
                 <select
                   value={newJobData.division}
-                  onChange={(e) => {
-                    const div = e.target.value as 'Accounting' | 'Tax';
-                    handleClientOrDivisionChange(newJobData.clientId || clients[0]?.id, div);
-                  }}
+                  onChange={(e) => handleClientOrDivisionChange(
+                    newJobData.clientId || clients[0]?.id || '',
+                    e.target.value as JobDivisionSelection
+                  )}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 font-medium"
                 >
-                  <option value="Accounting">Divisi Accounting</option>
-                  <option value="Tax">Divisi Tax</option>
+                  {selectableJobDivisions.includes('Accounting') && <option value="Accounting">Accounting saja</option>}
+                  {selectableJobDivisions.includes('Tax') && <option value="Tax">Tax saja</option>}
+                  {selectableJobDivisions.includes('Both') && <option value="Both">Accounting dan Tax</option>}
                 </select>
               </div>
 
-              {/* Auto-assigned PIC and SPV notification */}
-              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 text-[11px] space-y-0.5">
-                <p>
-                  <strong>Penugasan Otomatis sesuai PIC Klien:</strong>
-                </p>
-                <p>
-                  Staf Pelaksana: <span className="font-semibold">{newJobData.picName || 'Belum Ditugaskan'}</span>
-                </p>
-                <p>
-                  SPV Reviewer: <span className="font-semibold">{newJobData.spvName || 'Belum Ditugaskan'}</span>
-                </p>
+              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 text-[11px]">
+                <p className="font-semibold mb-2">Pilih PIC dari pengguna aktif</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {activeJobDivisions.map((division) => {
+                    const requiredRole = division === 'Accounting' ? 'Staff Accounting' : 'Staff Tax';
+                    const assignment = newJobData.picAssignments?.[division];
+                    const spvName = division === 'Accounting'
+                      ? selectedClientForJob?.accountingSpvName
+                      : selectedClientForJob?.taxSpvName;
+
+                    return (
+                      <div key={division}>
+                        <label className="block text-slate-700 font-semibold mb-1">PIC {division}</label>
+                        <select
+                          value={assignment?.picId || ''}
+                          onChange={(e) => {
+                            const user = users.find((candidate) => candidate.id === e.target.value);
+                            setNewJobData((previous) => ({
+                              ...previous,
+                              picAssignments: {
+                                ...previous.picAssignments,
+                                [division]: { picId: user?.id || '', picName: user?.name || '' },
+                              },
+                            }));
+                          }}
+                          className="w-full px-3 py-2 bg-white border border-amber-200 rounded-lg text-slate-900"
+                        >
+                          <option value="">Pilih pengguna</option>
+                          {users.filter((user) => user.active && user.role === requiredRole).map((user) => (
+                            <option key={user.id} value={user.id}>{user.name}</option>
+                          ))}
+                        </select>
+                        <p className="mt-1 text-slate-600">SPV reviewer: {spvName || 'Belum ditentukan'}</p>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               <div>
