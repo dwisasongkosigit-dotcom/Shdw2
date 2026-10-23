@@ -4,7 +4,11 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/api/:path*",
+      "destination": "/api/index?__path=/api/:path*"
+    },
+    {
+      "source": "/:path((?!api/).*)",
       "destination": "/index.html"
     }
   ],
