@@ -6,6 +6,7 @@ import {
   Clock,
   CalendarCheck,
   FileSpreadsheet,
+  ClipboardList,
   Settings,
   Users,
   LogOut,
@@ -22,6 +23,7 @@ export type NavTab =
   | 'cases'
   | 'followup'
   | 'activities'
+  | 'mom'
   | 'reports'
   | 'backup'
   | 'audit'
@@ -67,6 +69,7 @@ export function Sidebar({
     { id: 'cases', label: 'Case Register', icon: AlertCircle },
     { id: 'followup', label: 'Follow-up', icon: Clock },
     { id: 'activities', label: 'Daily Activity', icon: CalendarCheck },
+    { id: 'mom', label: 'Minutes of Meeting', icon: ClipboardList },
     { id: 'reports', label: 'Laporan & Audit', icon: FileSpreadsheet },
     { id: 'backup', label: 'Cadangan & Pemulihan', icon: Database, adminOnly: true },
     { id: 'audit', label: 'Audit Log Sistem', icon: ShieldCheck, auditOnly: true },

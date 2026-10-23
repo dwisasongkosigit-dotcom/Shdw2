@@ -246,6 +246,41 @@ export interface DailyActivity {
   updatedBy?: string;
 }
 
+export interface MeetingAgendaItem {
+  id: string;
+  topic: string;
+  discussion: string;
+  decision: string;
+}
+
+export interface MeetingActionItem {
+  id: string;
+  description: string;
+  owner: string;
+  deadline: string;
+  status: 'Belum Dimulai' | 'Dalam Proses' | 'Selesai';
+}
+
+export interface MeetingMinute {
+  id: string;
+  title: string;
+  meetingDate: string;
+  startTime: string;
+  endTime: string;
+  meetingType: string;
+  location: string;
+  chairperson: string;
+  recorder: string;
+  attendees: string[];
+  agendaItems: MeetingAgendaItem[];
+  actionItems: MeetingActionItem[];
+  nextMeetingDate: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  updatedBy: string;
+}
+
 export interface AuditLog {
   id: string;
   timestamp: string;
@@ -253,7 +288,7 @@ export interface AuditLog {
   userName: string;
   userRole: UserRole | string;
   action: string;
-  targetType: 'Client' | 'Job' | 'Case' | 'Activity' | 'User' | 'Branding' | 'Backup' | 'Auth' | 'System';
+  targetType: 'Client' | 'Job' | 'Case' | 'Activity' | 'Meeting' | 'User' | 'Branding' | 'Backup' | 'Auth' | 'System';
   target?: string;
   targetId?: string;
   targetName?: string;
@@ -287,6 +322,7 @@ export interface BackupInfo {
 
 export interface DatabaseSchema {
   branding: BrandingConfig;
+  meetingMinutes: MeetingMinute[];
   users: User[];
   clients: Client[];
   jobs: Job[];

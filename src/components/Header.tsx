@@ -17,6 +17,7 @@ const TAB_TITLES: Record<string, { title: string; subtitle: string }> = {
   cases: { title: 'Case Register', subtitle: 'Pencatatan masalah, akar penyebab, dan kronologi penanganan' },
   followup: { title: 'Follow-up Tracker', subtitle: 'Pengawasan tindak lanjut jatuh tempo & mitigasi keterlambatan' },
   activities: { title: 'Daily Activity Log', subtitle: 'Jurnal harian penanganan pekerjaan staf akuntansi dan pajak' },
+  mom: { title: 'Minutes of Meeting', subtitle: 'Notulen rapat, keputusan, dan tindak lanjut manajemen' },
   reports: { title: 'Laporan & Rekapitulasi', subtitle: 'Audit kepatuhan, pemenuhan SLA, dan eksposur risiko fiskal' },
   backup: { title: 'Cadangan & Pemulihan Data', subtitle: 'Manajemen snapshot database, retensi 30 hari & restorasi aman' },
   audit: { title: 'Audit Log Sistem Terpadu', subtitle: 'Rekam jejak mutasi data, login, dan aktivitas operasional staf' },

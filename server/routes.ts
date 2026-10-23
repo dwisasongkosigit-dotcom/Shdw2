@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import ExcelJS from 'exceljs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import {
   getDb,
   mutateDb,
@@ -32,6 +33,8 @@ import type {
   RiskLevel,
   RiskHistoryItem,
   PicHistoryItem,
+  MeetingMinute,
+  MeetingActionItem,
 } from './types.ts';
 
 export const apiRouter = Router();
@@ -41,6 +44,61 @@ function asyncHandler<R extends Request>(fn: (req: R, res: Response, next: NextF
   return (req: R, res: Response, next: NextFunction) => {
     fn(req, res, next).catch(next);
   };
+}
+
+function normalizeMeetingMinute(data: any) {
+  const text = (value: unknown, maxLength = 1000) =>
+    typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+  const validStatuses: MeetingActionItem['status'][] = ['Belum Dimulai', 'Dalam Proses', 'Selesai'];
+
+  return {
+    title: text(data?.title, 180),
+    meetingDate: text(data?.meetingDate, 10),
+    startTime: text(data?.startTime, 5),
+    endTime: text(data?.endTime, 5),
+    meetingType: text(data?.meetingType, 80) || 'Rapat Manajemen',
+    location: text(data?.location, 180),
+    chairperson: text(data?.chairperson, 120),
+    recorder: text(data?.recorder, 120),
+    attendees: Array.isArray(data?.attendees)
+      ? data.attendees.slice(0, 40).map((name: unknown) => text(name, 120)).filter(Boolean)
+      : [],
+    agendaItems: Array.isArray(data?.agendaItems)
+      ? data.agendaItems.slice(0, 40).map((item: any) => ({
+          id: text(item?.id, 80) || randomUUID(),
+          topic: text(item?.topic, 180),
+          discussion: text(item?.discussion, 3000),
+          decision: text(item?.decision, 2000),
+        })).filter((item: { topic: string }) => item.topic)
+      : [],
+    actionItems: Array.isArray(data?.actionItems)
+      ? data.actionItems.slice(0, 60).map((item: any) => ({
+          id: text(item?.id, 80) || randomUUID(),
+          description: text(item?.description, 300),
+          owner: text(item?.owner, 120),
+          deadline: text(item?.deadline, 10),
+          status: validStatuses.includes(item?.status) ? item.status : 'Belum Dimulai',
+        })).filter((item: { description: string }) => item.description)
+      : [],
+    nextMeetingDate: text(data?.nextMeetingDate, 10),
+  };
+}
+
+function validateMeetingMinute(meeting: ReturnType<typeof normalizeMeetingMinute>) {
+  const isValidDate = (value: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  };
+
+  if (!meeting.title) return 'Judul rapat wajib diisi.';
+  if (!isValidDate(meeting.meetingDate)) return 'Tanggal rapat tidak valid.';
+  if (meeting.startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(meeting.startTime)) return 'Waktu mulai tidak valid.';
+  if (meeting.endTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(meeting.endTime)) return 'Waktu selesai tidak valid.';
+  if (meeting.nextMeetingDate && !isValidDate(meeting.nextMeetingDate)) return 'Tanggal rapat berikutnya tidak valid.';
+  if (!meeting.agendaItems.length) return 'Tambahkan minimal satu topik agenda.';
+  if (meeting.actionItems.some((item: MeetingActionItem) => item.deadline && !isValidDate(item.deadline))) return 'Salah satu tenggat tindak lanjut tidak valid.';
+  return null;
 }
 
 // ==========================================
@@ -1505,7 +1563,120 @@ apiRouter.delete(
 );
 
 // ==========================================
-// 9. DASHBOARD STATS AGGREGATOR
+// 9. MINUTES OF MEETING
+// ==========================================
+apiRouter.get('/meeting-minutes', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const meetings = [...(getDb().meetingMinutes || [])].sort((a, b) =>
+    `${b.meetingDate}${b.startTime}`.localeCompare(`${a.meetingDate}${a.startTime}`)
+  );
+  res.json(meetings);
+});
+
+apiRouter.post(
+  '/meeting-minutes',
+  authenticateToken,
+  requireWritable,
+  (req: AuthenticatedRequest, res: Response) => {
+    const data = normalizeMeetingMinute(req.body);
+    const validationError = validateMeetingMinute(data);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
+
+    const database = getDb();
+    const year = data.meetingDate.slice(0, 4);
+    const nextNumber = database.meetingMinutes
+      .map((meeting) => meeting.id.match(new RegExp(`^MOM-${year}-(\\d+)$`)))
+      .reduce((highest, match) => Math.max(highest, Number(match?.[1] || 0)), 0) + 1;
+    const now = new Date().toISOString();
+    const newMeeting: MeetingMinute = {
+      ...data,
+      id: `MOM-${year}-${String(nextNumber).padStart(3, '0')}`,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: req.user!.userId,
+      updatedBy: req.user!.name,
+    };
+
+    mutateDb((db) => {
+      db.meetingMinutes.unshift(newMeeting);
+      logAudit(
+        'MEETING_CREATED',
+        'Meeting',
+        `Notulen ${newMeeting.id} dicatat oleh ${req.user!.name}.`,
+        { userId: req.user!.userId, name: req.user!.name, role: req.user!.role },
+        newMeeting.id,
+        newMeeting.title
+      );
+    });
+
+    res.status(201).json({ success: true, meeting: newMeeting, message: 'Notulen rapat berhasil disimpan.' });
+  }
+);
+
+apiRouter.put(
+  '/meeting-minutes/:id',
+  authenticateToken,
+  requireWritable,
+  (req: AuthenticatedRequest, res: Response) => {
+    const data = normalizeMeetingMinute(req.body);
+    const validationError = validateMeetingMinute(data);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
+
+    let saved: MeetingMinute | null = null;
+    mutateDb((db) => {
+      const meeting = db.meetingMinutes.find((item) => item.id === req.params.id);
+      if (!meeting) throw new Error('Notulen rapat tidak ditemukan.');
+
+      Object.assign(meeting, data, {
+        updatedAt: new Date().toISOString(),
+        updatedBy: req.user!.name,
+      });
+      saved = meeting;
+      logAudit(
+        'MEETING_UPDATED',
+        'Meeting',
+        `Notulen ${meeting.id} diperbarui oleh ${req.user!.name}.`,
+        { userId: req.user!.userId, name: req.user!.name, role: req.user!.role },
+        meeting.id,
+        meeting.title
+      );
+    });
+
+    res.json({ success: true, meeting: saved, message: 'Notulen rapat berhasil diperbarui.' });
+  }
+);
+
+apiRouter.delete(
+  '/meeting-minutes/:id',
+  authenticateToken,
+  requireWritable,
+  (req: AuthenticatedRequest, res: Response) => {
+    let deleted: MeetingMinute | undefined;
+    mutateDb((db) => {
+      const index = db.meetingMinutes.findIndex((item) => item.id === req.params.id);
+      if (index === -1) throw new Error('Notulen rapat tidak ditemukan.');
+      deleted = db.meetingMinutes.splice(index, 1)[0];
+      logAudit(
+        'MEETING_DELETED',
+        'Meeting',
+        `Notulen ${deleted.id} dihapus oleh ${req.user!.name}.`,
+        { userId: req.user!.userId, name: req.user!.name, role: req.user!.role },
+        deleted.id,
+        deleted.title
+      );
+    });
+
+    res.json({ success: true, message: 'Notulen rapat berhasil dihapus.' });
+  }
+);
+
+// ==========================================
+// 10. DASHBOARD STATS AGGREGATOR
 // ==========================================
 apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const db = getDb();

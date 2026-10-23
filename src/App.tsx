@@ -8,6 +8,7 @@ import {
   type Job,
   type Case,
   type DailyActivity,
+  type MeetingMinute,
 } from './lib/api';
 import { ToastProvider, useToast } from './components/Toast';
 import { Sidebar, type NavTab } from './components/Sidebar';
@@ -19,6 +20,7 @@ import { JobsView } from './components/JobsView';
 import { CasesView } from './components/CasesView';
 import { FollowUpView } from './components/FollowUpView';
 import { DailyActivitiesView } from './components/DailyActivitiesView';
+import { MeetingMinutesView } from './components/MeetingMinutesView';
 import { ReportsView } from './components/ReportsView';
 import { BackupRestoreView } from './components/BackupRestoreView';
 import { AuditLogView } from './components/AuditLogView';
@@ -47,6 +49,7 @@ function MainApp() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [cases, setCases] = useState<Case[]>([]);
   const [activities, setActivities] = useState<DailyActivity[]>([]);
+  const [meetingMinutes, setMeetingMinutes] = useState<MeetingMinute[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [dbHealth, setDbHealth] = useState<any>(null);
 
@@ -87,12 +90,13 @@ function MainApp() {
     setConnectionError(null);
 
     try {
-      const [clientsData, jobsData, casesData, activitiesData, statsData, healthData] =
+      const [clientsData, jobsData, casesData, activitiesData, meetingMinutesData, statsData, healthData] =
         await Promise.all([
           api.getClients(),
           api.getJobs(),
           api.getCases(),
           api.getDailyActivities(),
+          api.getMeetingMinutes(),
           api.getStats(),
           api.getHealth(),
         ]);
@@ -101,6 +105,7 @@ function MainApp() {
       setJobs(jobsData);
       setCases(casesData);
       setActivities(activitiesData);
+      setMeetingMinutes(meetingMinutesData);
       setStats(statsData);
       setDbHealth(healthData);
     } catch (err: any) {
@@ -260,6 +265,15 @@ function MainApp() {
               jobs={jobs}
               cases={cases}
               currentUser={currentUser}
+              onRefresh={loadAllBusinessData}
+            />
+          )}
+
+          {currentTab === 'mom' && (
+            <MeetingMinutesView
+              meetings={meetingMinutes}
+              currentUser={currentUser}
+              companyName={branding.companyName}
               onRefresh={loadAllBusinessData}
             />
           )}
