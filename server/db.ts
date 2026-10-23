@@ -1,21 +1,21 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { and, eq, notInArray, sql } from 'drizzle-orm';
-import { db as pg } from '../db/index.ts';
 import { appState, backupSnapshots } from '../db/schema.ts';
+import { db as postgres } from '../db/index.ts';
 import { getInitialSeedData } from './seed.ts';
 import { hashPassword } from './auth.ts';
 import initialData from '../data/tmm_bma_database.json' with { type: 'json' };
 import type { DatabaseSchema, BackupInfo, AuditLog } from './types.ts';
 
-const STATE_ID = 'main';
 const MAX_BACKUPS = 35;
+const APP_STATE_ID = 'main';
 
 // Legacy asset paths that only worked with the Vite dev server
 const LEGACY_LOGO_PATH = '/src/assets/images/tmm_bma_logo_1792761458459.jpg';
 export const DEFAULT_LOGO_PATH = '/images/tmm_bma_logo_1792761458459.jpg';
 
-// Request-scoped copy of the dataset. Each request loads the latest state from
-// Netlify Database, mutates it in memory, and persists it once before responding.
+// Request-scoped copy of the dataset. Writes use a database version check so
+// concurrent serverless requests cannot silently overwrite one another.
 interface DbContext {
   data: DatabaseSchema | null;
   loadedVersion: number;
@@ -37,6 +37,7 @@ export function runWithDb<T>(fn: () => T): T {
 
 // Migrate/upgrade in-memory schema safely to ensure Prompt 2 compatibility
 function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
+  if (!Array.isArray(db.meetingMinutes)) db.meetingMinutes = [];
   if (!Array.isArray(db.auditLogs)) db.auditLogs = [];
   if (!Array.isArray(db.backups)) db.backups = [];
 
@@ -127,33 +128,43 @@ function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
   return db;
 }
 
-// Initial dataset: the bundled data export if valid, otherwise the built-in seed
+// Bootstrap once from the bundled export when Neon has no app-state record.
 function buildInitialData(): DatabaseSchema {
   const imported = structuredClone(initialData) as unknown as DatabaseSchema;
   if (imported && Array.isArray(imported.clients) && Array.isArray(imported.users)) {
-    // Snapshot files from the old disk storage are not available here
+    // Legacy disk snapshots are not imported during the one-time bootstrap.
     imported.backups = [];
     return upgradeSchema(imported);
   }
   return upgradeSchema(getInitialSeedData());
 }
 
-// Load the latest dataset for the current request, creating it on first use
+// Load the shared dataset from Neon, creating the initial record once if needed.
 export async function loadDatabase(): Promise<DatabaseSchema> {
   const context = ctx();
+  let [record] = await postgres
+    .select({ data: appState.data, version: appState.version })
+    .from(appState)
+    .where(eq(appState.id, APP_STATE_ID))
+    .limit(1);
 
-  let [row] = await pg.select().from(appState).where(eq(appState.id, STATE_ID));
-  if (!row) {
-    console.log('[DB] Inisialisasi database baru TMM/BMA...');
-    await pg
+  if (!record) {
+    await postgres
       .insert(appState)
-      .values({ id: STATE_ID, data: buildInitialData(), version: 1 })
-      .onConflictDoNothing();
-    [row] = await pg.select().from(appState).where(eq(appState.id, STATE_ID));
+      .values({ id: APP_STATE_ID, data: buildInitialData(), version: 1 })
+      .onConflictDoNothing({ target: appState.id });
+
+    [record] = await postgres
+      .select({ data: appState.data, version: appState.version })
+      .from(appState)
+      .where(eq(appState.id, APP_STATE_ID))
+      .limit(1);
   }
 
-  context.data = upgradeSchema(row.data as DatabaseSchema);
-  context.loadedVersion = row.version;
+  if (!record) throw new Error('Data aplikasi belum dapat dibuat di database Neon.');
+
+  context.data = upgradeSchema(structuredClone(record.data as DatabaseSchema));
+  context.loadedVersion = record.version;
   context.dirty = false;
   context.poisoned = false;
   return context.data;
@@ -186,22 +197,27 @@ export function mutateDb(mutator: (db: DatabaseSchema) => void): DatabaseSchema 
   return db;
 }
 
-// Persist pending changes; rejects if another request saved in the meantime
+// Commit with an atomic optimistic-version check to protect shared edits.
 export async function persistDatabase(): Promise<void> {
   const context = ctx();
   if (!context.dirty || context.poisoned || !context.data) return;
 
-  const updated = await pg
+  context.data.lastSaved = new Date().toISOString();
+  const [saved] = await postgres
     .update(appState)
-    .set({ data: context.data, version: sql`${appState.version} + 1`, updatedAt: new Date() })
-    .where(and(eq(appState.id, STATE_ID), eq(appState.version, context.loadedVersion)))
+    .set({
+      data: context.data,
+      version: sql`${appState.version} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(appState.id, APP_STATE_ID), eq(appState.version, context.loadedVersion)))
     .returning({ version: appState.version });
 
-  if (updated.length === 0) {
+  if (!saved) {
     throw new Error('Data telah diubah oleh pengguna lain secara bersamaan. Silakan muat ulang halaman dan coba lagi.');
   }
 
-  context.loadedVersion = updated[0].version;
+  context.loadedVersion = saved.version;
   context.dirty = false;
 }
 
@@ -255,7 +271,13 @@ export async function createBackupSnapshot(
 
   const snapshot = structuredClone(db);
   const sizeBytes = Buffer.byteLength(JSON.stringify(snapshot, null, 2), 'utf-8');
-  await pg.insert(backupSnapshots).values({ filename, data: snapshot });
+  await postgres
+    .insert(backupSnapshots)
+    .values({ filename, data: snapshot, createdAt: now })
+    .onConflictDoUpdate({
+      target: backupSnapshots.filename,
+      set: { data: snapshot, createdAt: now },
+    });
 
   const backupInfo: BackupInfo = {
     id: `BKP-${Date.now()}`,
@@ -295,16 +317,22 @@ export async function createBackupSnapshot(
     );
   });
 
-  // Drop stored snapshots that fell out of the retention window
-  const kept = db.backups.map((b) => b.filename);
-  await pg.delete(backupSnapshots).where(notInArray(backupSnapshots.filename, kept));
+  // Keep the snapshot table aligned with the retained backup catalogue.
+  const keptFilenames = db.backups.map((backup) => backup.filename);
+  if (keptFilenames.length) {
+    await postgres.delete(backupSnapshots).where(notInArray(backupSnapshots.filename, keptFilenames));
+  }
 
   return backupInfo;
 }
 
 export async function getBackupSnapshot(filename: string): Promise<DatabaseSchema | null> {
-  const [row] = await pg.select().from(backupSnapshots).where(eq(backupSnapshots.filename, filename));
-  return row ? (row.data as DatabaseSchema) : null;
+  const [record] = await postgres
+    .select({ data: backupSnapshots.data })
+    .from(backupSnapshots)
+    .where(eq(backupSnapshots.filename, filename))
+    .limit(1);
+  return record ? structuredClone(record.data as DatabaseSchema) : null;
 }
 
 // Restore database from a verified backup snapshot (Admin only)
@@ -366,9 +394,9 @@ export function getDbHealthInfo() {
   const fileSizeBytes = Buffer.byteLength(JSON.stringify(db), 'utf-8');
 
   return {
-    status: 'connected',
-    storageEngine: 'Netlify Database (Postgres JSONB, optimistic locking)',
-    databaseFilePath: 'netlify-database://app_state/main',
+    status: 'persistent',
+    storageEngine: 'Neon PostgreSQL',
+    databaseFilePath: null,
     existsOnDisk: true,
     fileSizeBytes,
     lastSaved: db.lastSaved,

@@ -1,9 +1,11 @@
-import { Menu, RefreshCw, Database, Shield } from 'lucide-react';
+import { ClipboardList, Menu, RefreshCw, Database, Shield } from 'lucide-react';
 import type { CurrentUser, BrandingConfig } from '../lib/api';
 
 interface HeaderProps {
   currentTab: string;
-  onOpenMobileSidebar: () => void;
+  onToggleMobileSidebar: () => void;
+  onNavigateToMom: () => void;
+  mobileMenuOpen: boolean;
   currentUser: CurrentUser;
   branding: BrandingConfig;
   onRefreshData: () => void;
@@ -17,6 +19,7 @@ const TAB_TITLES: Record<string, { title: string; subtitle: string }> = {
   cases: { title: 'Case Register', subtitle: 'Pencatatan masalah, akar penyebab, dan kronologi penanganan' },
   followup: { title: 'Follow-up Tracker', subtitle: 'Pengawasan tindak lanjut jatuh tempo & mitigasi keterlambatan' },
   activities: { title: 'Daily Activity Log', subtitle: 'Jurnal harian penanganan pekerjaan staf akuntansi dan pajak' },
+  mom: { title: 'Minutes of Meeting', subtitle: 'Notulen rapat, keputusan, dan tindak lanjut manajemen' },
   reports: { title: 'Laporan & Rekapitulasi', subtitle: 'Audit kepatuhan, pemenuhan SLA, dan eksposur risiko fiskal' },
   backup: { title: 'Cadangan & Pemulihan Data', subtitle: 'Manajemen snapshot database, retensi 30 hari & restorasi aman' },
   audit: { title: 'Audit Log Sistem Terpadu', subtitle: 'Rekam jejak mutasi data, login, dan aktivitas operasional staf' },
@@ -26,7 +29,9 @@ const TAB_TITLES: Record<string, { title: string; subtitle: string }> = {
 
 export function Header({
   currentTab,
-  onOpenMobileSidebar,
+  onToggleMobileSidebar,
+  onNavigateToMom,
+  mobileMenuOpen,
   currentUser,
   branding,
   onRefreshData,
@@ -45,11 +50,15 @@ export function Header({
     <header className="sticky top-0 z-30 h-16 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between gap-4">
       <div className="flex items-center gap-3 min-w-0">
         <button
-          onClick={onOpenMobileSidebar}
-          className="lg:hidden p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
-          aria-label="Buka menu navigasi"
+          type="button"
+          onClick={onToggleMobileSidebar}
+          className="inline-flex items-center gap-1.5 rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 lg:hidden"
+          aria-label="Menu navigasi"
+          aria-controls="primary-navigation"
+          aria-expanded={mobileMenuOpen}
         >
-          <Menu className="w-5 h-5" />
+          <Menu className="h-5 w-5" />
+          <span className="text-xs font-semibold sm:hidden">Menu</span>
         </button>
 
         <div className="min-w-0">
@@ -65,7 +74,18 @@ export function Header({
         </div>
       </div>
 
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <button
+          type="button"
+          onClick={onNavigateToMom}
+          title="Buka Minutes of Meeting"
+          aria-label="Buka Minutes of Meeting"
+          className="hidden items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs font-semibold text-amber-900 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 sm:inline-flex lg:hidden"
+        >
+          <ClipboardList className="h-4 w-4 text-amber-700" />
+          <span>MoM</span>
+        </button>
+
         {/* Date display */}
         <div className="hidden sm:flex items-center text-xs text-slate-500 font-medium">
           {todayStr}

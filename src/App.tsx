@@ -8,6 +8,7 @@ import {
   type Job,
   type Case,
   type DailyActivity,
+  type MeetingMinute,
 } from './lib/api';
 import { ToastProvider, useToast } from './components/Toast';
 import { Sidebar, type NavTab } from './components/Sidebar';
@@ -19,6 +20,7 @@ import { JobsView } from './components/JobsView';
 import { CasesView } from './components/CasesView';
 import { FollowUpView } from './components/FollowUpView';
 import { DailyActivitiesView } from './components/DailyActivitiesView';
+import { MeetingMinutesView } from './components/MeetingMinutesView';
 import { ReportsView } from './components/ReportsView';
 import { BackupRestoreView } from './components/BackupRestoreView';
 import { AuditLogView } from './components/AuditLogView';
@@ -47,6 +49,7 @@ function MainApp() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [cases, setCases] = useState<Case[]>([]);
   const [activities, setActivities] = useState<DailyActivity[]>([]);
+  const [meetingMinutes, setMeetingMinutes] = useState<MeetingMinute[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [dbHealth, setDbHealth] = useState<any>(null);
 
@@ -80,19 +83,20 @@ function MainApp() {
     }
   }, []);
 
-  // Fetch all business operational data from persistent database
+  // Fetch business data from the server's temporary in-memory store
   const loadAllBusinessData = useCallback(async () => {
     if (!currentUser) return;
     setIsRefreshing(true);
     setConnectionError(null);
 
     try {
-      const [clientsData, jobsData, casesData, activitiesData, statsData, healthData] =
+      const [clientsData, jobsData, casesData, activitiesData, meetingMinutesData, statsData, healthData] =
         await Promise.all([
           api.getClients(),
           api.getJobs(),
           api.getCases(),
           api.getDailyActivities(),
+          api.getMeetingMinutes(),
           api.getStats(),
           api.getHealth(),
         ]);
@@ -101,12 +105,13 @@ function MainApp() {
       setJobs(jobsData);
       setCases(casesData);
       setActivities(activitiesData);
+      setMeetingMinutes(meetingMinutesData);
       setStats(statsData);
       setDbHealth(healthData);
     } catch (err: any) {
       console.error('[App] Gagal memuat data dari database server:', err);
       setConnectionError(
-        err.message || 'Koneksi ke database server terputus. Data Anda aman di disk server.'
+        err.message || 'Data sementara tidak dapat dimuat dari server.'
       );
     } finally {
       setIsRefreshing(false);
@@ -146,7 +151,7 @@ function MainApp() {
     return (
       <div className="min-h-screen bg-[#070d1e] flex flex-col items-center justify-center text-white">
         <div className="w-10 h-10 border-2 border-amber-500 border-t-transparent rounded-full animate-spin mb-4" />
-        <h2 className="text-base font-bold tracking-tight">Memverifikasi Database Persisten Server...</h2>
+        <h2 className="text-base font-bold tracking-tight">Menghubungkan ke Database...</h2>
         <p className="text-xs text-slate-400 mt-1">TMM/BMA Client Control Center</p>
       </div>
     );
@@ -176,7 +181,9 @@ function MainApp() {
         {/* Header */}
         <Header
           currentTab={currentTab}
-          onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
+          onToggleMobileSidebar={() => setMobileSidebarOpen((open) => !open)}
+          onNavigateToMom={() => setCurrentTab('mom')}
+          mobileMenuOpen={mobileSidebarOpen}
           currentUser={currentUser}
           branding={branding}
           onRefreshData={loadAllBusinessData}
@@ -260,6 +267,15 @@ function MainApp() {
               jobs={jobs}
               cases={cases}
               currentUser={currentUser}
+              onRefresh={loadAllBusinessData}
+            />
+          )}
+
+          {currentTab === 'mom' && (
+            <MeetingMinutesView
+              meetings={meetingMinutes}
+              currentUser={currentUser}
+              companyName={branding.companyName}
               onRefresh={loadAllBusinessData}
             />
           )}

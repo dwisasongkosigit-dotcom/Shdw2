@@ -717,6 +717,7 @@ export function getInitialSeedData(): DatabaseSchema {
     jobs,
     cases,
     activities,
+    meetingMinutes: [],
     auditLogs: [],
     backups: [],
     version: 1,

@@ -6,12 +6,14 @@ import {
   Clock,
   CalendarCheck,
   FileSpreadsheet,
+  ClipboardList,
   Settings,
   Users,
   LogOut,
   Database,
   ChevronRight,
   ShieldCheck,
+  X,
 } from 'lucide-react';
 import type { CurrentUser, BrandingConfig } from '../lib/api';
 
@@ -22,6 +24,7 @@ export type NavTab =
   | 'cases'
   | 'followup'
   | 'activities'
+  | 'mom'
   | 'reports'
   | 'backup'
   | 'audit'
@@ -67,6 +70,7 @@ export function Sidebar({
     { id: 'cases', label: 'Case Register', icon: AlertCircle },
     { id: 'followup', label: 'Follow-up', icon: Clock },
     { id: 'activities', label: 'Daily Activity', icon: CalendarCheck },
+    { id: 'mom', label: 'Minutes of Meeting', icon: ClipboardList },
     { id: 'reports', label: 'Laporan & Audit', icon: FileSpreadsheet },
     { id: 'backup', label: 'Cadangan & Pemulihan', icon: Database, adminOnly: true },
     { id: 'audit', label: 'Audit Log Sistem', icon: ShieldCheck, auditOnly: true },
@@ -90,6 +94,8 @@ export function Sidebar({
       )}
 
       <aside
+        id="primary-navigation"
+        aria-label="Navigasi utama"
         className={`fixed inset-y-0 left-0 z-40 w-72 bg-[#0a1128] border-r border-slate-800/80 flex flex-col transition-transform duration-300 ease-in-out lg:translate-x-0 ${
           isOpenMobile ? 'translate-x-0' : '-translate-x-full'
         }`}
@@ -114,13 +120,23 @@ export function Sidebar({
             <h1 className="text-sm font-bold text-white truncate tracking-tight">
               {branding.appName || 'TMM/BMA Control Center'}
             </h1>
-            <p className="text-[11px] text-amber-400/90 font-medium truncate">
-              {branding.companyName || 'TMM & BMA Advisory'}
-            </p>
-          </div>
+          <p className="text-[11px] text-amber-400/90 font-medium truncate">
+            {branding.companyName || 'TMM & BMA Advisory'}
+          </p>
         </div>
+        {onCloseMobile && (
+          <button
+            type="button"
+            onClick={onCloseMobile}
+            aria-label="Tutup menu navigasi"
+            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 lg:hidden"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
 
-        {/* Navigation Links */}
+      {/* Navigation Links */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           <div className="px-3 pb-2 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
             Menu Operasional
@@ -155,14 +171,29 @@ export function Sidebar({
           })}
         </nav>
 
-        {/* Database Persistence Status Badge */}
-        <div className="px-4 py-3 mx-3 my-2 rounded-lg bg-slate-900/90 border border-slate-800 text-[11px] text-slate-300">
+        <div
+          className={`px-4 py-3 mx-3 my-2 rounded-lg border text-[11px] text-slate-300 ${
+            dbStatus?.status === 'persistent'
+              ? 'bg-emerald-950/30 border-emerald-800/50'
+              : 'bg-amber-950/30 border-amber-800/50'
+          }`}
+          role="status"
+        >
           <div className="flex items-center gap-2 mb-1">
-            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="font-semibold text-slate-200">Database Persisten Aktif</span>
+            <span
+              className={`inline-block w-2 h-2 rounded-full shrink-0 ${
+                dbStatus?.status === 'persistent' ? 'bg-emerald-400' : 'bg-amber-400'
+              }`}
+            />
+            <span className={`font-semibold ${dbStatus?.status === 'persistent' ? 'text-emerald-200' : 'text-amber-200'}`}>
+              {dbStatus?.status === 'persistent' ? 'Database Produksi' : 'Penyimpanan Tidak Tersedia'}
+            </span>
           </div>
-          <p className="text-[10px] text-slate-400 line-clamp-1">
-            Penyimpanan Disk ACID: Data bisnis tidak reset saat browser ditutup.
+          <p className="text-[10px] text-slate-300">
+            {dbStatus?.storageEngine || 'Neon PostgreSQL'}.
+            {dbStatus?.status === 'persistent'
+              ? ' Data bersama tersimpan permanen.'
+              : ' Periksa koneksi database sebelum melanjutkan pekerjaan.'}
           </p>
         </div>
 

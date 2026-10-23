@@ -222,6 +222,41 @@ export interface DailyActivity {
   updatedBy?: string;
 }
 
+export interface MeetingAgendaItem {
+  id: string;
+  topic: string;
+  discussion: string;
+  decision: string;
+}
+
+export interface MeetingActionItem {
+  id: string;
+  description: string;
+  owner: string;
+  deadline: string;
+  status: 'Belum Dimulai' | 'Dalam Proses' | 'Selesai';
+}
+
+export interface MeetingMinute {
+  id: string;
+  title: string;
+  meetingDate: string;
+  startTime: string;
+  endTime: string;
+  meetingType: string;
+  location: string;
+  chairperson: string;
+  recorder: string;
+  attendees: string[];
+  agendaItems: MeetingAgendaItem[];
+  actionItems: MeetingActionItem[];
+  nextMeetingDate: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  updatedBy: string;
+}
+
 export interface UserAccount {
   id: string;
   name: string;
@@ -454,6 +489,23 @@ export const api = {
     }),
   deleteDailyActivity: (id: string) =>
     request<{ success: boolean; message: string }>(`/api/daily-activities/${id}`, {
+      method: 'DELETE',
+    }),
+
+  // Minutes of Meeting
+  getMeetingMinutes: () => request<MeetingMinute[]>('/api/meeting-minutes'),
+  createMeetingMinute: (data: Partial<MeetingMinute>) =>
+    request<{ success: boolean; meeting: MeetingMinute; message: string }>('/api/meeting-minutes', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateMeetingMinute: (id: string, data: Partial<MeetingMinute>) =>
+    request<{ success: boolean; meeting: MeetingMinute; message: string }>(`/api/meeting-minutes/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteMeetingMinute: (id: string) =>
+    request<{ success: boolean; message: string }>(`/api/meeting-minutes/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }),
 

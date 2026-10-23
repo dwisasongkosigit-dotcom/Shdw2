@@ -76,7 +76,7 @@ export function BrandingSettingsView({ branding, onBrandingUpdated }: BrandingSe
       });
 
       onBrandingUpdated(res.branding);
-      success('Branding Tersimpan', 'Pengaturan branding berhasil disimpan secara persisten di database.');
+      success('Branding Tersimpan', 'Perubahan hanya tersimpan sementara di memori server dan akan hilang saat server restart.');
     } catch (err: any) {
       error('Gagal Menyimpan', err.message || 'Gagal menyimpan ke server.');
     } finally {
@@ -111,7 +111,7 @@ export function BrandingSettingsView({ branding, onBrandingUpdated }: BrandingSe
           Pengaturan Aplikasi & Branding Perusahaan
         </h2>
         <p className="text-xs text-slate-500 mt-0.5">
-          Khusus Administrator. Perubahan disimpan secara persisten di server dan berlaku untuk semua pengguna.
+          Khusus Administrator. Dalam mode preview, perubahan hanya tersimpan sementara dan dapat hilang saat server restart.
         </p>
       </div>
 

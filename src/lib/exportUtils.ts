@@ -1,5 +1,3 @@
-import ExcelJS from 'exceljs';
-
 export interface ColumnDef<T> {
   header: string;
   key: keyof T | string;
@@ -31,6 +29,7 @@ export async function exportToExcel<T>({
   columns: ColumnDef<T>[];
   data: T[];
 }): Promise<void> {
+  const { default: ExcelJS } = await import('exceljs');
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'TMM & BMA Advisory Control Center';
   workbook.created = new Date();

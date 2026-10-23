@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
-import type { Request, Response, NextFunction } from 'express';
 import { eq, lt } from 'drizzle-orm';
 import { db } from '../db/index.ts';
 import { sessions } from '../db/schema.ts';
+import type { Request, Response, NextFunction } from 'express';
 import type { User, UserRole } from './types.ts';
 
 export interface SessionInfo {
@@ -14,8 +14,11 @@ export interface SessionInfo {
   expiresAt: number;
 }
 
-// 12 hours session validity
 const SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
+
+function hashSessionToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
 
 export function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
   const actualSalt = salt || crypto.randomBytes(16).toString('hex');
@@ -39,26 +42,47 @@ export async function createSession(user: User): Promise<SessionInfo> {
     role: user.role,
     expiresAt,
   };
-  // Opportunistically clear expired sessions
+  const tokenHash = hashSessionToken(token);
   await db.delete(sessions).where(lt(sessions.expiresAt, Date.now()));
-  await db.insert(sessions).values(sessionInfo);
+  await db.insert(sessions).values({
+    token: tokenHash,
+    userId: sessionInfo.userId,
+    username: sessionInfo.username,
+    name: sessionInfo.name,
+    role: sessionInfo.role,
+    expiresAt,
+  });
   return sessionInfo;
 }
 
 export async function getSession(token?: string): Promise<SessionInfo | null> {
   if (!token) return null;
-  const [session] = await db.select().from(sessions).where(eq(sessions.token, token));
-  if (!session) return null;
-  if (Date.now() > session.expiresAt) {
-    await db.delete(sessions).where(eq(sessions.token, token));
+  const [stored] = await db
+    .select()
+    .from(sessions)
+    .where(eq(sessions.token, hashSessionToken(token)))
+    .limit(1);
+  if (!stored) return null;
+  if (Date.now() > stored.expiresAt) {
+    await db.delete(sessions).where(eq(sessions.token, stored.token));
     return null;
   }
-  return { ...session, role: session.role as UserRole };
+  return {
+    token,
+    userId: stored.userId,
+    username: stored.username,
+    name: stored.name,
+    role: stored.role as UserRole,
+    expiresAt: stored.expiresAt,
+  };
 }
 
 export async function destroySession(token?: string): Promise<boolean> {
   if (!token) return false;
-  const deleted = await db.delete(sessions).where(eq(sessions.token, token)).returning({ token: sessions.token });
+  const deleted = await db
+    .delete(sessions)
+    .where(eq(sessions.token, hashSessionToken(token)))
+    .returning({ token: sessions.token });
   return deleted.length > 0;
 }
 

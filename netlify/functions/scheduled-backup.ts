@@ -1,10 +1,8 @@
 import type { Config } from '@netlify/functions';
-import { runScheduledBackup } from '../../server/db.ts';
 
-// Automatic daily backup at 23:00 WIB (16:00 UTC)
+// Scheduled backups are intentionally skipped in temporary in-memory preview mode.
 export default async () => {
-  const info = await runScheduledBackup();
-  console.log(`[Backup Scheduler] Cadangan otomatis harian dibuat: ${info.filename}`);
+  console.log('[Backup Scheduler] Dilewati: penyimpanan persisten tidak dikonfigurasi.');
 };
 
 export const config: Config = {

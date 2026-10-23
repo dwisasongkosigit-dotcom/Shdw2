@@ -104,7 +104,7 @@ export function DashboardView({
               onClick={onRefresh}
               disabled={isRefreshing}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold shadow-sm transition-colors disabled:opacity-50"
-              title="Perbarui tampilan data terbaru dari database persisten"
+              title="Segarkan data bersama dari database"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-amber-600' : 'text-slate-600'}`} />
               <span>{isRefreshing ? 'Memuat Data...' : 'Muat Ulang'}</span>
