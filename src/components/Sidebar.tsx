@@ -13,6 +13,7 @@ import {
   Database,
   ChevronRight,
   ShieldCheck,
+  X,
 } from 'lucide-react';
 import type { CurrentUser, BrandingConfig } from '../lib/api';
 
@@ -93,6 +94,8 @@ export function Sidebar({
       )}
 
       <aside
+        id="primary-navigation"
+        aria-label="Navigasi utama"
         className={`fixed inset-y-0 left-0 z-40 w-72 bg-[#0a1128] border-r border-slate-800/80 flex flex-col transition-transform duration-300 ease-in-out lg:translate-x-0 ${
           isOpenMobile ? 'translate-x-0' : '-translate-x-full'
         }`}
@@ -117,13 +120,23 @@ export function Sidebar({
             <h1 className="text-sm font-bold text-white truncate tracking-tight">
               {branding.appName || 'TMM/BMA Control Center'}
             </h1>
-            <p className="text-[11px] text-amber-400/90 font-medium truncate">
-              {branding.companyName || 'TMM & BMA Advisory'}
-            </p>
-          </div>
+          <p className="text-[11px] text-amber-400/90 font-medium truncate">
+            {branding.companyName || 'TMM & BMA Advisory'}
+          </p>
         </div>
+        {onCloseMobile && (
+          <button
+            type="button"
+            onClick={onCloseMobile}
+            aria-label="Tutup menu navigasi"
+            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 lg:hidden"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
 
-        {/* Navigation Links */}
+      {/* Navigation Links */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           <div className="px-3 pb-2 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
             Menu Operasional

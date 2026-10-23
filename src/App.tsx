@@ -181,7 +181,9 @@ function MainApp() {
         {/* Header */}
         <Header
           currentTab={currentTab}
-          onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
+          onToggleMobileSidebar={() => setMobileSidebarOpen((open) => !open)}
+          onNavigateToMom={() => setCurrentTab('mom')}
+          mobileMenuOpen={mobileSidebarOpen}
           currentUser={currentUser}
           branding={branding}
           onRefreshData={loadAllBusinessData}
