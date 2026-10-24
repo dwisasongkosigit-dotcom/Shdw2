@@ -51,6 +51,7 @@ const riskTone: Record<string, string> = {
   Low: 'border-yellow-200 bg-yellow-50 text-yellow-800',
   'Not Assessed': 'border-slate-200 bg-slate-100 text-slate-600',
 };
+const investmentCategories: Client['investmentCategory'][] = ['PMA', 'PMDN', 'Belum Ditentukan'];
 
 function dateOnly(value?: string) {
   return value ? value.slice(0, 10) : '';
@@ -114,7 +115,7 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
   const today = new Date().toISOString().slice(0, 10);
   const { start: periodStart, end: periodEnd } = monthBounds(period);
   const periodLabel = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${period}-01T00:00:00.000Z`));
-  const activeClients = clients.filter((client) => client.status === 'Aktif');
+  const activeClients = useMemo(() => clients.filter((client) => client.status === 'Aktif'), [clients]);
   const riskClients = useMemo<ClientRisk[]>(
     () => activeClients.map((client) => ({ ...client, overallRisk: getRisk(client) })).sort((a, b) =>
       (riskOrder[a.overallRisk] - riskOrder[b.overallRisk]) || a.name.localeCompare(b.name)
@@ -127,15 +128,30 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
     Low: riskClients.filter((client) => client.overallRisk === 'Low').length,
     'Not Assessed': riskClients.filter((client) => client.overallRisk === 'Not Assessed').length,
   }), [riskClients]);
-  const selectedRiskClients = riskClients.filter((client) => client.overallRisk === selectedRisk);
-  const companyClients = activeClients.filter((client) => client.type === 'Badan').sort((a, b) => a.name.localeCompare(b.name));
-  const investmentCategories: Client['investmentCategory'][] = ['PMA', 'PMDN', 'Belum Ditentukan'];
-  const investmentCounts = Object.fromEntries(investmentCategories.map((category) => [
+  const selectedRiskClients = useMemo(() => riskClients.filter((client) => client.overallRisk === selectedRisk), [riskClients, selectedRisk]);
+  const casesByClientId = useMemo(() => {
+    const index = new Map<string, Case[]>();
+    cases.forEach((item) => {
+      const clientCases = index.get(item.clientId) || [];
+      clientCases.push(item);
+      index.set(item.clientId, clientCases);
+    });
+    index.forEach((clientCases) => clientCases.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+    return index;
+  }, [cases]);
+  const companyClients = useMemo(
+    () => activeClients.filter((client) => client.type === 'Badan').sort((a, b) => a.name.localeCompare(b.name)),
+    [activeClients]
+  );
+  const investmentCounts = useMemo(() => Object.fromEntries(investmentCategories.map((category) => [
     category,
     companyClients.filter((client) => client.investmentCategory === category).length,
-  ])) as Record<Client['investmentCategory'], number>;
-  const selectedInvestmentClients = companyClients.filter((client) => client.investmentCategory === selectedInvestmentCategory);
-  const capitalClients = companyClients.filter((client) => paidInPercent(client) !== null);
+  ])) as Record<Client['investmentCategory'], number>, [companyClients]);
+  const selectedInvestmentClients = useMemo(
+    () => companyClients.filter((client) => client.investmentCategory === selectedInvestmentCategory),
+    [companyClients, selectedInvestmentCategory]
+  );
+  const capitalClients = useMemo(() => companyClients.filter((client) => paidInPercent(client) !== null), [companyClients]);
   const totalAuthorizedCapital = capitalClients.reduce((sum, client) => sum + (client.authorizedCapital || 0), 0);
   const totalPaidUpCapital = capitalClients.reduce((sum, client) => sum + (client.paidUpCapital || 0), 0);
   const portfolioPaidInPercent = totalAuthorizedCapital > 0 ? totalPaidUpCapital / totalAuthorizedCapital * 100 : null;
@@ -378,22 +394,27 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
           })}
         </div>
         {riskCounts['Not Assessed'] > 0 && <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600"><span className="font-semibold">Belum dinilai: {riskCounts['Not Assessed']} klien.</span> Mohon SPV melengkapi asesmen Accounting dan Tax agar risiko tidak luput dari pemantauan.</p>}
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
           {selectedRiskClients.length ? selectedRiskClients.map((client) => {
-            const clientCases = cases.filter((item) => item.clientId === client.id).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+            const clientCases = casesByClientId.get(client.id) || [];
             return (
-            <article key={client.id} className="rounded-xl border border-slate-200 p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-[10px] font-semibold text-slate-400">{client.id}</span><span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold ${riskTone[client.overallRisk]}`}>{riskLabel[client.overallRisk]}</span></div><h3 className="mt-1 break-words text-sm font-semibold text-slate-900">{client.name}</h3><p className="mt-1 text-[10px] text-slate-500">{client.type === 'Badan' ? `${client.investmentCategory} · ${paidInPercent(client) === null ? 'modal belum lengkap' : `modal disetor ${formatPercent(paidInPercent(client)!)} dari modal dasar akta`}` : 'Orang Pribadi'}</p></div><span className="shrink-0 text-[10px] text-slate-500">Pembaruan {formatDate(client.updatedAt)}</span></div>
+            <article key={client.id} className="rounded-xl border border-slate-200 p-3 sm:p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-[10px] font-semibold text-slate-400">{client.id}</span><span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold ${riskTone[client.overallRisk]}`}>{riskLabel[client.overallRisk]}</span></div><h3 className="mt-1 break-words text-sm font-semibold text-slate-900">{client.name}</h3><p className="mt-1 text-[10px] text-slate-500">{client.type === 'Badan' ? `${client.investmentCategory} · ${paidInPercent(client) === null ? 'modal belum lengkap' : `modal disetor ${formatPercent(paidInPercent(client)!)} dari modal dasar akta`}` : 'Orang Pribadi'}</p></div><span className="shrink-0 text-[9px] text-slate-500">Diperbarui {formatDate(client.updatedAt)}</span></div>
               <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <RiskDivisionDetail division="Accounting" level={client.accountingRisk} reason={client.accountingRiskReason} owner={client.accountingSpvName} reviewDate={client.accountingRiskReviewDate} />
                 <RiskDivisionDetail division="Tax" level={client.taxRisk} reason={client.taxRiskReason} owner={client.taxSpvName} reviewDate={client.taxRiskReviewDate} />
               </div>
               <div className="mt-3 border-t border-slate-100 pt-3">
-                <section aria-label={`Case Register ${client.name}`} className="min-w-0 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-                  <div className="flex items-center justify-between gap-2"><h4 className="text-[11px] font-semibold text-slate-800">Case Register</h4><span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-medium text-slate-500">{clientCases.length}</span></div>
-                  {clientCases.length ? <ul className="mt-2 flex flex-col gap-2">{clientCases.slice(0, 3).map((item) => <li key={item.id} className="rounded-md border border-slate-200 bg-white p-2"><div className="flex flex-wrap items-center gap-1.5 text-[9px] text-slate-500"><span className="font-mono">{item.id}</span><span>·</span><span>{item.division}</span><span>·</span><span className="font-semibold text-slate-700">{item.status}</span></div><p className="mt-1 break-words text-[10px] font-medium leading-4 text-slate-700">{item.title}</p><p className="mt-1 text-[9px] text-slate-500">PIC: {item.followUpPicName || item.picName || 'Belum ditentukan'} · Rencana: {item.nextFollowUpDate ? formatDate(item.nextFollowUpDate) : 'Belum dijadwalkan'}</p></li>)}</ul> : <p className="mt-2 text-[10px] text-slate-500">Belum ada case yang tercatat.</p>}
-                  {clientCases.length > 3 && <p className="mt-2 text-[9px] text-slate-500">+{clientCases.length - 3} case lainnya · lihat Case Register</p>}
-                </section>
+                <details className="group min-w-0 rounded-lg border border-slate-200 bg-slate-50/70">
+                  <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-[11px] font-semibold text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 [&::-webkit-details-marker]:hidden">
+                    <span aria-label={`Case Register ${client.name}`}>Case Register</span>
+                    <span className="flex items-center gap-2"><span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-medium text-slate-500">{clientCases.length}</span><span className="text-[10px] font-medium text-amber-700 group-open:hidden">Lihat detail</span><span className="hidden text-[10px] font-medium text-amber-700 group-open:inline">Tutup</span></span>
+                  </summary>
+                  <div className="border-t border-slate-200 p-3">
+                    {clientCases.length ? <ul className="flex flex-col gap-2">{clientCases.slice(0, 3).map((item) => <li key={item.id} className="rounded-md border border-slate-200 bg-white p-2"><div className="flex flex-wrap items-center gap-1.5 text-[9px] text-slate-500"><span className="font-mono">{item.id}</span><span>·</span><span>{item.division}</span><span>·</span><span className="font-semibold text-slate-700">{item.status}</span></div><p className="mt-1 break-words text-[10px] font-medium leading-4 text-slate-700">{item.title}</p><p className="mt-1 text-[9px] text-slate-500">PIC: {item.followUpPicName || item.picName || 'Belum ditentukan'} · Rencana: {item.nextFollowUpDate ? formatDate(item.nextFollowUpDate) : 'Belum dijadwalkan'}</p></li>)}</ul> : <p className="text-[10px] text-slate-500">Belum ada case yang tercatat.</p>}
+                    {clientCases.length > 3 && <p className="mt-2 text-[9px] text-slate-500">+{clientCases.length - 3} case lainnya · lihat Case Register</p>}
+                  </div>
+                </details>
               </div>
             </article>
           );
@@ -480,5 +501,5 @@ function PeriodStat({ label, value, icon }: { label: string; value: number; icon
 }
 
 function RiskDivisionDetail({ division, level, reason, owner, reviewDate }: { division: 'Accounting' | 'Tax'; level: string; reason: string; owner: string; reviewDate: string }) {
-  return <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-4"><div className="flex items-center justify-between gap-2"><h4 className="text-sm font-semibold text-slate-800">{division}</h4><span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold ${riskTone[level] || riskTone['Not Assessed']}`}>{level}</span></div><p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Alasan risiko</p><p className="mt-1 whitespace-pre-wrap break-words text-sm leading-7 text-slate-800">{reason || 'Belum ada alasan asesmen yang dicatat.'}</p><div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-200 pt-2 text-[10px] text-slate-500"><span>PIC SPV: <strong className="font-medium text-slate-700">{owner || 'Belum ditentukan'}</strong></span><span>Review: <strong className="font-medium text-slate-700">{reviewDate ? formatDate(reviewDate) : 'Belum dijadwalkan'}</strong></span></div></div>;
+  return <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-3"><div className="flex items-center justify-between gap-2"><h4 className="text-xs font-semibold text-slate-800">{division}</h4><span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold ${riskTone[level] || riskTone['Not Assessed']}`}>{level}</span></div><p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Alasan risiko</p><p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-slate-800">{reason || 'Belum ada alasan asesmen yang dicatat.'}</p><div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-200 pt-2 text-[9px] text-slate-500"><span>PIC SPV: <strong className="font-medium text-slate-700">{owner || 'Belum ditentukan'}</strong></span><span>Review: <strong className="font-medium text-slate-700">{reviewDate ? formatDate(reviewDate) : 'Belum dijadwalkan'}</strong></span></div></div>;
 }

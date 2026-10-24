@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, lazy, useState, useEffect, useCallback } from 'react';
 import {
   api,
   removeToken,
@@ -16,20 +16,20 @@ import { ToastProvider, useToast } from './components/Toast';
 import { Sidebar, type NavTab } from './components/Sidebar';
 import { Header } from './components/Header';
 import { LoginView } from './components/LoginView';
-import { DashboardView } from './components/DashboardView';
-import { ClientsView } from './components/ClientsView';
-import { JobsView } from './components/JobsView';
-import { CasesView } from './components/CasesView';
-import { FollowUpView } from './components/FollowUpView';
-import { DailyActivitiesView } from './components/DailyActivitiesView';
-import { MeetingMinutesView } from './components/MeetingMinutesView';
-import { TeamAgendaView } from './components/TeamAgendaView';
-import { ExecutiveSummaryView } from './components/ExecutiveSummaryView';
-import { ReportsView } from './components/ReportsView';
-import { BackupRestoreView } from './components/BackupRestoreView';
-import { AuditLogView } from './components/AuditLogView';
-import { BrandingSettingsView } from './components/BrandingSettingsView';
-import { UserManagementView } from './components/UserManagementView';
+const DashboardView = lazy(() => import('./components/DashboardView').then(({ DashboardView }) => ({ default: DashboardView })));
+const ClientsView = lazy(() => import('./components/ClientsView').then(({ ClientsView }) => ({ default: ClientsView })));
+const JobsView = lazy(() => import('./components/JobsView').then(({ JobsView }) => ({ default: JobsView })));
+const CasesView = lazy(() => import('./components/CasesView').then(({ CasesView }) => ({ default: CasesView })));
+const FollowUpView = lazy(() => import('./components/FollowUpView').then(({ FollowUpView }) => ({ default: FollowUpView })));
+const DailyActivitiesView = lazy(() => import('./components/DailyActivitiesView').then(({ DailyActivitiesView }) => ({ default: DailyActivitiesView })));
+const MeetingMinutesView = lazy(() => import('./components/MeetingMinutesView').then(({ MeetingMinutesView }) => ({ default: MeetingMinutesView })));
+const TeamAgendaView = lazy(() => import('./components/TeamAgendaView').then(({ TeamAgendaView }) => ({ default: TeamAgendaView })));
+const ExecutiveSummaryView = lazy(() => import('./components/ExecutiveSummaryView').then(({ ExecutiveSummaryView }) => ({ default: ExecutiveSummaryView })));
+const ReportsView = lazy(() => import('./components/ReportsView').then(({ ReportsView }) => ({ default: ReportsView })));
+const BackupRestoreView = lazy(() => import('./components/BackupRestoreView').then(({ BackupRestoreView }) => ({ default: BackupRestoreView })));
+const AuditLogView = lazy(() => import('./components/AuditLogView').then(({ AuditLogView }) => ({ default: AuditLogView })));
+const BrandingSettingsView = lazy(() => import('./components/BrandingSettingsView').then(({ BrandingSettingsView }) => ({ default: BrandingSettingsView })));
+const UserManagementView = lazy(() => import('./components/UserManagementView').then(({ UserManagementView }) => ({ default: UserManagementView })));
 import { AlertCircle, RefreshCw, Database } from 'lucide-react';
 
 function MainApp() {
@@ -226,6 +226,7 @@ function MainApp() {
 
         {/* Viewport Content */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+          <Suspense fallback={<div role="status" aria-live="polite" className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500">Memuat halaman…</div>}>
           {currentTab === 'dashboard' && (
             <DashboardView
               stats={stats}
@@ -364,6 +365,7 @@ function MainApp() {
           {currentTab === 'users' && currentUser.role === 'Admin' && (
             <UserManagementView currentUser={currentUser} />
           )}
+          </Suspense>
         </main>
       </div>
     </div>
