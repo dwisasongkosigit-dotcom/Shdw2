@@ -21,6 +21,7 @@ import {
   exportExecutiveSummaryExcel,
   printExecutiveSummaryPdf,
   type AgendaExportRow,
+  type CapitalExportRow,
   type ExecutiveSummaryExportData,
   type OperationsExportRow,
   type RiskExportRow,
@@ -46,8 +47,8 @@ const riskOrder: Record<string, number> = { High: 0, Medium: 1, Low: 2, 'Not Ass
 const riskLabel: Record<string, string> = { High: 'High Risk', Medium: 'Medium Risk', Low: 'Low Risk', 'Not Assessed': 'Belum Dinilai' };
 const riskTone: Record<string, string> = {
   High: 'border-rose-200 bg-rose-50 text-rose-700',
-  Medium: 'border-amber-200 bg-amber-50 text-amber-700',
-  Low: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  Medium: 'border-orange-200 bg-orange-50 text-orange-700',
+  Low: 'border-yellow-200 bg-yellow-50 text-yellow-800',
   'Not Assessed': 'border-slate-200 bg-slate-100 text-slate-600',
 };
 
@@ -60,6 +61,20 @@ function formatDate(value?: string) {
   const date = new Date(`${dateOnly(value)}T00:00:00.000Z`);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(date);
+}
+
+function formatRupiah(value?: number | null) {
+  if (value === undefined || value === null) return '—';
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value);
+}
+
+function paidInPercent(client: Client) {
+  if (!client.authorizedCapital || client.authorizedCapital <= 0 || client.paidUpCapital === undefined || client.paidUpCapital === null) return null;
+  return client.paidUpCapital / client.authorizedCapital * 100;
+}
+
+function formatPercent(value: number) {
+  return `${new Intl.NumberFormat('id-ID', { maximumFractionDigits: 1 }).format(value)}%`;
 }
 
 function getRisk(client: Client): ClientRisk['overallRisk'] {
@@ -88,6 +103,7 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
   const { success, error } = useToast();
   const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
   const [selectedRisk, setSelectedRisk] = useState<RiskBucket>('High');
+  const [selectedInvestmentCategory, setSelectedInvestmentCategory] = useState<Client['investmentCategory']>('PMA');
   const [exporting, setExporting] = useState<'pdf' | 'excel' | null>(null);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportClientTypes, setExportClientTypes] = useState<Client['type'][]>(['Badan', 'OP']);
@@ -112,6 +128,17 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
     'Not Assessed': riskClients.filter((client) => client.overallRisk === 'Not Assessed').length,
   }), [riskClients]);
   const selectedRiskClients = riskClients.filter((client) => client.overallRisk === selectedRisk);
+  const companyClients = activeClients.filter((client) => client.type === 'Badan').sort((a, b) => a.name.localeCompare(b.name));
+  const investmentCategories: Client['investmentCategory'][] = ['PMA', 'PMDN', 'Belum Ditentukan'];
+  const investmentCounts = Object.fromEntries(investmentCategories.map((category) => [
+    category,
+    companyClients.filter((client) => client.investmentCategory === category).length,
+  ])) as Record<Client['investmentCategory'], number>;
+  const selectedInvestmentClients = companyClients.filter((client) => client.investmentCategory === selectedInvestmentCategory);
+  const capitalClients = companyClients.filter((client) => paidInPercent(client) !== null);
+  const totalAuthorizedCapital = capitalClients.reduce((sum, client) => sum + (client.authorizedCapital || 0), 0);
+  const totalPaidUpCapital = capitalClients.reduce((sum, client) => sum + (client.paidUpCapital || 0), 0);
+  const portfolioPaidInPercent = totalAuthorizedCapital > 0 ? totalPaidUpCapital / totalAuthorizedCapital * 100 : null;
   const openJobs = jobs.filter(isOpenJob);
   const overdueJobs = openJobs.filter((job) => job.deadline && job.deadline < today).sort((a, b) => a.deadline.localeCompare(b.deadline));
   const readyForReview = jobs.filter((job) => job.status === 'Siap Direview');
@@ -167,6 +194,23 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
 
   const selectedExportDivisions: Array<'Accounting' | 'Tax'> = exportDivision === 'Both' ? ['Accounting', 'Tax'] : [exportDivision];
   const selectedExportClients = activeClients.filter((client) => exportClientTypes.includes(client.type));
+  const selectedCapitalClients = selectedExportClients.filter((client) => client.type === 'Badan' && paidInPercent(client) !== null);
+  const selectedAuthorizedCapital = selectedCapitalClients.reduce((sum, client) => sum + (client.authorizedCapital || 0), 0);
+  const selectedPaidUpCapital = selectedCapitalClients.reduce((sum, client) => sum + (client.paidUpCapital || 0), 0);
+  const capitalExportRows: CapitalExportRow[] = selectedExportClients.filter((client) => client.type === 'Badan').map((client) => {
+    const paidPercent = paidInPercent(client);
+    return {
+      clientId: client.id,
+      clientName: client.name,
+      investmentCategory: client.investmentCategory,
+      deedNumber: client.deedNumber || '—',
+      deedDate: client.deedDate ? formatDate(client.deedDate) : '—',
+      authorizedCapital: formatRupiah(client.authorizedCapital),
+      issuedCapital: formatRupiah(client.issuedCapital),
+      paidUpCapital: formatRupiah(client.paidUpCapital),
+      paidInPercent: paidPercent === null ? 'Belum cukup data' : formatPercent(paidPercent),
+    };
+  });
   const selectedExportClientIds = new Set(clients.filter((client) => exportClientTypes.includes(client.type)).map((client) => client.id));
   const selectedRiskRows = riskClients.filter((client) => selectedExportClientIds.has(client.id)).map((client) => {
     const selectedRiskLevel = exportDivision === 'Accounting' ? client.accountingRisk : exportDivision === 'Tax' ? client.taxRisk : client.overallRisk;
@@ -236,6 +280,8 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
     { metric: 'Medium Risk', value: selectedRiskCounts.Medium, note: 'Sesuai divisi yang dipilih.' },
     { metric: 'Low Risk', value: selectedRiskCounts.Low, note: 'Sesuai divisi yang dipilih.' },
     { metric: 'Belum dinilai', value: selectedRiskCounts['Not Assessed'], note: 'Pada divisi yang dipilih.' },
+    { metric: 'Klien badan dengan data modal lengkap', value: selectedCapitalClients.length, note: 'Setoran dan modal dasar akta tersedia.' },
+    { metric: 'Persentase modal disetor', value: selectedAuthorizedCapital ? formatPercent(selectedPaidUpCapital / selectedAuthorizedCapital * 100) : '—', note: 'Total modal disetor ÷ total modal dasar pada klien dengan data lengkap.' },
     { metric: 'Pekerjaan aktif', value: selectedOpenJobs.length, note: 'Pekerjaan yang belum selesai.' },
     { metric: 'Pekerjaan terlambat', value: selectedOverdueJobs.length, note: 'Tenggat sebelum hari ini.' },
     { metric: 'Menunggu review SPV', value: selectedReadyForReview.length, note: 'Status Siap Direview.' },
@@ -254,6 +300,7 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
     overallStatus: selectedOverallStatus,
     metrics: exportMetrics,
     risks: selectedRiskRows,
+    investments: capitalExportRows,
     operations: selectedOperations,
     agenda: agendaRows,
     highlights: selectedHighlights,
@@ -327,20 +374,73 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
           {(['High', 'Medium', 'Low'] as RiskBucket[]).map((bucket) => {
             const count = riskCounts[bucket];
             const percent = activeClients.length ? Math.round(count / activeClients.length * 100) : 0;
-            return <button key={bucket} type="button" onClick={() => setSelectedRisk(bucket)} aria-pressed={selectedRisk === bucket} className={`rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 ${selectedRisk === bucket ? 'border-slate-400 bg-slate-50 shadow-sm' : 'border-slate-200 bg-white hover:bg-slate-50'}`}><div className="flex items-center justify-between"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${riskTone[bucket]}`}>{riskLabel[bucket]}</span><span className="text-xl font-semibold tabular-nums text-slate-900">{count}</span></div><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${bucket === 'High' ? 'bg-rose-500' : bucket === 'Medium' ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${percent}%` }} /></div><p className="mt-1.5 text-[10px] text-slate-500">{percent}% dari {activeClients.length} klien aktif · klik untuk detail</p></button>;
+            return <button key={bucket} type="button" onClick={() => setSelectedRisk(bucket)} aria-pressed={selectedRisk === bucket} className={`rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 ${selectedRisk === bucket ? 'border-slate-400 bg-slate-50 shadow-sm' : 'border-slate-200 bg-white hover:bg-slate-50'}`}><div className="flex items-center justify-between"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${riskTone[bucket]}`}>{riskLabel[bucket]}</span><span className="text-xl font-semibold tabular-nums text-slate-900">{count}</span></div><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${bucket === 'High' ? 'bg-rose-500' : bucket === 'Medium' ? 'bg-orange-500' : 'bg-yellow-500'}`} style={{ width: `${percent}%` }} /></div><p className="mt-1.5 text-[10px] text-slate-500">{percent}% dari {activeClients.length} klien aktif · klik untuk detail</p></button>;
           })}
         </div>
         {riskCounts['Not Assessed'] > 0 && <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600"><span className="font-semibold">Belum dinilai: {riskCounts['Not Assessed']} klien.</span> Mohon SPV melengkapi asesmen Accounting dan Tax agar risiko tidak luput dari pemantauan.</p>}
         <div className="mt-4 space-y-3">
           {selectedRiskClients.length ? selectedRiskClients.map((client) => (
             <article key={client.id} className="rounded-xl border border-slate-200 p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-[10px] font-semibold text-slate-400">{client.id}</span><span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold ${riskTone[client.overallRisk]}`}>{riskLabel[client.overallRisk]}</span></div><h3 className="mt-1 break-words text-sm font-semibold text-slate-900">{client.name}</h3></div><span className="shrink-0 text-[10px] text-slate-500">Pembaruan {formatDate(client.updatedAt)}</span></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-[10px] font-semibold text-slate-400">{client.id}</span><span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold ${riskTone[client.overallRisk]}`}>{riskLabel[client.overallRisk]}</span></div><h3 className="mt-1 break-words text-sm font-semibold text-slate-900">{client.name}</h3><p className="mt-1 text-[10px] text-slate-500">{client.type === 'Badan' ? `${client.investmentCategory} · ${paidInPercent(client) === null ? 'modal belum lengkap' : `modal disetor ${formatPercent(paidInPercent(client)!)} dari modal dasar akta`}` : 'Orang Pribadi'}</p></div><span className="shrink-0 text-[10px] text-slate-500">Pembaruan {formatDate(client.updatedAt)}</span></div>
               <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <RiskDivisionDetail division="Accounting" level={client.accountingRisk} reason={client.accountingRiskReason} action={client.accountingRiskRecommendation} owner={client.accountingSpvName} reviewDate={client.accountingRiskReviewDate} />
                 <RiskDivisionDetail division="Tax" level={client.taxRisk} reason={client.taxRiskReason} action={client.taxRiskRecommendation} owner={client.taxSpvName} reviewDate={client.taxRiskReviewDate} />
               </div>
             </article>
           )) : <div className="rounded-xl border border-dashed border-slate-200 px-5 py-10 text-center"><Users className="mx-auto size-7 text-slate-300" /><p className="mt-2 text-sm font-semibold text-slate-700">Belum ada klien {riskLabel[selectedRisk]}</p><p className="mt-1 text-xs text-slate-500">Tidak ada data pada kategori ini untuk snapshot aktif.</p></div>}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" aria-labelledby="investment-capital-title">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">Portofolio badan usaha</p>
+            <h2 id="investment-capital-title" className="mt-1 text-base font-semibold text-slate-900">Investasi & modal sesuai akta</h2>
+            <p className="mt-1 text-xs text-slate-500">Persentase setoran = modal disetor ÷ modal dasar yang tercantum dalam akta.</p>
+          </div>
+          <button type="button" onClick={() => onNavigateTab('clients')} className="inline-flex items-center gap-1 self-start text-xs font-semibold text-slate-600 hover:text-slate-900 sm:self-auto">Buka master klien <ArrowUpRight className="size-3.5" /></button>
+        </div>
+        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(220px,0.7fr)_minmax(0,1.5fr)]">
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-3 gap-2">
+              {investmentCategories.map((category) => (
+                <button key={category} type="button" onClick={() => setSelectedInvestmentCategory(category)} aria-pressed={selectedInvestmentCategory === category} className={`rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 ${selectedInvestmentCategory === category ? 'border-slate-400 bg-slate-50 shadow-sm' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+                  <span className="block text-[10px] font-medium leading-4 text-slate-500">{category === 'Belum Ditentukan' ? 'Belum diatur' : category}</span>
+                  <span className="mt-1 block text-xl font-semibold tabular-nums text-slate-900">{investmentCounts[category]}</span>
+                </button>
+              ))}
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+              <h3 className="text-xs font-semibold text-slate-800">Klien {selectedInvestmentCategory === 'Belum Ditentukan' ? 'belum diklasifikasikan' : selectedInvestmentCategory}</h3>
+              <div className="mt-2 max-h-64 overflow-y-auto">
+                {selectedInvestmentClients.length ? <ul className="divide-y divide-slate-200/70">
+                  {selectedInvestmentClients.map((client) => {
+                    const percent = paidInPercent(client);
+                    return <li key={client.id} className="py-2 first:pt-0 last:pb-0"><p className="text-xs font-medium text-slate-800">{client.name}</p><p className="mt-0.5 text-[10px] text-slate-500">{client.id} · {percent === null ? 'Persentase modal belum tersedia' : `Disetor ${formatPercent(percent)} dari modal dasar`}</p></li>;
+                  })}
+                </ul> : <p className="py-3 text-xs text-slate-500">Tidak ada klien pada kategori ini.</p>}
+              </div>
+            </div>
+          </div>
+          <div className="min-w-0 rounded-xl border border-slate-200 p-3 sm:p-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-lg bg-slate-50 p-3"><p className="text-[10px] font-medium text-slate-500">Cakupan data lengkap</p><p className="mt-1 text-base font-semibold tabular-nums text-slate-900">{capitalClients.length} / {companyClients.length}</p><p className="mt-0.5 text-[10px] text-slate-500">Badan usaha aktif</p></div>
+              <div className="rounded-lg bg-slate-50 p-3"><p className="text-[10px] font-medium text-slate-500">Total modal dasar</p><p className="mt-1 text-sm font-semibold tabular-nums text-slate-900">{formatRupiah(totalAuthorizedCapital)}</p><p className="mt-0.5 text-[10px] text-slate-500">Klien dengan data lengkap</p></div>
+              <div className="rounded-lg bg-amber-50 p-3"><p className="text-[10px] font-medium text-amber-800">Total modal disetor</p><p className="mt-1 text-sm font-semibold tabular-nums text-slate-900">{formatRupiah(totalPaidUpCapital)}</p><p className="mt-0.5 text-[10px] text-amber-800">Rasio portofolio: {portfolioPaidInPercent === null ? '—' : formatPercent(portfolioPaidInPercent)}</p></div>
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 overflow-auto rounded-lg border border-slate-100">
+          <table className="w-full min-w-[720px] text-left text-[10px]">
+            <caption className="sr-only">Modal dasar, modal ditempatkan, modal disetor, dan persentase setoran per badan usaha aktif</caption>
+            <thead className="sticky top-0 bg-slate-50 text-slate-500"><tr><th className="px-2 py-2 font-medium">Klien / kategori</th><th className="px-2 py-2 text-right font-medium">Modal dasar</th><th className="px-2 py-2 text-right font-medium">Ditempatkan</th><th className="px-2 py-2 text-right font-medium">Disetor</th><th className="px-2 py-2 text-right font-medium">Disetor / dasar</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {companyClients.length ? companyClients.map((client) => {
+                const percent = paidInPercent(client);
+                return <tr key={client.id}><td className="px-2 py-2.5"><span className="block font-medium text-slate-800">{client.name}</span><span className="mt-0.5 block text-[9px] text-slate-500">{client.investmentCategory} · {client.deedNumber ? `Akta ${client.deedNumber}` : 'Nomor akta belum diisi'}{client.deedDate ? ` · ${formatDate(client.deedDate)}` : ''}</span></td><td className="px-2 py-2.5 text-right tabular-nums text-slate-600">{formatRupiah(client.authorizedCapital)}</td><td className="px-2 py-2.5 text-right tabular-nums text-slate-600">{formatRupiah(client.issuedCapital)}</td><td className="px-2 py-2.5 text-right tabular-nums text-slate-600">{formatRupiah(client.paidUpCapital)}</td><td className="px-2 py-2.5 text-right font-semibold tabular-nums text-slate-800">{percent === null ? '—' : formatPercent(percent)}</td></tr>;
+              }) : <tr><td colSpan={5} className="px-3 py-8 text-center text-slate-500">Belum ada badan usaha aktif.</td></tr>}
+            </tbody>
+          </table>
         </div>
       </section>
 
