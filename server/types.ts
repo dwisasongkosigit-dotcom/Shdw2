@@ -302,6 +302,31 @@ export interface MeetingMinute {
   updatedBy: string;
 }
 
+export type AgendaDivision = 'Lintas Divisi' | 'Accounting' | 'Tax';
+export type AgendaStatus = 'Terjadwal' | 'Selesai' | 'Dibatalkan';
+
+export interface TeamAgendaEntry {
+  id: string;
+  title: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  meetingType: string;
+  division: AgendaDivision;
+  location: string;
+  clientId?: string;
+  clientName?: string;
+  jobId?: string;
+  jobTitle?: string;
+  participants: string[];
+  notes: string;
+  status: AgendaStatus;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  updatedBy: string;
+}
+
 export interface AuditLog {
   id: string;
   timestamp: string;
@@ -344,6 +369,7 @@ export interface BackupInfo {
 export interface DatabaseSchema {
   branding: BrandingConfig;
   meetingMinutes: MeetingMinute[];
+  agendaEntries: TeamAgendaEntry[];
   users: User[];
   clients: Client[];
   jobs: Job[];

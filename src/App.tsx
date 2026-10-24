@@ -9,6 +9,7 @@ import {
   type Case,
   type DailyActivity,
   type MeetingMinute,
+  type TeamAgendaEntry,
   type UserAccount,
 } from './lib/api';
 import { ToastProvider, useToast } from './components/Toast';
@@ -22,6 +23,8 @@ import { CasesView } from './components/CasesView';
 import { FollowUpView } from './components/FollowUpView';
 import { DailyActivitiesView } from './components/DailyActivitiesView';
 import { MeetingMinutesView } from './components/MeetingMinutesView';
+import { TeamAgendaView } from './components/TeamAgendaView';
+import { ExecutiveSummaryView } from './components/ExecutiveSummaryView';
 import { ReportsView } from './components/ReportsView';
 import { BackupRestoreView } from './components/BackupRestoreView';
 import { AuditLogView } from './components/AuditLogView';
@@ -52,6 +55,7 @@ function MainApp() {
   const [cases, setCases] = useState<Case[]>([]);
   const [activities, setActivities] = useState<DailyActivity[]>([]);
   const [meetingMinutes, setMeetingMinutes] = useState<MeetingMinute[]>([]);
+  const [agendaEntries, setAgendaEntries] = useState<TeamAgendaEntry[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [dbHealth, setDbHealth] = useState<any>(null);
 
@@ -92,13 +96,14 @@ function MainApp() {
     setConnectionError(null);
 
     try {
-      const [clientsData, jobsData, casesData, activitiesData, meetingMinutesData, statsData, healthData, usersData] =
+      const [clientsData, jobsData, casesData, activitiesData, meetingMinutesData, agendaData, statsData, healthData, usersData] =
         await Promise.all([
           api.getClients(),
           api.getJobs(),
           api.getCases(),
           api.getDailyActivities(),
           api.getMeetingMinutes(),
+          api.getAgendaEntries(),
           api.getStats(statsDivision === 'All' ? undefined : { division: statsDivision }),
           api.getHealth(),
           api.getUsers(),
@@ -110,6 +115,7 @@ function MainApp() {
       setCases(casesData);
       setActivities(activitiesData);
       setMeetingMinutes(meetingMinutesData);
+      setAgendaEntries(agendaData);
       setStats(statsData);
       setDbHealth(healthData);
     } catch (err: any) {
@@ -292,6 +298,28 @@ function MainApp() {
               currentUser={currentUser}
               companyName={branding.companyName}
               onRefresh={() => loadAllBusinessData()}
+            />
+          )}
+
+          {currentTab === 'agenda' && (
+            <TeamAgendaView
+              entries={agendaEntries}
+              clients={clients}
+              jobs={jobs}
+              currentUser={currentUser}
+              onRefresh={() => loadAllBusinessData()}
+            />
+          )}
+
+          {currentTab === 'executive-summary' && (
+            <ExecutiveSummaryView
+              clients={clients}
+              jobs={jobs}
+              cases={cases}
+              activities={activities}
+              agendaEntries={agendaEntries}
+              lastUpdated={dbHealth?.lastSaved}
+              onNavigateTab={(tab) => setCurrentTab(tab)}
             />
           )}
 

@@ -275,6 +275,31 @@ export interface MeetingMinute {
   updatedBy: string;
 }
 
+export type AgendaDivision = 'Lintas Divisi' | 'Accounting' | 'Tax';
+export type AgendaStatus = 'Terjadwal' | 'Selesai' | 'Dibatalkan';
+
+export interface TeamAgendaEntry {
+  id: string;
+  title: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  meetingType: string;
+  division: AgendaDivision;
+  location: string;
+  clientId?: string;
+  clientName?: string;
+  jobId?: string;
+  jobTitle?: string;
+  participants: string[];
+  notes: string;
+  status: AgendaStatus;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  updatedBy: string;
+}
+
 export interface UserAccount {
   id: string;
   name: string;
@@ -520,6 +545,23 @@ export const api = {
     }),
   deleteDailyActivity: (id: string) =>
     request<{ success: boolean; message: string }>(`/api/daily-activities/${id}`, {
+      method: 'DELETE',
+    }),
+
+  // Team agenda
+  getAgendaEntries: () => request<TeamAgendaEntry[]>('/api/agenda'),
+  createAgendaEntry: (data: Partial<TeamAgendaEntry>) =>
+    request<{ success: boolean; agenda: TeamAgendaEntry; message: string }>('/api/agenda', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateAgendaEntry: (id: string, data: Partial<TeamAgendaEntry>) =>
+    request<{ success: boolean; agenda: TeamAgendaEntry; message: string }>(`/api/agenda/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteAgendaEntry: (id: string) =>
+    request<{ success: boolean; message: string }>(`/api/agenda/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }),
 
