@@ -10,8 +10,8 @@ const palette = {
   PMA: '#c8872e',
   PMDN: '#496f91',
   High: '#dc6b63',
-  Medium: '#d9a441',
-  Low: '#4a9b78',
+  Medium: '#e58a2b',
+  Low: '#d5a21d',
   'Belum Dinilai': '#94a3b8',
 };
 

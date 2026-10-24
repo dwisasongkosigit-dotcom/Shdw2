@@ -56,6 +56,11 @@ export interface Client {
   type: 'Badan' | 'OP';
   entityType: 'PT' | 'CV' | 'Firma' | 'Lainnya' | '-';
   investmentCategory: 'PMA' | 'PMDN' | 'Belum Ditentukan';
+  deedNumber?: string;
+  deedDate?: string;
+  authorizedCapital?: number | null;
+  issuedCapital?: number | null;
+  paidUpCapital?: number | null;
   dataType: 'Real' | 'Simulasi' | 'Belum Diatur';
   suggestions: ClientSuggestion[];
 

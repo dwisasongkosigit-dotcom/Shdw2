@@ -86,6 +86,11 @@ export interface Client {
   type: ClientType;
   entityType: EntityType;
   investmentCategory: InvestmentCategory;
+  deedNumber?: string;
+  deedDate?: string;
+  authorizedCapital?: number | null;
+  issuedCapital?: number | null;
+  paidUpCapital?: number | null;
   dataType: ClientDataType;
   suggestions: ClientSuggestion[];
 

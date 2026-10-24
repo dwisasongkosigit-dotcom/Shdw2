@@ -609,6 +609,19 @@ apiRouter.post(
       res.status(400).json({ error: 'Jenis data klien tidak valid.' });
       return;
     }
+    const capitalFields = ['authorizedCapital', 'issuedCapital', 'paidUpCapital'] as const;
+    if (capitalFields.some((field) => data[field] !== undefined && data[field] !== null && (typeof data[field] !== 'number' || !Number.isSafeInteger(data[field]) || data[field] < 0))) {
+      res.status(400).json({ error: 'Nilai modal harus berupa angka rupiah bulat nol atau lebih.' });
+      return;
+    }
+    if (data.deedNumber !== undefined && (typeof data.deedNumber !== 'string' || data.deedNumber.length > 100)) {
+      res.status(400).json({ error: 'Nomor akta tidak valid.' });
+      return;
+    }
+    if (data.deedDate !== undefined && (typeof data.deedDate !== 'string' || (data.deedDate && !/^\d{4}-\d{2}-\d{2}$/.test(data.deedDate)))) {
+      res.status(400).json({ error: 'Tanggal akta tidak valid.' });
+      return;
+    }
 
     const db = getDb();
     const nextNumber = db.clients.length + 1;
@@ -681,6 +694,11 @@ apiRouter.post(
 
       status: data.status || 'Aktif',
       investmentCategory: data.investmentCategory || 'Belum Ditentukan',
+      deedNumber: typeof data.deedNumber === 'string' ? data.deedNumber.trim() : '',
+      deedDate: typeof data.deedDate === 'string' ? data.deedDate : '',
+      authorizedCapital: data.authorizedCapital ?? null,
+      issuedCapital: data.issuedCapital ?? null,
+      paidUpCapital: data.paidUpCapital ?? null,
       dataType: data.dataType || 'Real',
       suggestions: [],
       notes: data.notes || '',
@@ -894,6 +912,17 @@ apiRouter.put(
       }
       if (updates.dataType !== undefined && !['Real', 'Simulasi', 'Belum Diatur'].includes(updates.dataType)) {
         throw new Error('Jenis data klien tidak valid.');
+      }
+      const capitalFields = ['authorizedCapital', 'issuedCapital', 'paidUpCapital'] as const;
+      if (capitalFields.some((field) => updates[field] !== undefined && updates[field] !== null && (typeof updates[field] !== 'number' || !Number.isSafeInteger(updates[field]) || updates[field] < 0))) {
+        throw new Error('Nilai modal harus berupa angka rupiah bulat nol atau lebih.');
+      }
+      if (updates.deedNumber !== undefined) {
+        if (typeof updates.deedNumber !== 'string' || updates.deedNumber.length > 100) throw new Error('Nomor akta tidak valid.');
+        updates.deedNumber = updates.deedNumber.trim();
+      }
+      if (updates.deedDate !== undefined && (typeof updates.deedDate !== 'string' || (updates.deedDate && !/^\d{4}-\d{2}-\d{2}$/.test(updates.deedDate)))) {
+        throw new Error('Tanggal akta tidak valid.');
       }
 
       // Synchronize backward compat fields

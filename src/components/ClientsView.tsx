@@ -877,6 +877,35 @@ export function ClientsView({
                 </div>
               </div>
 
+              {formData.type !== 'OP' && (
+                <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-4" aria-labelledby="client-capital-title">
+                  <div className="border-b border-slate-100 pb-2">
+                    <h4 id="client-capital-title" className="text-xs font-bold uppercase tracking-wider text-slate-900">Data akta & permodalan</h4>
+                    <p className="mt-1 text-[11px] leading-5 text-slate-500">Opsional. Persentase setoran dihitung dari modal disetor dibanding modal dasar yang tercantum dalam akta.</p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="client-deed-number" className="mb-1 block font-medium text-slate-600">Nomor akta terakhir</label>
+                      <input id="client-deed-number" type="text" maxLength={100} disabled={!isEditMode && !isAddModalOpen} value={formData.deedNumber || ''} onChange={(event) => setFormData({ ...formData, deedNumber: event.target.value })} placeholder="Nomor akta" className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900 disabled:bg-slate-100" />
+                    </div>
+                    <div>
+                      <label htmlFor="client-deed-date" className="mb-1 block font-medium text-slate-600">Tanggal akta</label>
+                      <input id="client-deed-date" type="date" disabled={!isEditMode && !isAddModalOpen} value={formData.deedDate || ''} onChange={(event) => setFormData({ ...formData, deedDate: event.target.value })} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900 disabled:bg-slate-100" />
+                    </div>
+                    {([
+                      { key: 'authorizedCapital' as const, label: 'Modal dasar sesuai akta' },
+                      { key: 'issuedCapital' as const, label: 'Modal ditempatkan' },
+                      { key: 'paidUpCapital' as const, label: 'Modal disetor' },
+                    ]).map(({ key, label }) => (
+                      <div key={key}>
+                        <label htmlFor={`client-${key}`} className="mb-1 block font-medium text-slate-600">{label} (Rp)</label>
+                        <input id={`client-${key}`} type="number" min="0" step="1" inputMode="numeric" disabled={!isEditMode && !isAddModalOpen} value={formData[key] ?? ''} onChange={(event) => setFormData({ ...formData, [key]: event.target.value === '' ? null : Number(event.target.value) })} placeholder="Belum diisi" className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900 disabled:bg-slate-100" />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               {/* PEMBAGIAN 4 PIC KLIEN (Section 3 Prompt 2) */}
               <div className="space-y-4 p-4 bg-slate-50 border border-slate-200 rounded-xl">
                 <div className="flex items-center justify-between pb-1 border-b border-slate-200">

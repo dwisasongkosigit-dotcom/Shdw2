@@ -20,6 +20,18 @@ export interface RiskExportRow {
   taxReview: string;
 }
 
+export interface CapitalExportRow {
+  clientId: string;
+  clientName: string;
+  investmentCategory: string;
+  deedNumber: string;
+  deedDate: string;
+  authorizedCapital: string;
+  issuedCapital: string;
+  paidUpCapital: string;
+  paidInPercent: string;
+}
+
 export interface OperationsExportRow {
   clientId?: string;
   category: string;
@@ -55,6 +67,7 @@ export interface ExecutiveSummaryExportData {
   overallStatus: string;
   metrics: SummaryMetric[];
   risks: RiskExportRow[];
+  investments: CapitalExportRow[];
   operations: OperationsExportRow[];
   agenda: AgendaExportRow[];
   highlights: string[];
@@ -99,6 +112,13 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
         { key: 'taxRisk', label: 'Tax' }, { key: 'taxReason', label: 'Alasan Tax' },
         { key: 'taxAction', label: 'Tindakan Tax' }, { key: 'taxSpv', label: 'SPV Tax' },
       ];
+  const investmentColumns: Array<{ key: keyof CapitalExportRow; label: string }> = [
+    { key: 'clientId', label: 'ID' }, { key: 'clientName', label: 'Klien' },
+    { key: 'investmentCategory', label: 'PMA/PMDN' }, { key: 'deedNumber', label: 'Nomor akta' },
+    { key: 'deedDate', label: 'Tanggal akta' }, { key: 'authorizedCapital', label: 'Modal dasar (akta)' },
+    { key: 'issuedCapital', label: 'Modal ditempatkan' }, { key: 'paidUpCapital', label: 'Modal disetor' },
+    { key: 'paidInPercent', label: 'Disetor / dasar' },
+  ];
   const operationColumns: Array<{ key: keyof OperationsExportRow; label: string }> = [
     { key: 'category', label: 'Jenis' }, { key: 'reference', label: 'Referensi' },
     { key: 'client', label: 'Klien' }, { key: 'division', label: 'Divisi' },
@@ -155,8 +175,9 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
       <header><div class="brand">TMM &amp; BMA Advisory · Management Office</div><h1>Executive Summary</h1><p class="subtitle">Periode ${escapeHtml(data.period)} · ${escapeHtml(data.scopeLabel || 'Semua cakupan')}</p><span class="status">Status: ${escapeHtml(data.overallStatus)}</span><dl class="meta"><div><dt>Periode laporan</dt><dd>${escapeHtml(data.period)}</dd></div><div><dt>Dibuat pada</dt><dd>${escapeHtml(data.generatedAt)}</dd></div><div><dt>Data terakhir tersimpan</dt><dd>${escapeHtml(data.sourceUpdatedAt)}</dd></div><div><dt>Cakupan</dt><dd>${escapeHtml(data.scopeLabel || 'Semua cakupan')}</dd></div></dl><p class="scope">${escapeHtml(data.scopeNote)}</p></header>
       <section class="section"><h2><span>01</span>Ikhtisar periode</h2><dl class="metrics">${metricCards}</dl><h2><span>02</span>Sorotan untuk manajemen</h2><ul class="highlights">${highlights}</ul></section>
       <section class="section page-break"><h2><span>03</span>Portofolio risiko klien</h2><table><thead><tr>${riskColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.risks, riskColumns)}</tbody></table></section>
-      <section class="section page-break"><h2><span>04</span>Pekerjaan, kasus, dan tindak lanjut</h2><table><thead><tr>${operationColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.operations, operationColumns)}</tbody></table></section>
-      <section class="section page-break"><h2><span>05</span>Agenda meeting</h2><table><thead><tr>${agendaColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.agenda, agendaColumns)}</tbody></table>${footer}</section>
+      <section class="section page-break"><h2><span>04</span>Investasi & modal sesuai akta</h2><p>Persentase dihitung dari modal disetor dibagi modal dasar yang tercantum dalam akta.</p><table><thead><tr>${investmentColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.investments, investmentColumns)}</tbody></table></section>
+      <section class="section page-break"><h2><span>05</span>Pekerjaan, kasus, dan tindak lanjut</h2><table><thead><tr>${operationColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.operations, operationColumns)}</tbody></table></section>
+      <section class="section page-break"><h2><span>06</span>Agenda meeting</h2><table><thead><tr>${agendaColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.agenda, agendaColumns)}</tbody></table>${footer}</section>
       <script>window.addEventListener('load', () => setTimeout(() => window.print(), 250));</script>
     </body></html>`);
   printWindow.document.close();
@@ -244,6 +265,17 @@ export async function exportExecutiveSummaryExcel(data: ExecutiveSummaryExportDa
         { header: 'Review Tax', key: 'taxReview', width: 17 },
       ];
   addSheet('Risiko Klien', 'PORTOFOLIO RISIKO KLIEN', `Cakupan risiko: ${data.scopeLabel || 'semua divisi'}.`, riskColumns, data.risks);
+  addSheet('Investasi & Modal', 'INVESTASI & MODAL SESUAI AKTA', 'Persentase = modal disetor dibagi modal dasar sesuai akta.', [
+    { header: 'ID Klien', key: 'clientId', width: 16 },
+    { header: 'Klien', key: 'clientName', width: 32 },
+    { header: 'PMA/PMDN', key: 'investmentCategory', width: 18 },
+    { header: 'Nomor Akta', key: 'deedNumber', width: 24 },
+    { header: 'Tanggal Akta', key: 'deedDate', width: 18 },
+    { header: 'Modal Dasar (Akta)', key: 'authorizedCapital', width: 24 },
+    { header: 'Modal Ditempatkan', key: 'issuedCapital', width: 24 },
+    { header: 'Modal Disetor', key: 'paidUpCapital', width: 24 },
+    { header: 'Disetor / Modal Dasar', key: 'paidInPercent', width: 22 },
+  ], data.investments);
   addSheet('Operasional', 'PEKERJAAN, KASUS & TINDAK LANJUT', `Prioritas aktif per ${data.generatedAt}`, [
     { header: 'Jenis', key: 'category', width: 18 },
     { header: 'Referensi', key: 'reference', width: 19 },
