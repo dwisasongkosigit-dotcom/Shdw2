@@ -382,8 +382,8 @@ export function MeetingMinutesView({ meetings, users, currentUser, companyName, 
       </div>
 
       {editorOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-0 backdrop-blur-sm sm:items-center sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditorOpen(false); }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="mom-editor-title" className="flex max-h-[94dvh] w-full max-w-4xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-3 backdrop-blur-sm sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditorOpen(false); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="mom-editor-title" className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[calc(100dvh-2.5rem)]">
             <header className="flex items-start justify-between gap-4 border-b border-slate-200 bg-[#0d1830] px-5 py-4 text-white sm:px-7">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-300">Management Office · Catatan resmi</p>

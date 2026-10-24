@@ -67,6 +67,7 @@ export function DashboardView({
   }
 
   const { clients, jobs, cases, activities, workload } = stats;
+  const assignedCases = cases.assigned || [];
   const participantAliases = new Set([currentUser.name, currentUser.username, currentUser.email].filter(Boolean).map(normalizeParticipant));
   const myUpcomingMeetings = agendaEntries
     .filter((entry) => entry.status === 'Terjadwal' && entry.date >= new Date().toISOString().slice(0, 10))
@@ -198,6 +199,38 @@ export function DashboardView({
             {myMeetingTasks.length ? <ul className="mt-2 divide-y divide-slate-100">{myMeetingTasks.map(({ action, meeting }) => <li key={`${meeting.id}-${action.id}`} className="py-3 first:pt-1 last:pb-0"><p className="text-sm font-medium text-slate-800">{action.description}</p><div className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] text-slate-500"><span className={`rounded-full px-2 py-0.5 font-semibold ${action.status === 'Dalam Proses' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{action.status}</span><span>{meeting.id} · {meeting.title}</span>{action.deadline && <span className={action.deadline < new Date().toISOString().slice(0, 10) ? 'font-semibold text-rose-600' : ''}>Tenggat {meetingDateLabel(action.deadline)}</span>}</div></li>)}</ul> : <p className="mt-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">Tidak ada tindak lanjut rapat yang masih terbuka untuk Anda.</p>}
           </div>
         </div>
+      </section>
+
+      <section aria-labelledby="my-cases-heading" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <span className="rounded-xl bg-amber-50 p-2.5 text-amber-700"><ShieldAlert className="size-4" /></span>
+            <div>
+              <h2 id="my-cases-heading" className="text-sm font-semibold text-slate-900">Kasus yang ditugaskan ke saya <span className="text-slate-500">({cases.assignedCount || 0})</span></h2>
+              <p className="mt-1 text-xs text-slate-500">Kasus aktif saat Anda menjadi PIC utama atau PIC follow-up.</p>
+            </div>
+          </div>
+          <button type="button" onClick={() => onNavigateTab('cases')} className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-800">Case Register <ArrowUpRight className="size-3.5" /></button>
+        </div>
+        {assignedCases.length ? (
+          <ul className="mt-4 divide-y divide-slate-100">
+            {assignedCases.map((item: { id: string; title: string; clientName: string; division: string; priority: string; status: string; nextFollowUpDate: string }) => (
+              <li key={item.id} className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-800">{item.title}</p>
+                  <p className="mt-1 truncate text-xs text-slate-500">{item.clientName} · {item.division} · {item.id}</p>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2 text-[11px]">
+                  <span className={`rounded-full px-2 py-1 font-semibold ${item.priority === 'Tinggi' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>{item.priority}</span>
+                  <span className="rounded-full bg-amber-50 px-2 py-1 font-semibold text-amber-800">{item.status}</span>
+                  <span className="text-slate-500">Follow-up {item.nextFollowUpDate || 'belum dijadwalkan'}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">Belum ada kasus aktif yang ditugaskan kepada Anda.</p>
+        )}
       </section>
 
       {/* Incomplete PIC Alert Banner (Prompt 2 requirement) */}

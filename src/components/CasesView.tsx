@@ -21,7 +21,7 @@ import {
   Download,
   AlertOctagon,
 } from 'lucide-react';
-import { api, type Case, type Client, type CurrentUser, type CaseStatus } from '../lib/api';
+import { api, type Case, type Client, type CurrentUser, type CaseStatus, type UserAccount } from '../lib/api';
 import { useToast } from './Toast';
 import { ExportDropdown } from './ExportDropdown';
 import type { ColumnDef } from '../lib/exportUtils';
@@ -29,11 +29,12 @@ import type { ColumnDef } from '../lib/exportUtils';
 interface CasesViewProps {
   cases: Case[];
   clients: Client[];
+  users: UserAccount[];
   currentUser: CurrentUser;
   onRefresh: () => void;
 }
 
-export function CasesView({ cases, clients, currentUser, onRefresh }: CasesViewProps) {
+export function CasesView({ cases, clients, users, currentUser, onRefresh }: CasesViewProps) {
   const { success, error } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>('All');
@@ -126,8 +127,8 @@ export function CasesView({ cases, clients, currentUser, onRefresh }: CasesViewP
   };
 
   const handleCreateCase = async () => {
-    if (!newCaseData.title?.trim() || !newCaseData.clientId || !newCaseData.description?.trim()) {
-      error('Validasi Gagal', 'Klien, judul masalah, dan uraian kasus wajib diisi.');
+    if (!newCaseData.title?.trim() || !newCaseData.clientId || !newCaseData.description?.trim() || !newCaseData.picId) {
+      error('Validasi Gagal', 'Klien, PIC penanggung jawab, judul masalah, dan uraian kasus wajib diisi.');
       return;
     }
 
@@ -288,11 +289,15 @@ export function CasesView({ cases, clients, currentUser, onRefresh }: CasesViewP
           ) : (
             <button
               onClick={() => {
+                const division = currentUser.role.includes('Tax') ? 'Tax' : 'Accounting';
+                const isStaffInDivision = currentUser.role === `Staff ${division}`;
                 setNewCaseData({
-                  division: currentUser.role.includes('Tax') ? 'Tax' : 'Accounting',
+                  division,
                   priority: 'Sedang',
                   status: 'Open',
                   clientId: clients[0]?.id || '',
+                  picId: isStaffInDivision ? currentUser.id : '',
+                  picName: isStaffInDivision ? currentUser.name : '',
                   nextFollowUpDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
                 });
                 setIsAddModalOpen(true);
@@ -719,12 +724,32 @@ export function CasesView({ cases, clients, currentUser, onRefresh }: CasesViewP
                 <label className="block text-slate-700 font-semibold mb-1">Divisi Terkait</label>
                 <select
                   value={newCaseData.division}
-                  onChange={(e) => setNewCaseData({ ...newCaseData, division: e.target.value as any })}
+                  onChange={(e) => setNewCaseData({ ...newCaseData, division: e.target.value as any, picId: '', picName: '' })}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 font-medium"
                 >
                   <option value="Accounting">Accounting</option>
                   <option value="Tax">Tax</option>
                 </select>
+              </div>
+
+              <div>
+                <label htmlFor="case-pic" className="block text-slate-700 font-semibold mb-1">PIC Penanggung Jawab</label>
+                <select
+                  id="case-pic"
+                  required
+                  value={newCaseData.picId || ''}
+                  onChange={(e) => {
+                    const selectedPic = users.find((user) => user.id === e.target.value);
+                    setNewCaseData({ ...newCaseData, picId: selectedPic?.id || '', picName: selectedPic?.name || '' });
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-900"
+                >
+                  <option value="">Pilih PIC aktif</option>
+                  {users.filter((user) => user.active && user.role === (newCaseData.division === 'Tax' ? 'Staff Tax' : 'Staff Accounting')).map((user) => (
+                    <option key={user.id} value={user.id}>{user.name}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-slate-500">PIC ini akan melihat kasus pada dashboard dan dapat memperbarui tindak lanjutnya.</p>
               </div>
 
               <div>
