@@ -37,6 +37,9 @@ import type {
   SuggestionStatus,
   MeetingMinute,
   MeetingActionItem,
+  TeamAgendaEntry,
+  AgendaStatus,
+  AgendaDivision,
 } from './types.ts';
 
 export const apiRouter = Router();
@@ -90,6 +93,44 @@ function normalizeMeetingMinute(data: any) {
       : [],
     nextMeetingDate: text(data?.nextMeetingDate, 10),
   };
+}
+
+function normalizeAgendaEntry(data: any) {
+  const text = (value: unknown, maxLength = 1000) =>
+    typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+  const validDivisions: AgendaDivision[] = ['Lintas Divisi', 'Accounting', 'Tax'];
+  const validStatuses: AgendaStatus[] = ['Terjadwal', 'Selesai', 'Dibatalkan'];
+
+  return {
+    title: text(data?.title, 180),
+    date: text(data?.date, 10),
+    startTime: text(data?.startTime, 5),
+    endTime: text(data?.endTime, 5),
+    meetingType: text(data?.meetingType, 80) || 'Koordinasi Internal',
+    division: validDivisions.includes(data?.division) ? data.division : 'Lintas Divisi',
+    location: text(data?.location, 180),
+    clientId: text(data?.clientId, 80),
+    jobId: text(data?.jobId, 80),
+    participants: Array.isArray(data?.participants)
+      ? data.participants.slice(0, 50).map((name: unknown) => text(name, 120)).filter(Boolean)
+      : [],
+    notes: text(data?.notes, 3000),
+    status: validStatuses.includes(data?.status) ? data.status : 'Terjadwal',
+  };
+}
+
+function validateAgendaEntry(entry: ReturnType<typeof normalizeAgendaEntry>) {
+  const parsedDate = new Date(`${entry.date}T00:00:00.000Z`);
+  const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(entry.date) &&
+    !Number.isNaN(parsedDate.getTime()) &&
+    parsedDate.toISOString().slice(0, 10) === entry.date;
+  const isValidTime = (value: string) => !value || /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+
+  if (!entry.title) return 'Judul agenda wajib diisi.';
+  if (!isValidDate) return 'Tanggal agenda tidak valid.';
+  if (!isValidTime(entry.startTime) || !isValidTime(entry.endTime)) return 'Waktu agenda tidak valid.';
+  if (entry.startTime && entry.endTime && entry.endTime <= entry.startTime) return 'Waktu selesai harus setelah waktu mulai.';
+  return null;
 }
 
 function validateMeetingMinute(meeting: ReturnType<typeof normalizeMeetingMinute>) {
@@ -1873,7 +1914,152 @@ apiRouter.delete(
 );
 
 // ==========================================
-// 9. MINUTES OF MEETING
+// 9. TEAM AGENDA
+// ==========================================
+apiRouter.get('/agenda', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const entries = [...(getDb().agendaEntries || [])].sort((a, b) =>
+    `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`)
+  );
+  res.json(entries);
+});
+
+apiRouter.post(
+  '/agenda',
+  authenticateToken,
+  requireWritable,
+  (req: AuthenticatedRequest, res: Response) => {
+    const data = normalizeAgendaEntry(req.body);
+    const validationError = validateAgendaEntry(data);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
+
+    const database = getDb();
+    const client = data.clientId ? database.clients.find((item) => item.id === data.clientId) : undefined;
+    const job = data.jobId ? database.jobs.find((item) => item.id === data.jobId) : undefined;
+    if (data.clientId && !client) {
+      res.status(400).json({ error: 'Klien terkait tidak ditemukan.' });
+      return;
+    }
+    if (data.jobId && (!job || (client && job.clientId !== client.id))) {
+      res.status(400).json({ error: 'Pekerjaan tidak ditemukan atau tidak terkait dengan klien yang dipilih.' });
+      return;
+    }
+
+    const linkedClient = client || (job ? database.clients.find((item) => item.id === job.clientId) : undefined);
+    const year = data.date.slice(0, 4);
+    const nextNumber = database.agendaEntries
+      .map((entry) => entry.id.match(new RegExp(`^AGD-${year}-(\\d+)$`)))
+      .reduce((highest, match) => Math.max(highest, Number(match?.[1] || 0)), 0) + 1;
+    const now = new Date().toISOString();
+    const newEntry: TeamAgendaEntry = {
+      ...data,
+      clientId: linkedClient?.id,
+      clientName: linkedClient?.name,
+      jobId: job?.id,
+      jobTitle: job?.title,
+      id: `AGD-${year}-${String(nextNumber).padStart(3, '0')}`,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: req.user!.userId,
+      updatedBy: req.user!.name,
+    };
+
+    mutateDb((db) => {
+      db.agendaEntries.unshift(newEntry);
+      logAudit(
+        'AGENDA_CREATED',
+        'Meeting',
+        `Agenda ${newEntry.id} dicatat oleh ${req.user!.name}.`,
+        { userId: req.user!.userId, name: req.user!.name, role: req.user!.role },
+        newEntry.id,
+        newEntry.title
+      );
+    });
+
+    res.status(201).json({ success: true, agenda: newEntry, message: 'Agenda berhasil disimpan.' });
+  }
+);
+
+apiRouter.put(
+  '/agenda/:id',
+  authenticateToken,
+  requireWritable,
+  (req: AuthenticatedRequest, res: Response) => {
+    const data = normalizeAgendaEntry(req.body);
+    const validationError = validateAgendaEntry(data);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
+
+    const database = getDb();
+    const client = data.clientId ? database.clients.find((item) => item.id === data.clientId) : undefined;
+    const job = data.jobId ? database.jobs.find((item) => item.id === data.jobId) : undefined;
+    if (data.clientId && !client) {
+      res.status(400).json({ error: 'Klien terkait tidak ditemukan.' });
+      return;
+    }
+    if (data.jobId && (!job || (client && job.clientId !== client.id))) {
+      res.status(400).json({ error: 'Pekerjaan tidak ditemukan atau tidak terkait dengan klien yang dipilih.' });
+      return;
+    }
+
+    let saved: TeamAgendaEntry | null = null;
+    mutateDb((db) => {
+      const entry = db.agendaEntries.find((item) => item.id === req.params.id);
+      if (!entry) throw new Error('Agenda tidak ditemukan.');
+      const linkedClient = client || (job ? db.clients.find((item) => item.id === job.clientId) : undefined);
+      Object.assign(entry, data, {
+        clientId: linkedClient?.id,
+        clientName: linkedClient?.name,
+        jobId: job?.id,
+        jobTitle: job?.title,
+        updatedAt: new Date().toISOString(),
+        updatedBy: req.user!.name,
+      });
+      saved = entry;
+      logAudit(
+        'AGENDA_UPDATED',
+        'Meeting',
+        `Agenda ${entry.id} diperbarui oleh ${req.user!.name}.`,
+        { userId: req.user!.userId, name: req.user!.name, role: req.user!.role },
+        entry.id,
+        entry.title
+      );
+    });
+
+    res.json({ success: true, agenda: saved, message: 'Agenda berhasil diperbarui.' });
+  }
+);
+
+apiRouter.delete(
+  '/agenda/:id',
+  authenticateToken,
+  requireWritable,
+  (req: AuthenticatedRequest, res: Response) => {
+    let deleted: TeamAgendaEntry | undefined;
+    mutateDb((db) => {
+      const index = db.agendaEntries.findIndex((item) => item.id === req.params.id);
+      if (index === -1) throw new Error('Agenda tidak ditemukan.');
+      deleted = db.agendaEntries.splice(index, 1)[0];
+      logAudit(
+        'AGENDA_DELETED',
+        'Meeting',
+        `Agenda ${deleted.id} dihapus oleh ${req.user!.name}.`,
+        { userId: req.user!.userId, name: req.user!.name, role: req.user!.role },
+        deleted.id,
+        deleted.title
+      );
+    });
+
+    res.json({ success: true, message: 'Agenda berhasil dihapus.' });
+  }
+);
+
+// ==========================================
+// 10. MINUTES OF MEETING
 // ==========================================
 apiRouter.get('/meeting-minutes', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const meetings = [...(getDb().meetingMinutes || [])].sort((a, b) =>

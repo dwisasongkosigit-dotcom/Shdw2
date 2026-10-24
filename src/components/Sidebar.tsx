@@ -6,6 +6,8 @@ import {
   AlertCircle,
   Clock,
   CalendarCheck,
+  CalendarDays,
+  BarChart3,
   FileSpreadsheet,
   ClipboardList,
   Settings,
@@ -26,6 +28,8 @@ export type NavTab =
   | 'followup'
   | 'activities'
   | 'mom'
+  | 'agenda'
+  | 'executive-summary'
   | 'reports'
   | 'backup'
   | 'audit'
@@ -64,6 +68,7 @@ export function Sidebar({
     icon: any;
     adminOnly?: boolean;
     auditOnly?: boolean;
+    managementOnly?: boolean;
     badge?: string;
   }> = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -73,6 +78,8 @@ export function Sidebar({
     { id: 'followup', label: 'Follow-up', icon: Clock },
     { id: 'activities', label: 'Daily Activity', icon: CalendarCheck },
     { id: 'mom', label: 'Minutes of Meeting', icon: ClipboardList },
+    { id: 'agenda', label: 'Agenda Tim', icon: CalendarDays },
+    { id: 'executive-summary', label: 'Executive Summary Tim 3', icon: BarChart3, managementOnly: true },
     { id: 'reports', label: 'Laporan & Audit', icon: FileSpreadsheet },
     { id: 'backup', label: 'Cadangan & Pemulihan', icon: Database, adminOnly: true },
     { id: 'audit', label: 'Audit Log Sistem', icon: ShieldCheck, auditOnly: true },
@@ -144,6 +151,7 @@ export function Sidebar({
           {navItems.map((item) => {
             if (item.adminOnly && !isAdmin) return null;
             if (item.auditOnly && !canViewAudit) return null;
+            if (item.managementOnly && !canViewAudit) return null;
             const Icon = item.icon;
             const isActive = currentTab === item.id;
 

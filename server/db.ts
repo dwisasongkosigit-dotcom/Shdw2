@@ -38,6 +38,7 @@ export function runWithDb<T>(fn: () => T): T {
 // Migrate/upgrade in-memory schema safely to ensure Prompt 2 compatibility
 function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
   if (!Array.isArray(db.meetingMinutes)) db.meetingMinutes = [];
+  if (!Array.isArray(db.agendaEntries)) db.agendaEntries = [];
   if (!Array.isArray(db.auditLogs)) db.auditLogs = [];
   if (!Array.isArray(db.backups)) db.backups = [];
 
