@@ -21,6 +21,7 @@ export interface RiskExportRow {
 }
 
 export interface OperationsExportRow {
+  clientId?: string;
   category: string;
   reference: string;
   client: string;
@@ -49,6 +50,8 @@ export interface ExecutiveSummaryExportData {
   generatedAt: string;
   sourceUpdatedAt: string;
   scopeNote: string;
+  scopeLabel?: string;
+  divisionScope?: 'Accounting' | 'Tax' | 'Both';
   overallStatus: string;
   metrics: SummaryMetric[];
   risks: RiskExportRow[];
@@ -76,75 +79,84 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
   const printWindow = window.open('', '_blank');
   if (!printWindow) throw new Error('Jendela cetak terblokir. Izinkan pop-up untuk mengekspor PDF.');
 
-  const metricRows = tableRows(data.metrics, [
-    { key: 'metric', label: 'Indikator' },
-    { key: 'value', label: 'Nilai' },
-    { key: 'note', label: 'Catatan' },
-  ]);
-  const riskColumns: Array<{ key: keyof RiskExportRow; label: string }> = [
-    { key: 'clientName', label: 'Klien' },
-    { key: 'overallRisk', label: 'Kategori' },
-    { key: 'accountingReason', label: 'Alasan Accounting' },
-    { key: 'accountingAction', label: 'Tindakan Accounting' },
-    { key: 'accountingSpv', label: 'PIC Accounting' },
-    { key: 'taxReason', label: 'Alasan Tax' },
-    { key: 'taxAction', label: 'Tindakan Tax' },
-    { key: 'taxSpv', label: 'PIC Tax' },
-  ];
+  const metricCards = data.metrics.map((metric) => `<div class="metric"><dt>${escapeHtml(metric.metric)}</dt><dd>${escapeHtml(metric.value)}</dd><small>${escapeHtml(metric.note)}</small></div>`).join('');
+  const riskColumns: Array<{ key: keyof RiskExportRow; label: string }> = data.divisionScope === 'Accounting'
+    ? [
+      { key: 'clientName', label: 'Klien' }, { key: 'overallRisk', label: 'Risiko' },
+      { key: 'accountingReason', label: 'Alasan asesmen' }, { key: 'accountingAction', label: 'Tindakan' },
+      { key: 'accountingSpv', label: 'SPV' }, { key: 'accountingReview', label: 'Tinjauan' },
+    ]
+    : data.divisionScope === 'Tax'
+      ? [
+        { key: 'clientName', label: 'Klien' }, { key: 'overallRisk', label: 'Risiko' },
+        { key: 'taxReason', label: 'Alasan asesmen' }, { key: 'taxAction', label: 'Tindakan' },
+        { key: 'taxSpv', label: 'SPV' }, { key: 'taxReview', label: 'Tinjauan' },
+      ]
+      : [
+        { key: 'clientName', label: 'Klien' }, { key: 'overallRisk', label: 'Risiko' },
+        { key: 'accountingRisk', label: 'Acc.' }, { key: 'accountingReason', label: 'Alasan Accounting' },
+        { key: 'accountingAction', label: 'Tindakan Accounting' }, { key: 'accountingSpv', label: 'SPV Accounting' },
+        { key: 'taxRisk', label: 'Tax' }, { key: 'taxReason', label: 'Alasan Tax' },
+        { key: 'taxAction', label: 'Tindakan Tax' }, { key: 'taxSpv', label: 'SPV Tax' },
+      ];
   const operationColumns: Array<{ key: keyof OperationsExportRow; label: string }> = [
-    { key: 'category', label: 'Jenis' },
-    { key: 'reference', label: 'Referensi' },
-    { key: 'client', label: 'Klien' },
-    { key: 'division', label: 'Divisi' },
-    { key: 'owner', label: 'PIC' },
-    { key: 'status', label: 'Status' },
-    { key: 'deadline', label: 'Tenggat' },
-    { key: 'summary', label: 'Ringkasan' },
+    { key: 'category', label: 'Jenis' }, { key: 'reference', label: 'Referensi' },
+    { key: 'client', label: 'Klien' }, { key: 'division', label: 'Divisi' },
+    { key: 'owner', label: 'PIC' }, { key: 'status', label: 'Status' },
+    { key: 'deadline', label: 'Tenggat' }, { key: 'summary', label: 'Ringkasan' },
   ];
   const agendaColumns: Array<{ key: keyof AgendaExportRow; label: string }> = [
-    { key: 'date', label: 'Tanggal' },
-    { key: 'time', label: 'Waktu' },
-    { key: 'title', label: 'Agenda' },
-    { key: 'type', label: 'Jenis' },
-    { key: 'division', label: 'Divisi' },
-    { key: 'client', label: 'Klien' },
-    { key: 'participants', label: 'Peserta' },
-    { key: 'location', label: 'Lokasi' },
+    { key: 'date', label: 'Tanggal' }, { key: 'time', label: 'Waktu' },
+    { key: 'title', label: 'Agenda' }, { key: 'type', label: 'Jenis' },
+    { key: 'division', label: 'Divisi' }, { key: 'client', label: 'Klien' },
+    { key: 'participants', label: 'Peserta' }, { key: 'location', label: 'Lokasi' },
     { key: 'status', label: 'Status' },
   ];
+  const orientation = data.divisionScope === 'Both' ? 'landscape' : 'portrait';
+  const highlights = data.highlights.map((item) => `<li>${escapeHtml(item)}</li>`).join('') || '<li>Tidak ada sorotan khusus pada cakupan ini.</li>';
+  const footer = `<footer>${escapeHtml(data.scopeLabel || 'Executive Summary')}　·　Dokumen internal　·　TMM &amp; BMA Advisory</footer>`;
 
   printWindow.document.open();
   printWindow.document.write(`<!doctype html>
     <html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Executive Summary · ${escapeHtml(data.period)}</title>
     <style>
-      @page { size: A4 landscape; margin: 14mm; }
+      @page { size: A4 ${orientation}; margin: 16mm; }
       * { box-sizing: border-box; }
-      body { margin: 0; color: #263246; font: 9pt/1.5 Arial, sans-serif; }
-      header { border-bottom: 3px solid #d4a64e; padding: 0 0 14px; }
-      .brand { color: #a66a12; font-size: 8pt; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
-      h1 { color: #101b34; font-size: 24pt; line-height: 1.15; margin: 9px 0 4px; }
-      .meta { color: #64748b; font-size: 8pt; margin: 0; }
-      .status { display: inline-block; border: 1px solid #d6dee8; border-radius: 20px; color: #344256; font-size: 8pt; font-weight: 700; margin: 11px 0 0; padding: 4px 10px; }
-      .scope { background: #f8fafc; border-left: 3px solid #c28a2c; color: #536175; margin: 12px 0 0; padding: 8px 10px; font-size: 8pt; }
-      h2 { border-bottom: 1px solid #dce1e8; color: #101b34; font-size: 12pt; margin: 18px 0 9px; padding-bottom: 5px; }
-      .highlights { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; margin: 10px 0; }
-      .highlight { border-left: 2px solid #d4a64e; padding-left: 8px; }
-      table { border-collapse: collapse; font-size: 7pt; table-layout: fixed; width: 100%; }
-      th { background: #101b34; color: #fff; font-size: 6.5pt; letter-spacing: .2px; text-align: left; text-transform: uppercase; }
-      th, td { border: 1px solid #dce1e8; padding: 5px; vertical-align: top; overflow-wrap: anywhere; }
+      body { margin: 0; color: #263246; font: 9pt/1.55 Arial, sans-serif; }
+      header { border-bottom: 2px solid #d4a64e; padding: 0 0 17px; }
+      .brand { color: #a66a12; font-size: 8pt; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; }
+      h1 { color: #101b34; font-size: 25pt; line-height: 1.15; margin: 12px 0 5px; }
+      .subtitle { color: #64748b; font-size: 9pt; margin: 0; }
+      .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; margin: 16px 0 0; padding: 13px 15px; background: #f7f8fa; border: 1px solid #e2e8f0; border-radius: 8px; }
+      .meta dt, .metric dt { color: #7c8797; font-size: 7pt; font-weight: 700; letter-spacing: .7px; margin: 0 0 3px; text-transform: uppercase; }
+      .meta dd { color: #263246; font-size: 9pt; font-weight: 600; margin: 0; }
+      .status { display: inline-block; border: 1px solid #d6dee8; border-radius: 20px; color: #344256; font-size: 8pt; font-weight: 700; margin-top: 13px; padding: 4px 10px; }
+      .scope { background: #fbf6eb; border-left: 2px solid #c28a2c; color: #536175; font-size: 8pt; margin: 11px 0 0; padding: 8px 10px; }
+      h2 { border-bottom: 1px solid #dce1e8; color: #101b34; font-size: 13pt; margin: 24px 0 12px; padding-bottom: 7px; }
+      h2 span { color: #a66a12; font-size: 8pt; letter-spacing: 1px; margin-right: 8px; }
+      .metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; }
+      .metric { break-inside: avoid; border: 1px solid #e2e8f0; border-radius: 7px; min-height: 78px; padding: 10px; }
+      .metric dd { color: #101b34; font-size: 18pt; font-weight: 700; margin: 4px 0 2px; }
+      .metric small { color: #778396; display: block; font-size: 7pt; line-height: 1.4; }
+      .highlights { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin: 0; padding: 12px 15px 12px 28px; }
+      .highlights li { margin: 4px 0; padding-left: 2px; }
+      table { border-collapse: collapse; font-size: 7.5pt; table-layout: fixed; width: 100%; }
+      th { background: #101b34; color: #fff; font-size: 7pt; letter-spacing: .3px; text-align: left; text-transform: uppercase; }
+      th, td { border: 1px solid #dce1e8; padding: 6px; vertical-align: top; overflow-wrap: anywhere; }
       tbody tr:nth-child(even) { background: #f8fafc; }
-      .empty { color: #718096; text-align: center; padding: 14px; }
+      .empty { color: #718096; text-align: center; padding: 16px; }
       .section { break-inside: auto; }
       .page-break { break-before: page; }
-      footer { border-top: 1px solid #e2e8f0; color: #8490a0; font-size: 7pt; margin-top: 18px; padding-top: 7px; }
-      @media screen { body { margin: 24px auto; max-width: 1120px; padding: 38px; box-shadow: 0 4px 30px #101b3418; } }
+      tr { break-inside: avoid; }
+      footer { border-top: 1px solid #e2e8f0; color: #8490a0; font-size: 7pt; margin-top: 24px; padding-top: 8px; }
+      @media screen { body { margin: 20px auto; max-width: ${orientation === 'landscape' ? '1120px' : '780px'}; padding: 40px 48px; box-shadow: 0 4px 30px #101b3418; } }
+      @media print { .section { break-inside: auto; } }
     </style></head><body>
-      <header><div class="brand">TMM &amp; BMA Advisory · Management Office</div><h1>Executive Summary</h1><p class="meta">Periode ${escapeHtml(data.period)} · Dibuat ${escapeHtml(data.generatedAt)} · Data tersimpan ${escapeHtml(data.sourceUpdatedAt)}</p><span class="status">Status tim: ${escapeHtml(data.overallStatus)}</span><p class="scope">${escapeHtml(data.scopeNote)}</p></header>
-      <section class="section"><h2>Ikhtisar periode</h2><table><thead><tr><th>Indikator</th><th>Nilai</th><th>Catatan</th></tr></thead><tbody>${metricRows}</tbody></table><h2>Sorotan untuk manajemen</h2><div class="highlights">${data.highlights.length ? data.highlights.map((item) => `<div class="highlight">${escapeHtml(item)}</div>`).join('') : '<div class="highlight">Tidak ada keputusan khusus yang teridentifikasi dari data saat ini.</div>'}</div></section>
-      <section class="section page-break"><h2>Portofolio risiko klien</h2><table><thead><tr>${riskColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.risks, riskColumns)}</tbody></table></section>
-      <section class="section page-break"><h2>Pekerjaan, kasus, dan tindak lanjut</h2><table><thead><tr>${operationColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.operations, operationColumns)}</tbody></table></section>
-      <section class="section page-break"><h2>Agenda mendatang dan bulan terpilih</h2><table><thead><tr>${agendaColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.agenda, agendaColumns)}</tbody></table></section>
-      <footer>TMM &amp; BMA Advisory · Dokumen internal · Executive Summary</footer>
+      <header><div class="brand">TMM &amp; BMA Advisory · Management Office</div><h1>Executive Summary</h1><p class="subtitle">Periode ${escapeHtml(data.period)} · ${escapeHtml(data.scopeLabel || 'Semua cakupan')}</p><span class="status">Status: ${escapeHtml(data.overallStatus)}</span><dl class="meta"><div><dt>Periode laporan</dt><dd>${escapeHtml(data.period)}</dd></div><div><dt>Dibuat pada</dt><dd>${escapeHtml(data.generatedAt)}</dd></div><div><dt>Data terakhir tersimpan</dt><dd>${escapeHtml(data.sourceUpdatedAt)}</dd></div><div><dt>Cakupan</dt><dd>${escapeHtml(data.scopeLabel || 'Semua cakupan')}</dd></div></dl><p class="scope">${escapeHtml(data.scopeNote)}</p></header>
+      <section class="section"><h2><span>01</span>Ikhtisar periode</h2><dl class="metrics">${metricCards}</dl><h2><span>02</span>Sorotan untuk manajemen</h2><ul class="highlights">${highlights}</ul></section>
+      <section class="section page-break"><h2><span>03</span>Portofolio risiko klien</h2><table><thead><tr>${riskColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.risks, riskColumns)}</tbody></table></section>
+      <section class="section page-break"><h2><span>04</span>Pekerjaan, kasus, dan tindak lanjut</h2><table><thead><tr>${operationColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.operations, operationColumns)}</tbody></table></section>
+      <section class="section page-break"><h2><span>05</span>Agenda meeting</h2><table><thead><tr>${agendaColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.agenda, agendaColumns)}</tbody></table>${footer}</section>
       <script>window.addEventListener('load', () => setTimeout(() => window.print(), 250));</script>
     </body></html>`);
   printWindow.document.close();
@@ -196,32 +208,42 @@ export async function exportExecutiveSummaryExcel(data: ExecutiveSummaryExportDa
   };
 
   const introRows = [
+    { metric: 'Cakupan laporan', value: data.scopeLabel || 'Semua cakupan', note: data.scopeNote },
     { metric: 'Periode laporan', value: data.period, note: 'Aktivitas dan agenda menggunakan periode terpilih; risiko adalah snapshot asesmen terkini.' },
-    { metric: 'Status tim', value: data.overallStatus, note: 'Status dihitung dari risiko aktif, tenggat terlambat, dan tindak lanjut lewat jadwal.' },
+    { metric: 'Status laporan', value: data.overallStatus, note: 'Status mengikuti risiko, tenggat terlambat, dan tindak lanjut pada cakupan terpilih.' },
     ...data.metrics,
     ...data.highlights.map((highlight, index) => ({ metric: `Sorotan manajemen ${index + 1}`, value: highlight, note: '' })),
     { metric: 'Cakupan data', value: data.scopeNote, note: `Data terakhir tersimpan ${data.sourceUpdatedAt} · Dibuat ${data.generatedAt}` },
   ];
-  addSheet('Ringkasan', 'EXECUTIVE SUMMARY TIM 3', `Periode ${data.period} · Dibuat ${data.generatedAt}`, [
+  addSheet('Ringkasan', `EXECUTIVE SUMMARY · ${data.scopeLabel || 'Semua cakupan'}`, `Periode ${data.period} · Dibuat ${data.generatedAt}`, [
     { header: 'Indikator', key: 'metric', width: 30 },
     { header: 'Nilai / temuan', key: 'value', width: 52 },
     { header: 'Catatan', key: 'note', width: 58 },
   ], introRows);
-  addSheet('Risiko Klien', 'PORTOFOLIO RISIKO KLIEN', 'Kategori klien mengikuti level tertinggi dari asesmen Accounting dan Tax yang tersimpan.', [
-    { header: 'ID Klien', key: 'clientId', width: 16 },
-    { header: 'Klien', key: 'clientName', width: 32 },
-    { header: 'Kategori', key: 'overallRisk', width: 14 },
-    { header: 'Risiko Accounting', key: 'accountingRisk', width: 16 },
-    { header: 'Alasan Accounting', key: 'accountingReason', width: 42 },
-    { header: 'Tindakan Accounting', key: 'accountingAction', width: 42 },
-    { header: 'PIC Accounting', key: 'accountingSpv', width: 28 },
-    { header: 'Review Accounting', key: 'accountingReview', width: 17 },
-    { header: 'Risiko Tax', key: 'taxRisk', width: 14 },
-    { header: 'Alasan Tax', key: 'taxReason', width: 42 },
-    { header: 'Tindakan Tax', key: 'taxAction', width: 42 },
-    { header: 'PIC Tax', key: 'taxSpv', width: 28 },
-    { header: 'Review Tax', key: 'taxReview', width: 17 },
-  ], data.risks);
+  const riskColumns: Array<{ header: string; key: keyof RiskExportRow; width: number }> = data.divisionScope === 'Accounting'
+    ? [
+      { header: 'ID Klien', key: 'clientId', width: 16 }, { header: 'Klien', key: 'clientName', width: 32 },
+      { header: 'Risiko Accounting', key: 'overallRisk', width: 18 }, { header: 'Alasan', key: 'accountingReason', width: 42 },
+      { header: 'Tindakan', key: 'accountingAction', width: 42 }, { header: 'PIC SPV', key: 'accountingSpv', width: 28 },
+      { header: 'Tanggal Review', key: 'accountingReview', width: 17 },
+    ]
+    : data.divisionScope === 'Tax'
+      ? [
+        { header: 'ID Klien', key: 'clientId', width: 16 }, { header: 'Klien', key: 'clientName', width: 32 },
+        { header: 'Risiko Tax', key: 'overallRisk', width: 18 }, { header: 'Alasan', key: 'taxReason', width: 42 },
+        { header: 'Tindakan', key: 'taxAction', width: 42 }, { header: 'PIC SPV', key: 'taxSpv', width: 28 },
+        { header: 'Tanggal Review', key: 'taxReview', width: 17 },
+      ]
+      : [
+        { header: 'ID Klien', key: 'clientId', width: 16 }, { header: 'Klien', key: 'clientName', width: 32 },
+        { header: 'Kategori', key: 'overallRisk', width: 14 }, { header: 'Risiko Accounting', key: 'accountingRisk', width: 16 },
+        { header: 'Alasan Accounting', key: 'accountingReason', width: 42 }, { header: 'Tindakan Accounting', key: 'accountingAction', width: 42 },
+        { header: 'PIC Accounting', key: 'accountingSpv', width: 28 }, { header: 'Review Accounting', key: 'accountingReview', width: 17 },
+        { header: 'Risiko Tax', key: 'taxRisk', width: 14 }, { header: 'Alasan Tax', key: 'taxReason', width: 42 },
+        { header: 'Tindakan Tax', key: 'taxAction', width: 42 }, { header: 'PIC Tax', key: 'taxSpv', width: 28 },
+        { header: 'Review Tax', key: 'taxReview', width: 17 },
+      ];
+  addSheet('Risiko Klien', 'PORTOFOLIO RISIKO KLIEN', `Cakupan risiko: ${data.scopeLabel || 'semua divisi'}.`, riskColumns, data.risks);
   addSheet('Operasional', 'PEKERJAAN, KASUS & TINDAK LANJUT', `Prioritas aktif per ${data.generatedAt}`, [
     { header: 'Jenis', key: 'category', width: 18 },
     { header: 'Referensi', key: 'reference', width: 19 },
@@ -232,7 +254,7 @@ export async function exportExecutiveSummaryExcel(data: ExecutiveSummaryExportDa
     { header: 'Tenggat', key: 'deadline', width: 16 },
     { header: 'Ringkasan / tindakan', key: 'summary', width: 50 },
   ], data.operations);
-  addSheet('Agenda', 'AGENDA TIM 3', `Agenda pada atau setelah periode ${data.period}`, [
+  addSheet('Agenda', 'AGENDA MEETING', `Agenda selama periode ${data.period}`, [
     { header: 'Tanggal', key: 'date', width: 16 },
     { header: 'Waktu', key: 'time', width: 15 },
     { header: 'Agenda', key: 'title', width: 34 },
@@ -250,7 +272,8 @@ export async function exportExecutiveSummaryExcel(data: ExecutiveSummaryExportDa
   const url = window.URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `Executive_Summary_Tim_3_${data.period.replace(/[^0-9-]/g, '-')}.xlsx`;
+  const safeScope = (data.scopeLabel || 'Semua_Cakupan').replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_|_$/g, '');
+  anchor.download = `Executive_Summary_${safeScope}_${data.period.replace(/[^0-9-]/g, '-')}.xlsx`;
   document.body.appendChild(anchor);
   anchor.click();
   window.setTimeout(() => {

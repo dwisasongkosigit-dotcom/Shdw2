@@ -7,11 +7,14 @@ import {
   ShieldAlert,
   RefreshCw,
   AlertTriangle,
+  ArrowUpRight,
+  CalendarDays,
 } from 'lucide-react';
-import type { CurrentUser } from '../lib/api';
+import type { CurrentUser, TeamAgendaEntry } from '../lib/api';
 
 interface DashboardViewProps {
   stats: any;
+  agendaEntries: TeamAgendaEntry[];
   currentUser: CurrentUser;
   onNavigateTab: (tab: any) => void;
   onRefresh: (division?: 'All' | 'Accounting' | 'Tax') => void;
@@ -20,8 +23,19 @@ interface DashboardViewProps {
   onDivisionChange: (division: 'All' | 'Accounting' | 'Tax') => void;
 }
 
+function normalizeParticipant(value: string) {
+  return value.trim().toLocaleLowerCase('id-ID').replace(/\s*\([^)]*\)\s*$/, '');
+}
+
+function meetingDateLabel(value: string) {
+  const date = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('id-ID', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(date);
+}
+
 export function DashboardView({
   stats,
+  agendaEntries,
   currentUser,
   onNavigateTab,
   onRefresh,
@@ -49,6 +63,12 @@ export function DashboardView({
   }
 
   const { clients, jobs, cases, activities, workload } = stats;
+  const participantAliases = new Set([currentUser.name, currentUser.username, currentUser.email].filter(Boolean).map(normalizeParticipant));
+  const myUpcomingMeetings = agendaEntries
+    .filter((entry) => entry.status === 'Terjadwal' && entry.date >= new Date().toISOString().slice(0, 10))
+    .filter((entry) => entry.participants.some((person) => participantAliases.has(normalizeParticipant(person))))
+    .sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`))
+    .slice(0, 4);
   const isReadOnly = currentUser.role === 'Owner' || currentUser.role === 'Manager';
 
   return (
@@ -128,6 +148,17 @@ export function DashboardView({
           </div>
         </div>
       </div>
+
+      <section aria-labelledby="my-meetings-heading" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <span className="rounded-xl bg-amber-50 p-2.5 text-amber-700"><CalendarDays className="size-4" /></span>
+            <div><h2 id="my-meetings-heading" className="text-sm font-semibold text-slate-900">Agenda meeting saya</h2><p className="mt-1 text-xs text-slate-500">Meeting mendatang yang mencantumkan Anda sebagai peserta.</p></div>
+          </div>
+          <button type="button" onClick={() => onNavigateTab('agenda')} className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-800">Semua agenda <ArrowUpRight className="size-3.5" /></button>
+        </div>
+        {myUpcomingMeetings.length ? <ul className="mt-4 divide-y divide-slate-100">{myUpcomingMeetings.map((entry) => <li key={entry.id} className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4"><div className="min-w-0"><p className="truncate text-sm font-medium text-slate-800">{entry.title}</p><p className="mt-1 truncate text-xs text-slate-500">{entry.clientName || entry.meetingType}{entry.location ? ` · ${entry.location}` : ''}</p></div><span className="shrink-0 text-xs font-medium tabular-nums text-slate-600">{meetingDateLabel(entry.date)} · {entry.startTime || 'Waktu belum ditentukan'}</span></li>)}</ul> : <p className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">Belum ada meeting mendatang yang mencantumkan Anda sebagai peserta.</p>}
+      </section>
 
       {/* Incomplete PIC Alert Banner (Prompt 2 requirement) */}
       {clients.incompletePicCount > 0 && (
