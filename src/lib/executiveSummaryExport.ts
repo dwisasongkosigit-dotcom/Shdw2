@@ -97,13 +97,37 @@ function riskTone(value: unknown) {
   return '';
 }
 
+const riskColors: Record<string, { background: string; border: string; text: string }> = {
+  'risk-high': { background: '#ffe4e6', border: '#fecdd3', text: '#9f1239' },
+  'risk-medium': { background: '#ffedd5', border: '#fed7aa', text: '#9a3412' },
+  'risk-low': { background: '#fef9c3', border: '#fde68a', text: '#854d0e' },
+  'risk-unassessed': { background: '#f1f5f9', border: '#cbd5e1', text: '#475569' },
+};
+
+function riskBadgeStyle(tone: string) {
+  const colors = riskColors[tone];
+  if (!colors) return '';
+  return `background-color:${colors.background}!important;border:1px solid ${colors.border}!important;color:${colors.text}!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;`;
+}
+
+function riskMetricStyle(tone: string) {
+  const colors: Record<string, { background: string; border: string; text: string }> = {
+    'risk-high': { background: '#fff1f2', border: '#fecdd3', text: '#9f1239' },
+    'risk-medium': { background: '#fff7ed', border: '#fed7aa', text: '#9a3412' },
+    'risk-low': { background: '#fefce8', border: '#fde68a', text: '#854d0e' },
+  };
+  const color = colors[tone];
+  if (!color) return '';
+  return `background-color:${color.background}!important;border-color:${color.border}!important;color:${color.text}!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;`;
+}
+
 function riskTableRows(rows: RiskExportRow[], columns: Array<{ key: keyof RiskExportRow; label: string }>) {
   if (!rows.length) return `<tr><td colspan="${columns.length}" class="empty">Tidak ada data pada periode ini.</td></tr>`;
   const riskKeys: Array<keyof RiskExportRow> = ['overallRisk', 'accountingRisk', 'taxRisk'];
   return rows.map((row) => `<tr>${columns.map(({ key }) => {
     const value = row[key];
     const tone = riskKeys.includes(key) ? riskTone(value) : '';
-    return `<td>${tone ? `<span class="risk-badge ${tone}">${escapeHtml(value)}</span>` : escapeHtml(value)}</td>`;
+    return `<td>${tone ? `<span class="risk-badge ${tone}" style="${riskBadgeStyle(tone)}">${escapeHtml(value)}</span>` : escapeHtml(value)}</td>`;
   }).join('')}</tr>`).join('');
 }
 
@@ -111,7 +135,10 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
   const printWindow = window.open('', '_blank');
   if (!printWindow) throw new Error('Jendela cetak terblokir. Izinkan pop-up untuk mengekspor PDF.');
 
-  const metricCards = data.metrics.map((metric) => `<div class="metric"><dt>${escapeHtml(metric.metric)}</dt><dd>${escapeHtml(metric.value)}</dd><small>${escapeHtml(metric.note)}</small></div>`).join('');
+  const metricCards = data.metrics.map((metric) => {
+    const tone = riskTone(metric.metric);
+    return `<div class="metric ${tone ? `metric-${tone}` : ''}"${tone ? ` style="${riskMetricStyle(tone)}"` : ''}><dt>${escapeHtml(metric.metric)}</dt><dd${tone ? ` style="color:${riskColors[tone]?.text}!important;"` : ''}>${escapeHtml(metric.value)}</dd><small>${escapeHtml(metric.note)}</small></div>`;
+  }).join('');
   const riskColumns: Array<{ key: keyof RiskExportRow; label: string }> = data.divisionScope === 'Accounting'
     ? [
       { key: 'clientName', label: 'Klien' }, { key: 'overallRisk', label: 'Risiko' },
@@ -174,8 +201,11 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
       h2 { border-bottom: 1px solid #dce1e8; color: #101b34; font-size: 13pt; margin: 24px 0 12px; padding-bottom: 7px; }
       h2 span { color: #a66a12; font-size: 8pt; letter-spacing: 1px; margin-right: 8px; }
       .metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; }
-      .metric { break-inside: avoid; border: 1px solid #e2e8f0; border-radius: 7px; min-height: 78px; padding: 10px; }
+      .metric { break-inside: avoid; border: 1px solid #e2e8f0; border-radius: 7px; min-height: 78px; padding: 10px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .metric dd { color: #101b34; font-size: 18pt; font-weight: 700; margin: 4px 0 2px; }
+      .metric-risk-high dt, .metric-risk-high dd { color: #9f1239 !important; }
+      .metric-risk-medium dt, .metric-risk-medium dd { color: #9a3412 !important; }
+      .metric-risk-low dt, .metric-risk-low dd { color: #854d0e !important; }
       .metric small { color: #778396; display: block; font-size: 7pt; line-height: 1.4; }
       .highlights { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin: 0; padding: 12px 15px 12px 28px; }
       .highlights li { margin: 4px 0; padding-left: 2px; }
