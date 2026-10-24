@@ -1535,6 +1535,14 @@ apiRouter.post(
     }
 
     const db = getDb();
+    const assignedPic = db.users.find((user) =>
+      user.id === data.picId && user.active && user.role === `Staff ${data.division}`
+    );
+    if (!assignedPic) {
+      res.status(400).json({ error: 'Pilih PIC aktif dari divisi yang sesuai sebelum mencatat kasus.' });
+      return;
+    }
+
     const year = new Date().getFullYear();
     const nextNumber = db.cases.length + 1;
     const newId = `CAS-${year}-${String(nextNumber).padStart(3, '0')}`;
@@ -1548,8 +1556,8 @@ apiRouter.post(
       title: data.title.trim(),
       description: data.description.trim(),
       priority: data.priority || 'Sedang',
-      picId: data.picId || req.user?.userId || '',
-      picName: data.picName || req.user?.name || '',
+      picId: assignedPic.id,
+      picName: assignedPic.name,
       rootCause: data.rootCause || '',
       actionsTaken: data.actionsTaken || '',
       latestProgress: data.latestProgress || '',
@@ -2291,7 +2299,7 @@ apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Resp
   const dashboardClients = db.clients.filter((client) => visibleClientIds.has(client.id));
   const visibleCases = db.cases.filter((item) =>
     (!division || item.division === division) &&
-    (!isStaff || item.picId === currentUser.userId)
+    (!isStaff || item.picId === currentUser.userId || item.followUpPicId === currentUser.userId)
   );
   const visibleActivities = db.activities.filter((item) =>
     (!division || item.division === division) &&
@@ -2334,6 +2342,10 @@ apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Resp
   const overdueFollowUps = visibleCases.filter(
     (item) => item.status !== 'Resolved' && item.status !== 'Closed' && item.nextFollowUpDate < today
   ).length;
+  const casesAssignedToCurrentUser = visibleCases.filter((item) =>
+    (item.picId === currentUser.userId || item.followUpPicId === currentUser.userId) &&
+    item.status !== 'Resolved' && item.status !== 'Closed'
+  );
 
   const workloadByPic: Record<string, { name: string; activeJobs: number; readyReview: number; overdue: number }> = {};
   visibleJobs.forEach((job) => {
@@ -2375,6 +2387,13 @@ apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Resp
       open: openCases,
       overdueFollowUps,
       total: visibleCases.length,
+      assignedCount: casesAssignedToCurrentUser.length,
+      assigned: casesAssignedToCurrentUser
+        .sort((a, b) => a.nextFollowUpDate.localeCompare(b.nextFollowUpDate))
+        .slice(0, 6)
+        .map(({ id, title, clientName, division, priority, status, nextFollowUpDate }) => ({
+          id, title, clientName, division, priority, status, nextFollowUpDate,
+        })),
     },
     activities: {
       todayCount: visibleActivities.filter((activity) => activity.date === today).length,

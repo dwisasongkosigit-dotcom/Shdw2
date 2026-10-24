@@ -269,6 +269,7 @@ function MainApp() {
             <CasesView
               cases={cases}
               clients={clients}
+              users={users}
               currentUser={currentUser}
               onRefresh={() => loadAllBusinessData()}
             />
