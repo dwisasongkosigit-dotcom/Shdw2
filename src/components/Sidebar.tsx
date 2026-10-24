@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   LayoutDashboard,
   Building2,
@@ -54,6 +55,7 @@ export function Sidebar({
 }: SidebarProps) {
   const isAdmin = currentUser.role === 'Admin';
   const isOwnerOrManager = currentUser.role === 'Owner' || currentUser.role === 'Manager';
+  const [failedLogoUrl, setFailedLogoUrl] = useState<string | null>(null);
   const canViewAudit = isAdmin || isOwnerOrManager;
 
   const navItems: Array<{
@@ -101,20 +103,18 @@ export function Sidebar({
         }`}
       >
         {/* Brand Area */}
-        <div className="p-5 border-b border-slate-800/80 flex items-center gap-3.5">
-          <div className="relative w-11 h-11 rounded-lg overflow-hidden border border-amber-500/30 bg-[#0f172a] shrink-0 shadow-sm flex items-center justify-center">
-            {branding.logoUrl ? (
+        <div className="flex items-center gap-3.5 border-b border-slate-800/80 p-4 sm:p-5">
+          <div className="relative flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-amber-500/30 bg-[#0f172a] shadow-sm">
+            {branding.logoUrl && failedLogoUrl !== branding.logoUrl ? (
               <img
                 src={branding.logoUrl}
                 alt={branding.companyName || 'TMM/BMA Logo'}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none';
-                }}
+                className="size-full object-contain p-1.5"
+                onError={() => setFailedLogoUrl(branding.logoUrl)}
               />
-            ) : null}
-            {/* Fallback Monogram */}
-            <span className="font-bold text-xs tracking-wider text-amber-300">TMM</span>
+            ) : (
+              <span className="font-bold text-xs tracking-wider text-amber-300" aria-hidden="true">TMM</span>
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <h1 className="text-sm font-bold text-white truncate tracking-tight">
@@ -151,7 +151,7 @@ export function Sidebar({
               <button
                 key={item.id}
                 onClick={() => handleNavClick(item.id)}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium transition-all group ${
+                className={`min-h-11 w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium transition-all group ${
                   isActive
                     ? 'bg-amber-500/10 text-amber-300 border border-amber-500/25 shadow-sm'
                     : 'text-slate-300 hover:text-white hover:bg-slate-800/60'

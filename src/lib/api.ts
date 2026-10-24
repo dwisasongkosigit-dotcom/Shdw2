@@ -37,11 +37,27 @@ export interface PicHistoryItem {
   notes?: string;
 }
 
+export interface ClientSuggestion {
+  id: string;
+  division: JobDivision;
+  content: string;
+  status: 'Terbuka' | 'Dalam Tindak Lanjut' | 'Selesai';
+  createdById: string;
+  createdByName: string;
+  createdAt: string;
+  updatedBy?: string;
+  updatedAt?: string;
+  dueDate?: string;
+}
+
 export interface Client {
   id: string;
   name: string;
   type: 'Badan' | 'OP';
   entityType: 'PT' | 'CV' | 'Firma' | 'Lainnya' | '-';
+  investmentCategory: 'PMA' | 'PMDN' | 'Belum Ditentukan';
+  dataType: 'Real' | 'Simulasi' | 'Belum Diatur';
+  suggestions: ClientSuggestion[];
 
   // 4 PIC Assignments
   accountingStaffPicId: string;
@@ -88,11 +104,13 @@ export interface Client {
   accountingRiskReason: string;
   accountingRiskRecommendation: string;
   accountingRiskDate: string;
+  accountingRiskReviewDate: string;
   accountingRiskAssessedBy: string;
   taxRisk: 'High' | 'Medium' | 'Low' | 'Not Assessed';
   taxRiskReason: string;
   taxRiskRecommendation: string;
   taxRiskDate: string;
+  taxRiskReviewDate: string;
   taxRiskAssessedBy: string;
   riskHistory: Array<{
     id: string;
@@ -412,6 +430,16 @@ export const api = {
     request<{ success: boolean; client: Client; message: string }>(`/api/clients/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
+    }),
+  addClientSuggestion: (id: string, data: { content: string; division: JobDivision; dueDate?: string }) =>
+    request<{ success: boolean; client: Client; message: string }>(`/api/clients/${id}/suggestions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateClientSuggestion: (id: string, suggestionId: string, status: ClientSuggestion['status']) =>
+    request<{ success: boolean; client: Client; message: string }>(`/api/clients/${id}/suggestions/${suggestionId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
     }),
   terminateClient: (id: string, data: { terminationReason: string; terminationDate?: string }) =>
     request<{ success: boolean; client: Client; message: string }>(`/api/clients/${id}/terminate`, {

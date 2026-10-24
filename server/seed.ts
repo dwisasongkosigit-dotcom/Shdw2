@@ -150,6 +150,9 @@ export function getInitialSeedData(): DatabaseSchema {
       name: item.name,
       type: item.type as any,
       entityType: item.entity as any,
+      investmentCategory: 'Belum Ditentukan',
+      dataType: 'Simulasi',
+      suggestions: [],
       accountingStaffPicId: 'USR-STF-ACC',
       accountingStaffPicName: 'Budi Pratama, S.Ak.',
       taxStaffPicId: 'USR-STF-TAX',
@@ -200,6 +203,7 @@ export function getInitialSeedData(): DatabaseSchema {
         ? 'Tingkatkan frekuensi rekonsiliasi akun perantara dan kelengkapan dokumen pendukung.'
         : 'Pertahankan prosedur pembukuan standar dan kelengkapan arsip voucher.',
       accountingRiskDate: '2026-01-15',
+      accountingRiskReviewDate: '2026-04-15',
       accountingRiskAssessedBy: 'Hendra Wijaya, SE, Ak., CA',
       taxRisk: item.taxR as any,
       taxRiskReason: item.taxReason,
@@ -209,6 +213,7 @@ export function getInitialSeedData(): DatabaseSchema {
         ? 'Pastikan semua bukti potong lawan transaksi terverifikasi dan faktur pajak tepat waktu.'
         : 'Pertahankan kepatuhan formal dan material, lakukan review berkala setiap masa pajak.',
       taxRiskDate: '2026-01-18',
+      taxRiskReviewDate: '2026-04-18',
       taxRiskAssessedBy: 'Ratna Kartika, SE, BKP',
       riskHistory: [
         {

@@ -33,6 +33,8 @@ import type {
   RiskLevel,
   RiskHistoryItem,
   PicHistoryItem,
+  ClientSuggestion,
+  SuggestionStatus,
   MeetingMinute,
   MeetingActionItem,
 } from './types.ts';
@@ -531,6 +533,14 @@ apiRouter.post(
       res.status(400).json({ error: 'Nama klien dan jenis klien (OP/Badan) wajib diisi.' });
       return;
     }
+    if (data.investmentCategory !== undefined && !['PMA', 'PMDN', 'Belum Ditentukan'].includes(data.investmentCategory)) {
+      res.status(400).json({ error: 'Kategori investasi klien tidak valid.' });
+      return;
+    }
+    if (data.dataType !== undefined && !['Real', 'Simulasi', 'Belum Diatur'].includes(data.dataType)) {
+      res.status(400).json({ error: 'Jenis data klien tidak valid.' });
+      return;
+    }
 
     const db = getDb();
     const nextNumber = db.clients.length + 1;
@@ -602,6 +612,9 @@ apiRouter.post(
       spvName: accSpvName,
 
       status: data.status || 'Aktif',
+      investmentCategory: data.investmentCategory || 'Belum Ditentukan',
+      dataType: data.dataType || 'Real',
+      suggestions: [],
       notes: data.notes || '',
       npwp: data.npwp || '',
       address: data.address || '',
@@ -618,11 +631,13 @@ apiRouter.post(
       accountingRiskReason: data.accountingRiskReason || '',
       accountingRiskRecommendation: data.accountingRiskRecommendation || '',
       accountingRiskDate: data.accountingRisk ? new Date().toISOString().split('T')[0] : '',
+      accountingRiskReviewDate: data.accountingRiskReviewDate || '',
       accountingRiskAssessedBy: data.accountingRisk ? (req.user?.name || '') : '',
       taxRisk: data.taxRisk || 'Not Assessed',
       taxRiskReason: data.taxRiskReason || '',
       taxRiskRecommendation: data.taxRiskRecommendation || '',
       taxRiskDate: data.taxRisk ? new Date().toISOString().split('T')[0] : '',
+      taxRiskReviewDate: data.taxRiskReviewDate || '',
       taxRiskAssessedBy: data.taxRisk ? (req.user?.name || '') : '',
       riskHistory: [],
       version: 1,
@@ -663,6 +678,32 @@ apiRouter.put(
     mutateDb((database) => {
       const client = database.clients.find((c) => c.id === id);
       if (!client) throw new Error('Klien tidak ditemukan.');
+      const currentUser = req.user!;
+      if (currentUser.role !== 'Admin' && !currentUser.role.startsWith('SPV')) {
+        throw new Error('Akses ditolak: hanya Admin atau supervisor yang dapat mengubah master klien.');
+      }
+      if (currentUser.role === 'SPV Accounting' && client.accountingSpvId !== currentUser.userId) {
+        throw new Error('Akses ditolak: klien ini bukan tanggung jawab SPV Accounting Anda.');
+      }
+      if (currentUser.role === 'SPV Tax' && client.taxSpvId !== currentUser.userId) {
+        throw new Error('Akses ditolak: klien ini bukan tanggung jawab SPV Tax Anda.');
+      }
+      if (currentUser.role.startsWith('SPV')) {
+        const crossDivisionKeys = currentUser.role === 'SPV Accounting'
+          ? ['taxRisk', 'taxRiskReason', 'taxRiskRecommendation', 'taxRiskReviewDate', 'taxRiskDate', 'taxRiskAssessedBy', 'taxSpvId', 'taxStaffPicId']
+          : ['accountingRisk', 'accountingRiskReason', 'accountingRiskRecommendation', 'accountingRiskReviewDate', 'accountingRiskDate', 'accountingRiskAssessedBy', 'accountingSpvId', 'accountingStaffPicId'];
+        if (crossDivisionKeys.some((key) => updates[key] !== undefined && updates[key] !== (client as any)[key])) {
+          throw new Error('Akses ditolak: supervisor hanya dapat mengubah penilaian dan PIC divisinya sendiri.');
+        }
+        const picAssignmentFields = [
+          'accountingStaffPicId', 'accountingStaffPicName', 'taxStaffPicId', 'taxStaffPicName',
+          'accountingSpvId', 'accountingSpvName', 'taxSpvId', 'taxSpvName',
+          'accountingPicId', 'accountingPicName', 'taxPicId', 'taxPicName', 'spvId', 'spvName',
+        ];
+        if (picAssignmentFields.some((key) => updates[key] !== undefined && updates[key] !== (client as any)[key])) {
+          throw new Error('Perubahan penugasan PIC hanya dapat dilakukan Admin.');
+        }
+      }
 
       // Optimistic concurrency check if expectedVersion provided
       if (updates.expectedVersion !== undefined && client.version !== updates.expectedVersion) {
@@ -780,6 +821,13 @@ apiRouter.put(
         client.taxRiskAssessedBy = req.user?.name || 'User';
       }
 
+      if (updates.investmentCategory !== undefined && !['PMA', 'PMDN', 'Belum Ditentukan'].includes(updates.investmentCategory)) {
+        throw new Error('Kategori investasi klien tidak valid.');
+      }
+      if (updates.dataType !== undefined && !['Real', 'Simulasi', 'Belum Diatur'].includes(updates.dataType)) {
+        throw new Error('Jenis data klien tidak valid.');
+      }
+
       // Synchronize backward compat fields
       if (updates.accountingStaffPicId !== undefined) updates.accountingPicId = updates.accountingStaffPicId;
       if (updates.accountingStaffPicName !== undefined) updates.accountingPicName = updates.accountingStaffPicName;
@@ -821,6 +869,98 @@ apiRouter.put(
   }
 );
 
+apiRouter.post(
+  '/clients/:id/suggestions',
+  authenticateToken,
+  requireWritable,
+  (req: AuthenticatedRequest, res: Response) => {
+    const { id } = req.params;
+    const currentUser = req.user!;
+    const content = typeof req.body.content === 'string' ? req.body.content.trim() : '';
+    const requestedDivision = req.body.division as Job['division'];
+    if (!content || content.length > 2000) {
+      res.status(400).json({ error: 'Saran wajib diisi dan maksimal 2.000 karakter.' });
+      return;
+    }
+    if (requestedDivision !== 'Accounting' && requestedDivision !== 'Tax') {
+      res.status(400).json({ error: 'Divisi saran tidak valid.' });
+      return;
+    }
+
+    let savedClient: Client | undefined;
+    mutateDb((database) => {
+      const client = database.clients.find((candidate) => candidate.id === id);
+      if (!client) throw new Error('Klien tidak ditemukan.');
+      const canWrite = currentUser.role === 'Admin' ||
+        (requestedDivision === 'Accounting' && currentUser.role === 'SPV Accounting' && client.accountingSpvId === currentUser.userId) ||
+        (requestedDivision === 'Tax' && currentUser.role === 'SPV Tax' && client.taxSpvId === currentUser.userId) ||
+        (requestedDivision === 'Accounting' && currentUser.role === 'Staff Accounting' && client.accountingStaffPicId === currentUser.userId) ||
+        (requestedDivision === 'Tax' && currentUser.role === 'Staff Tax' && client.taxStaffPicId === currentUser.userId);
+      if (!canWrite) throw new Error('Hanya PIC atau supervisor divisi yang ditugaskan pada klien ini yang dapat menambahkan saran.');
+
+      const suggestion: ClientSuggestion = {
+        id: `SUG-${randomUUID()}`,
+        division: requestedDivision,
+        content,
+        status: 'Terbuka',
+        createdById: currentUser.userId,
+        createdByName: currentUser.name,
+        createdAt: new Date().toISOString(),
+        dueDate: typeof req.body.dueDate === 'string' ? req.body.dueDate : undefined,
+      };
+      client.suggestions = client.suggestions || [];
+      client.suggestions.unshift(suggestion);
+      client.version = (client.version || 1) + 1;
+      client.updatedAt = new Date().toISOString();
+      client.updatedBy = currentUser.name;
+      savedClient = client;
+      logAudit('CLIENT_SUGGESTION_CREATED', 'Client', `Saran ${requestedDivision} ditambahkan untuk klien ${client.name}.`, { userId: currentUser.userId, name: currentUser.name, role: currentUser.role }, client.id, client.name);
+    });
+
+    res.status(201).json({ success: true, client: savedClient, message: 'Saran berhasil dicatat.' });
+  }
+);
+
+apiRouter.put(
+  '/clients/:id/suggestions/:suggestionId',
+  authenticateToken,
+  requireWritable,
+  (req: AuthenticatedRequest, res: Response) => {
+    const { id, suggestionId } = req.params;
+    const currentUser = req.user!;
+    const status = req.body.status as SuggestionStatus;
+    if (!['Terbuka', 'Dalam Tindak Lanjut', 'Selesai'].includes(status)) {
+      res.status(400).json({ error: 'Status saran tidak valid.' });
+      return;
+    }
+
+    let savedClient: Client | undefined;
+    mutateDb((database) => {
+      const client = database.clients.find((candidate) => candidate.id === id);
+      if (!client) throw new Error('Klien tidak ditemukan.');
+      const suggestion = (client.suggestions || []).find((candidate) => candidate.id === suggestionId);
+      if (!suggestion) throw new Error('Saran tidak ditemukan.');
+      const canWrite = currentUser.role === 'Admin' ||
+        (suggestion.division === 'Accounting' && currentUser.role === 'SPV Accounting' && client.accountingSpvId === currentUser.userId) ||
+        (suggestion.division === 'Tax' && currentUser.role === 'SPV Tax' && client.taxSpvId === currentUser.userId) ||
+        (suggestion.division === 'Accounting' && currentUser.role === 'Staff Accounting' && client.accountingStaffPicId === currentUser.userId) ||
+        (suggestion.division === 'Tax' && currentUser.role === 'Staff Tax' && client.taxStaffPicId === currentUser.userId);
+      if (!canWrite) throw new Error('Hanya PIC atau supervisor divisi yang ditugaskan yang dapat mengubah status saran.');
+
+      suggestion.status = status;
+      suggestion.updatedBy = currentUser.name;
+      suggestion.updatedAt = new Date().toISOString();
+      client.version = (client.version || 1) + 1;
+      client.updatedAt = suggestion.updatedAt;
+      client.updatedBy = currentUser.name;
+      savedClient = client;
+      logAudit('CLIENT_SUGGESTION_UPDATED', 'Client', `Status saran ${suggestionId} untuk klien ${client.name} diubah menjadi ${status}.`, { userId: currentUser.userId, name: currentUser.name, role: currentUser.role }, client.id, client.name);
+    });
+
+    res.json({ success: true, client: savedClient, message: 'Status saran diperbarui.' });
+  }
+);
+
 // Putus Kontrak Klien (Admin, SPV Accounting, SPV Tax)
 apiRouter.post(
   '/clients/:id/terminate',
@@ -835,6 +975,12 @@ apiRouter.post(
     mutateDb((database) => {
       const client = database.clients.find((c) => c.id === id);
       if (!client) throw new Error('Klien tidak ditemukan.');
+      if (req.user?.role === 'SPV Accounting' && client.accountingSpvId !== req.user.userId) {
+        throw new Error('Akses ditolak: klien ini bukan tanggung jawab SPV Accounting Anda.');
+      }
+      if (req.user?.role === 'SPV Tax' && client.taxSpvId !== req.user.userId) {
+        throw new Error('Akses ditolak: klien ini bukan tanggung jawab SPV Tax Anda.');
+      }
 
       client.status = 'Putus Kontrak';
       client.terminationDate = terminationDate || new Date().toISOString().split('T')[0];
@@ -946,12 +1092,20 @@ apiRouter.post(
 
     const db = getDb();
     const client = db.clients.find((candidate) => candidate.id === data.clientId);
-    if (!client) {
-      res.status(404).json({ error: 'Klien tidak ditemukan.' });
-      return;
-    }
+      if (!client) {
+        res.status(404).json({ error: 'Klien tidak ditemukan.' });
+        return;
+      }
+      if (currentUser.role === 'SPV Accounting' && client.accountingSpvId !== currentUser.userId) {
+        res.status(403).json({ error: 'SPV Accounting hanya dapat membuat pekerjaan untuk klien yang ditugaskan kepadanya.' });
+        return;
+      }
+      if (currentUser.role === 'SPV Tax' && client.taxSpvId !== currentUser.userId) {
+        res.status(403).json({ error: 'SPV Tax hanya dapat membuat pekerjaan untuk klien yang ditugaskan kepadanya.' });
+        return;
+      }
 
-    const now = new Date().toISOString();
+      const now = new Date().toISOString();
     const year = new Date().getFullYear();
     const createdJobs: Job[] = [];
 
@@ -962,8 +1116,7 @@ apiRouter.post(
       const defaultSpvId = division === 'Accounting' ? client.accountingSpvId : client.taxSpvId;
       const requestedPicId = data.picAssignments?.[division]?.picId || defaultPicId;
       const assignedPic = db.users.find((user) => user.id === requestedPicId && user.active && user.role === staffRole);
-      const assignedSpv = db.users.find((user) => user.id === defaultSpvId && user.active && user.role === spvRole)
-        || db.users.find((user) => user.active && user.role === spvRole);
+      const assignedSpv = db.users.find((user) => user.id === defaultSpvId && user.active && user.role === spvRole);
 
       if (!assignedPic) {
         res.status(400).json({ error: `Pilih PIC aktif dengan peran ${staffRole} untuk divisi ${division}.` });
@@ -1054,11 +1207,36 @@ apiRouter.put(
       if (currentUser.role === 'Staff Tax' && (job.division !== 'Tax' || job.picId !== currentUser.userId)) {
         throw new Error('Akses ditolak: pekerjaan ini bukan tugas Tax yang ditugaskan kepada Anda.');
       }
-      if (currentUser.role === 'SPV Accounting' && job.division !== 'Accounting') {
-        throw new Error('Akses ditolak: SPV Accounting hanya dapat memperbarui pekerjaan Accounting.');
+      if (currentUser.role === 'SPV Accounting' && (job.division !== 'Accounting' || job.spvId !== currentUser.userId)) {
+        throw new Error('Akses ditolak: hanya SPV Accounting yang ditugaskan sebagai reviewer dapat memperbarui pekerjaan ini.');
       }
-      if (currentUser.role === 'SPV Tax' && job.division !== 'Tax') {
-        throw new Error('Akses ditolak: SPV Tax hanya dapat memperbarui pekerjaan Tax.');
+      if (currentUser.role === 'SPV Tax' && (job.division !== 'Tax' || job.spvId !== currentUser.userId)) {
+        throw new Error('Akses ditolak: hanya SPV Tax yang ditugaskan sebagai reviewer dapat memperbarui pekerjaan ini.');
+      }
+      const isAssignedReviewer = currentUser.role === 'Admin' ||
+        (currentUser.role.startsWith('SPV') && job.spvId === currentUser.userId);
+      const protectedFields = ['title', 'priority', 'startDate', 'deadline', 'description', 'picId', 'picName', 'spvId', 'spvName'];
+      if (!isAssignedReviewer && protectedFields.some((field) => updates[field] !== undefined && updates[field] !== (job as any)[field])) {
+        throw new Error('Akses ditolak: hanya Admin atau reviewer tugas yang dapat mengubah detail pekerjaan.');
+      }
+      if (currentUser.role !== 'Admin' && (updates.spvId !== undefined || updates.spvName !== undefined)) {
+        throw new Error('Penggantian reviewer tugas hanya dapat dilakukan Admin.');
+      }
+
+      const isValidDate = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`));
+      if (updates.title !== undefined && (typeof updates.title !== 'string' || !updates.title.trim() || updates.title.trim().length > 200)) {
+        throw new Error('Judul pekerjaan wajib diisi dan maksimal 200 karakter.');
+      }
+      if (updates.priority !== undefined && !['Rendah', 'Sedang', 'Tinggi', 'Mendesak'].includes(updates.priority)) {
+        throw new Error('Prioritas pekerjaan tidak valid.');
+      }
+      if (updates.startDate !== undefined && !isValidDate(updates.startDate)) throw new Error('Tanggal mulai harus berformat YYYY-MM-DD.');
+      if (updates.deadline !== undefined && !isValidDate(updates.deadline)) throw new Error('Deadline harus berformat YYYY-MM-DD.');
+      if (updates.progressPercent !== undefined && (!Number.isInteger(Number(updates.progressPercent)) || Number(updates.progressPercent) < 0 || Number(updates.progressPercent) > 100)) {
+        throw new Error('Progres pekerjaan harus berupa bilangan bulat 0–100.');
+      }
+      if (updates.status !== undefined && !['Belum Dimulai', 'Dalam Proses', 'Menunggu Klien', 'Siap Direview', 'Perlu Revisi', 'Selesai'].includes(updates.status)) {
+        throw new Error('Status pekerjaan tidak valid.');
       }
 
       // Concurrency version check
@@ -1068,12 +1246,12 @@ apiRouter.put(
         );
       }
 
-      // CRITICAL RBAC CHECK: Staff CANNOT approve own job to 'Selesai'!
+      // CRITICAL RBAC CHECK: only the assigned reviewer may approve the job.
       if (updates.status === 'Selesai' && job.status !== 'Selesai') {
-        const isAuthorizedReviewer =
-          currentUser.role === 'Admin' ||
-          (currentUser.role === 'SPV Accounting' && job.division === 'Accounting') ||
-          (currentUser.role === 'SPV Tax' && job.division === 'Tax');
+        const isAuthorizedReviewer = currentUser.role === 'Admin' ||
+          (currentUser.role.startsWith('SPV') && job.spvId === currentUser.userId &&
+            ((currentUser.role === 'SPV Accounting' && job.division === 'Accounting') ||
+              (currentUser.role === 'SPV Tax' && job.division === 'Tax')));
 
         if (!isAuthorizedReviewer) {
           throw new Error(
@@ -1081,21 +1259,27 @@ apiRouter.put(
           );
         }
 
+        if (currentUser.role !== 'Admin' && job.status !== 'Siap Direview') {
+          throw new Error('SPV hanya dapat menyelesaikan pekerjaan yang sudah diajukan untuk review.');
+        }
         job.completedAt = new Date().toISOString();
         job.approvedBy = currentUser.name;
       }
 
-      // Check if SPV requests revision
+      // Check if assigned reviewer requests a revision.
       if (updates.status === 'Perlu Revisi' && job.status !== 'Perlu Revisi') {
-        const isAuthorizedReviewer =
-          currentUser.role === 'Admin' ||
-          (currentUser.role === 'SPV Accounting' && job.division === 'Accounting') ||
-          (currentUser.role === 'SPV Tax' && job.division === 'Tax');
+        const isAuthorizedReviewer = currentUser.role === 'Admin' ||
+          (currentUser.role.startsWith('SPV') && job.spvId === currentUser.userId &&
+            ((currentUser.role === 'SPV Accounting' && job.division === 'Accounting') ||
+              (currentUser.role === 'SPV Tax' && job.division === 'Tax')));
 
         if (!isAuthorizedReviewer) {
           throw new Error('Hanya SPV penanggung jawab atau Admin yang dapat meminta revisi pekerjaan.');
         }
 
+        if (currentUser.role !== 'Admin' && job.status !== 'Siap Direview') {
+          throw new Error('SPV hanya dapat meminta revisi setelah pekerjaan diajukan untuk review.');
+        }
         if (!updates.reviewNotes && !updates.notes) {
           throw new Error('Catatan evaluasi/revisi dari SPV wajib dicantumkan saat meminta revisi.');
         }
@@ -1103,6 +1287,8 @@ apiRouter.put(
 
       // Record History item
       const statusChanged = updates.status && updates.status !== job.status;
+      const detailChanged = ['title', 'priority', 'startDate', 'deadline', 'description', 'spvId']
+        .some((field) => updates[field] !== undefined && updates[field] !== (job as any)[field]);
       const historyAction = statusChanged
         ? updates.status === 'Selesai'
           ? 'Persetujuan Selesai oleh SPV'
@@ -1111,7 +1297,7 @@ apiRouter.put(
           : updates.status === 'Siap Direview'
           ? 'Pengajuan Review ke SPV'
           : `Perubahan Status ke ${updates.status}`
-        : 'Pembaruan Progres / Catatan';
+        : detailChanged ? 'Pembaruan Detail Tugas' : 'Pembaruan Progres / Catatan';
 
       const historyItem = {
         id: `JH-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -1133,10 +1319,18 @@ apiRouter.put(
       job.updatedBy = currentUser.name;
 
       // Apply updates
-      if (updates.title !== undefined) job.title = updates.title;
+      if (updates.title !== undefined) job.title = String(updates.title).trim();
       if (updates.priority !== undefined) job.priority = updates.priority;
+      if (updates.startDate !== undefined) job.startDate = updates.startDate;
       if (updates.deadline !== undefined) job.deadline = updates.deadline;
       if (updates.description !== undefined) job.description = updates.description;
+      if (updates.spvId !== undefined) {
+        const reviewerRole = job.division === 'Accounting' ? 'SPV Accounting' : 'SPV Tax';
+        const reviewer = database.users.find((user) => user.id === updates.spvId && user.active && user.role === reviewerRole);
+        if (!reviewer) throw new Error(`Reviewer aktif dengan peran ${reviewerRole} wajib dipilih.`);
+        job.spvId = reviewer.id;
+        job.spvName = reviewer.name;
+      }
       if (updates.notes !== undefined) job.notes = updates.notes;
       if (updates.picId !== undefined) job.picId = updates.picId;
       if (updates.picName !== undefined) job.picName = updates.picName;
@@ -1180,11 +1374,11 @@ apiRouter.delete(
 
       const target = database.jobs[idx];
       // Role scope check
-      if (req.user?.role === 'SPV Accounting' && target.division !== 'Accounting') {
-        throw new Error('SPV Accounting hanya dapat menghapus pekerjaan divisi Accounting.');
+      if (req.user?.role === 'SPV Accounting' && (target.division !== 'Accounting' || target.spvId !== req.user.userId)) {
+        throw new Error('SPV Accounting hanya dapat menghapus pekerjaan yang menjadi tanggung jawab review-nya.');
       }
-      if (req.user?.role === 'SPV Tax' && target.division !== 'Tax') {
-        throw new Error('SPV Tax hanya dapat menghapus pekerjaan divisi Tax.');
+      if (req.user?.role === 'SPV Tax' && (target.division !== 'Tax' || target.spvId !== req.user.userId)) {
+        throw new Error('SPV Tax hanya dapat menghapus pekerjaan yang menjadi tanggung jawab review-nya.');
       }
 
       const deleted = database.jobs.splice(idx, 1)[0];

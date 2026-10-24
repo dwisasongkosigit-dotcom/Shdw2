@@ -86,6 +86,11 @@ function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
   db.clients.forEach((c: any) => {
     if (!c.version) c.version = 1;
     if (!c.picHistory) c.picHistory = [];
+    if (!c.suggestions) c.suggestions = [];
+    if (!c.investmentCategory) c.investmentCategory = 'Belum Ditentukan';
+    if (!c.dataType) c.dataType = 'Belum Diatur';
+    if (!c.accountingRiskReviewDate) c.accountingRiskReviewDate = '';
+    if (!c.taxRiskReviewDate) c.taxRiskReviewDate = '';
 
     // Ensure 4 distinct PIC roles:
     if (!c.accountingStaffPicId) c.accountingStaffPicId = c.accountingPicId || 'USR-STF-ACC';

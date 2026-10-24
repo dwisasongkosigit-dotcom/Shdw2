@@ -17,8 +17,11 @@ import {
   UserX,
   Download,
   AlertOctagon,
+  Lightbulb,
+  ChevronRight,
 } from 'lucide-react';
-import { api, type Client, type CurrentUser, type UserAccount } from '../lib/api';
+import { api, type Client, type CurrentUser, type UserAccount, type JobDivision } from '../lib/api';
+import { ClientSegmentationChart } from './ClientSegmentationChart';
 import { useToast } from './Toast';
 import { ExportDropdown } from './ExportDropdown';
 import type { ColumnDef } from '../lib/exportUtils';
@@ -48,6 +51,13 @@ export function ClientsView({
   const [filterRisk, setFilterRisk] = useState<string>('All');
   const [filterStatus, setFilterStatus] = useState<string>('All');
   const [filterPicStatus, setFilterPicStatus] = useState<string>('All');
+  const [filterInvestment, setFilterInvestment] = useState<string>('All');
+  const [filterDataType, setFilterDataType] = useState<string>('All');
+  const [chartDataType, setChartDataType] = useState<'Real' | 'Simulasi' | 'Semua'>('Real');
+  const [suggestionText, setSuggestionText] = useState('');
+  const [suggestionDivision, setSuggestionDivision] = useState<JobDivision>(currentUser.role.includes('Tax') ? 'Tax' : 'Accounting');
+  const [suggestionDueDate, setSuggestionDueDate] = useState('');
+  const [savingSuggestion, setSavingSuggestion] = useState(false);
 
   // Modal states
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -80,6 +90,15 @@ export function ClientsView({
     currentUser.role === 'SPV Tax'
   );
   const canDelete = currentUser.role === 'Admin';
+  const isAdmin = currentUser.role === 'Admin';
+  const canEditClient = (client: Client) => isAdmin ||
+    (currentUser.role === 'SPV Accounting' && client.accountingSpvId === currentUser.id) ||
+    (currentUser.role === 'SPV Tax' && client.taxSpvId === currentUser.id);
+  const canManageSuggestion = (client: Client, division: JobDivision) => isAdmin ||
+    (division === 'Accounting' && currentUser.role === 'SPV Accounting' && client.accountingSpvId === currentUser.id) ||
+    (division === 'Tax' && currentUser.role === 'SPV Tax' && client.taxSpvId === currentUser.id) ||
+    (division === 'Accounting' && currentUser.role === 'Staff Accounting' && client.accountingStaffPicId === currentUser.id) ||
+    (division === 'Tax' && currentUser.role === 'Staff Tax' && client.taxStaffPicId === currentUser.id);
 
   // Filter clients
   const filteredClients = useMemo(() => {
@@ -94,6 +113,8 @@ export function ClientsView({
       }
       if (filterStatus !== 'All' && c.status !== filterStatus) return false;
       if (filterPicStatus !== 'All' && c.picAssignmentStatus !== filterPicStatus) return false;
+      if (filterInvestment !== 'All' && c.investmentCategory !== filterInvestment) return false;
+      if (filterDataType !== 'All' && c.dataType !== filterDataType) return false;
 
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
@@ -104,19 +125,23 @@ export function ClientsView({
         const matchesAccSpv = c.accountingSpvName && c.accountingSpvName.toLowerCase().includes(q);
         const matchesTaxSpv = c.taxSpvName && c.taxSpvName.toLowerCase().includes(q);
         const matchesNotes = c.notes && c.notes.toLowerCase().includes(q);
-        if (!matchesName && !matchesId && !matchesAccStaff && !matchesTaxStaff && !matchesAccSpv && !matchesTaxSpv && !matchesNotes) {
+        const matchesSuggestions = (c.suggestions || []).some((suggestion) => suggestion.content.toLowerCase().includes(q));
+        if (!matchesName && !matchesId && !matchesAccStaff && !matchesTaxStaff && !matchesAccSpv && !matchesTaxSpv && !matchesNotes && !matchesSuggestions) {
           return false;
         }
       }
 
       return true;
     });
-  }, [clients, searchTerm, filterType, filterPkp, filterPph, filterRisk, filterStatus, filterPicStatus]);
+  }, [clients, searchTerm, filterType, filterPkp, filterPph, filterRisk, filterStatus, filterPicStatus, filterInvestment, filterDataType]);
 
   const handleOpenDetail = (client: Client, edit = false) => {
     setSelectedClient(client);
     setFormData({ ...client });
     setPicChangeNote('');
+    setSuggestionText('');
+    setSuggestionDueDate('');
+    setSuggestionDivision(currentUser.role.includes('Tax') ? 'Tax' : 'Accounting');
     setIsEditMode(!isReadOnly && edit);
   };
 
@@ -132,6 +157,9 @@ export function ClientsView({
     setFormData({
       type: 'Badan',
       entityType: 'PT',
+      investmentCategory: 'Belum Ditentukan',
+      dataType: 'Real',
+      suggestions: [],
       status: 'Aktif',
       pkpStatus: 'PKP',
       pphRegime: 'PPh Badan Tarif Umum',
@@ -180,6 +208,41 @@ export function ClientsView({
       error('Gagal Menyimpan', err.message || 'Terjadi kesalahan saat menyimpan ke database server. Data lama Anda tetap utuh.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAddSuggestion = async () => {
+    if (!selectedClient || !suggestionText.trim()) return;
+    setSavingSuggestion(true);
+    try {
+      const response = await api.addClientSuggestion(selectedClient.id, {
+        content: suggestionText.trim(),
+        division: suggestionDivision,
+        dueDate: suggestionDueDate || undefined,
+      });
+      setSelectedClient(response.client);
+      setFormData((previous) => ({ ...previous, version: response.client.version, suggestions: response.client.suggestions }));
+      setSuggestionText('');
+      setSuggestionDueDate('');
+      success('Saran Dicatat', 'Saran tersimpan pada riwayat klien.');
+      onRefresh();
+    } catch (err: any) {
+      error('Gagal Menyimpan Saran', err.message);
+    } finally {
+      setSavingSuggestion(false);
+    }
+  };
+
+  const handleSuggestionStatus = async (suggestionId: string, status: 'Terbuka' | 'Dalam Tindak Lanjut' | 'Selesai') => {
+    if (!selectedClient) return;
+    try {
+      const response = await api.updateClientSuggestion(selectedClient.id, suggestionId, status);
+      setSelectedClient(response.client);
+      setFormData((previous) => ({ ...previous, version: response.client.version, suggestions: response.client.suggestions }));
+      success('Status Saran Diperbarui', 'Perubahan tercatat pada riwayat klien.');
+      onRefresh();
+    } catch (err: any) {
+      error('Gagal Memperbarui Saran', err.message);
     }
   };
 
@@ -235,7 +298,10 @@ export function ClientsView({
       { header: 'Nama Klien', key: 'name', width: 28, render: (c) => c.name },
       { header: 'Tipe', key: 'type', width: 10, align: 'center', render: (c) => c.type },
       { header: 'Bentuk Usaha', key: 'entityType', width: 14, align: 'center', render: (c) => c.entityType },
+      { header: 'Kategori Investasi', key: 'investmentCategory', width: 18, align: 'center', render: (c) => c.investmentCategory || 'Belum Ditentukan' },
+      { header: 'Jenis Data', key: 'dataType', width: 12, align: 'center', render: (c) => c.dataType || 'Belum Diatur' },
       { header: 'Status Kontrak', key: 'status', width: 16, align: 'center', render: (c) => c.status },
+      { header: 'Saran Aktif', key: 'activeSuggestions', width: 12, align: 'center', render: (c) => (c.suggestions || []).filter((suggestion) => suggestion.status !== 'Selesai').length },
       { header: 'Status PKP', key: 'pkpStatus', width: 14, align: 'center', render: (c) => c.pkpStatus || '-' },
       { header: 'Rezim PPh', key: 'pphRegime', width: 22, render: (c) => c.pphRegime || '-' },
       { header: 'Tahun Pajak', key: 'taxYearEffective', width: 14, align: 'center', render: (c) => c.taxYearEffective || '-' },
@@ -311,6 +377,30 @@ export function ClientsView({
         </div>
       </div>
 
+      <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-700">Portofolio Klien</p>
+            <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Segmentasi & profil risiko</h2>
+            <p className="mt-1 text-xs text-slate-500">PMA/PMDN dan risiko tertinggi Accounting atau Tax.</p>
+          </div>
+          <div className="inline-flex w-full rounded-lg border border-slate-200 bg-white p-1 sm:w-auto" aria-label="Pilih data untuk grafik">
+            {(['Real', 'Simulasi', 'Semua'] as const).map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setChartDataType(type)}
+                aria-pressed={chartDataType === type}
+                className={`min-h-10 flex-1 rounded-md px-3 text-xs font-semibold transition-colors sm:flex-none ${chartDataType === type ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
+              >
+                {type === 'Semua' ? 'Semua data' : type}
+              </button>
+            ))}
+          </div>
+        </div>
+        <ClientSegmentationChart clients={clients} dataType={chartDataType} />
+      </section>
+
       {/* Multi-facet Filter Row */}
       <div className="p-3.5 bg-white border border-slate-200 rounded-xl flex flex-wrap gap-2.5 items-center text-xs">
         <div className="flex items-center gap-1 text-slate-500 font-medium">
@@ -342,6 +432,29 @@ export function ClientsView({
           <option value="All">Semua Jenis (OP/Badan)</option>
           <option value="Badan">Badan Usaha</option>
           <option value="OP">Orang Pribadi (OP)</option>
+        </select>
+
+        <select
+          value={filterInvestment}
+          onChange={(e) => setFilterInvestment(e.target.value)}
+          aria-label="Filter PMA atau PMDN"
+          className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-slate-700 font-medium focus:outline-none"
+        >
+          <option value="All">Semua PMA/PMDN</option>
+          <option value="PMA">PMA</option>
+          <option value="PMDN">PMDN</option>
+          <option value="Belum Ditentukan">Belum Ditentukan</option>
+        </select>
+        <select
+          value={filterDataType}
+          onChange={(e) => setFilterDataType(e.target.value)}
+          aria-label="Filter data Real atau Simulasi"
+          className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-slate-700 font-medium focus:outline-none"
+        >
+          <option value="All">Semua Real/Simulasi</option>
+          <option value="Real">Real</option>
+          <option value="Simulasi">Simulasi</option>
+          <option value="Belum Diatur">Belum Diatur</option>
         </select>
 
         {/* Status PKP */}
@@ -387,7 +500,7 @@ export function ClientsView({
       </div>
 
       {/* Clients Table */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+      <div className="hidden xl:block bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider text-[10px]">
@@ -425,7 +538,7 @@ export function ClientsView({
                           {client.name}
                         </div>
                         <div className="text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
-                          {client.id} · {client.status}
+                          {client.id} · {client.status} · {client.investmentCategory} · {client.dataType}
                         </div>
                       </td>
 
@@ -516,7 +629,7 @@ export function ClientsView({
                       {/* Action */}
                       <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5">
-                          {canEdit && (
+                          {canEditClient(client) && (
                             <button
                               onClick={() => handleOpenDetail(client, true)}
                               className="p-1.5 text-slate-400 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors"
@@ -525,7 +638,7 @@ export function ClientsView({
                               <Edit className="w-3.5 h-3.5" />
                             </button>
                           )}
-                          {canTerminate && client.status !== 'Putus Kontrak' && (
+                          {canTerminate && canEditClient(client) && client.status !== 'Putus Kontrak' && (
                             <button
                               onClick={() => handleOpenTerminate(client)}
                               className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
@@ -554,14 +667,53 @@ export function ClientsView({
         </div>
       </div>
 
+      <div className="grid gap-3 xl:hidden">
+        {filteredClients.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+            Tidak ada klien yang sesuai dengan kriteria filter.
+          </div>
+        ) : filteredClients.map((client) => {
+          const activeSuggestions = (client.suggestions || []).filter((suggestion) => suggestion.status !== 'Selesai').length;
+          return (
+            <article key={client.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <button type="button" onClick={() => handleOpenDetail(client)} className="w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 rounded-lg">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-sm font-semibold text-slate-900">{client.name}</h3>
+                    <p className="mt-1 text-[11px] font-mono text-slate-500">{client.id} · {client.status}</p>
+                  </div>
+                  <ChevronRight className="size-4 shrink-0 text-slate-400" />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-700">{client.investmentCategory}</span>
+                  <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${client.dataType === 'Real' ? 'bg-emerald-50 text-emerald-700' : client.dataType === 'Simulasi' ? 'bg-violet-50 text-violet-700' : 'bg-amber-50 text-amber-800'}`}>{client.dataType}</span>
+                  <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-semibold text-rose-700">Risiko {client.accountingRisk === 'High' || client.taxRisk === 'High' ? 'High' : client.accountingRisk === 'Medium' || client.taxRisk === 'Medium' ? 'Medium' : client.accountingRisk === 'Low' || client.taxRisk === 'Low' ? 'Low' : 'Belum Dinilai'}</span>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]">
+                  <div><span className="text-slate-400">SPV Accounting</span><p className="mt-0.5 truncate font-medium text-slate-700">{client.accountingSpvName || '-'}</p></div>
+                  <div><span className="text-slate-400">SPV Tax</span><p className="mt-0.5 truncate font-medium text-slate-700">{client.taxSpvName || '-'}</p></div>
+                </div>
+              </button>
+              <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
+                <span className="text-[11px] text-slate-500">{activeSuggestions} saran aktif</span>
+                <div className="flex gap-2">
+                  {canEditClient(client) && <button type="button" onClick={() => handleOpenDetail(client, true)} className="min-h-10 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700">Edit klien</button>}
+                  <button type="button" onClick={() => handleOpenDetail(client)} className="min-h-10 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white">Detail</button>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
       {/* Detail / Edit Drawer Modal */}
       {(selectedClient || isAddModalOpen) && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex justify-end">
-          <div className="w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200">
+          <div className="w-full max-w-2xl bg-white h-dvh sm:h-full shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200">
             {/* Drawer Header */}
-            <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/50 p-3 sm:p-5">
+              <div className="min-w-0 flex-1">
+                <h3 className="truncate text-sm font-bold text-slate-900 sm:text-base">
                   {isAddModalOpen
                     ? 'Tambah Klien Baru'
                     : isEditMode
@@ -572,40 +724,45 @@ export function ClientsView({
                   {selectedClient ? `${selectedClient.id} · Versi Data: v${selectedClient.version}` : 'Input master data konsultan'}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                {selectedClient && !isEditMode && canEdit && (
+              <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+                {selectedClient && !isEditMode && canEditClient(selectedClient) && (
                   <button
                     onClick={() => setIsEditMode(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-md text-xs font-medium"
+                    aria-label="Edit Data dan PIC Klien"
+                    className="flex min-h-10 items-center gap-1.5 px-2 sm:px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-md text-xs font-medium"
                   >
                     <Edit className="w-3.5 h-3.5" />
-                    <span>Edit Data & PIC</span>
+                    <span className="hidden sm:inline">Edit Data & PIC</span>
                   </button>
                 )}
-                {selectedClient && !isEditMode && canTerminate && selectedClient.status !== 'Putus Kontrak' && (
+                {selectedClient && !isEditMode && canTerminate && canEditClient(selectedClient) && selectedClient.status !== 'Putus Kontrak' && (
                   <button
                     onClick={() => handleOpenTerminate(selectedClient)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-md text-xs font-medium transition-colors"
+                    aria-label="Putus kontrak klien"
+                    className="flex min-h-10 items-center gap-1.5 px-2 sm:px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-md text-xs font-medium transition-colors"
                   >
                     <UserX className="w-3.5 h-3.5 text-amber-700" />
-                    <span>Putus Kontrak</span>
+                    <span className="hidden sm:inline">Putus Kontrak</span>
                   </button>
                 )}
                 {selectedClient && !isEditMode && canDelete && (
                   <button
                     onClick={() => setClientToDelete(selectedClient)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-md text-xs font-medium transition-colors"
+                    aria-label="Hapus klien"
+                    className="flex min-h-10 items-center gap-1.5 px-2 sm:px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-md text-xs font-medium transition-colors"
                   >
                     <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                     <span>Hapus Klien</span>
                   </button>
                 )}
                 <button
+                  type="button"
                   onClick={() => {
                     setSelectedClient(null);
                     setIsAddModalOpen(false);
                   }}
-                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md"
+                  aria-label="Tutup detail klien"
+                  className="min-h-10 min-w-10 p-1.5 text-slate-400 hover:text-slate-700 rounded-md"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -613,14 +770,14 @@ export function ClientsView({
             </div>
 
             {/* Drawer Content */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 text-xs">
+            <div className="flex-1 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6 sm:pb-6 flex flex-col gap-6 text-xs">
               {/* Basic Client Info */}
               <div className="space-y-4">
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider pb-1 border-b border-slate-100">
                   1. Informasi Identitas Klien
                 </h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
                     <label className="block text-slate-600 font-medium mb-1">Nama Klien / Perusahaan</label>
                     <input
                       type="text"
@@ -663,6 +820,33 @@ export function ClientsView({
                       <option value="CV">CV (Commanditaire Vennootschap)</option>
                       <option value="Firma">Firma</option>
                       <option value="Lainnya">Lainnya</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-600 font-medium mb-1">Kategori Penanaman Modal</label>
+                    <select
+                      disabled={!isEditMode && !isAddModalOpen}
+                      value={formData.investmentCategory || 'Belum Ditentukan'}
+                      onChange={(e) => setFormData({ ...formData, investmentCategory: e.target.value as Client['investmentCategory'] })}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 disabled:bg-slate-100"
+                    >
+                      <option value="Belum Ditentukan">Belum Ditentukan</option>
+                      <option value="PMA">PMA</option>
+                      <option value="PMDN">PMDN</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 font-medium mb-1">Jenis Data Klien</label>
+                    <select
+                      disabled={!isEditMode && !isAddModalOpen}
+                      value={formData.dataType || 'Belum Diatur'}
+                      onChange={(e) => setFormData({ ...formData, dataType: e.target.value as Client['dataType'] })}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 disabled:bg-slate-100"
+                    >
+                      <option value="Real">Real</option>
+                      <option value="Simulasi">Simulasi</option>
+                      <option value="Belum Diatur">Belum Diatur</option>
                     </select>
                   </div>
 
@@ -711,13 +895,13 @@ export function ClientsView({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label className="block text-slate-700 font-semibold mb-1">
                       1. Staff Accounting PIC
                     </label>
                     <select
-                      disabled={!isEditMode && !isAddModalOpen}
+                      disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
                       value={formData.accountingStaffPicId || ''}
                       onChange={(e) => {
                         const user = users.find((candidate) => candidate.id === e.target.value);
@@ -744,7 +928,7 @@ export function ClientsView({
                       2. Staff Tax PIC
                     </label>
                     <select
-                      disabled={!isEditMode && !isAddModalOpen}
+                      disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
                       value={formData.taxStaffPicId || ''}
                       onChange={(e) => {
                         const user = users.find((candidate) => candidate.id === e.target.value);
@@ -771,7 +955,7 @@ export function ClientsView({
                       3. SPV Accounting Reviewer
                     </label>
                     <select
-                      disabled={!isEditMode && !isAddModalOpen}
+                      disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
                       value={formData.accountingSpvId || ''}
                       onChange={(e) => {
                         const user = users.find((candidate) => candidate.id === e.target.value);
@@ -798,7 +982,7 @@ export function ClientsView({
                       4. SPV Tax Reviewer
                     </label>
                     <select
-                      disabled={!isEditMode && !isAddModalOpen}
+                      disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
                       value={formData.taxSpvId || ''}
                       onChange={(e) => {
                         const user = users.find((candidate) => candidate.id === e.target.value);
@@ -866,7 +1050,7 @@ export function ClientsView({
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider pb-1 border-b border-slate-100">
                   3. Profil Perpajakan (PKP & Rezim PPh Terpisah)
                 </h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-slate-600 font-medium mb-1">Status PKP</label>
                     <select
@@ -925,7 +1109,7 @@ export function ClientsView({
                     />
                   </div>
 
-                  <div className="col-span-2">
+                  <div className="sm:col-span-2">
                     <label className="block text-slate-600 font-medium mb-1">Catatan & Sumber Data Pajak</label>
                     <textarea
                       rows={2}
@@ -944,12 +1128,12 @@ export function ClientsView({
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider pb-1 border-b border-slate-100">
                   4. Penilaian Risiko Accounting & Tax (Terpisah)
                 </h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   {/* Accounting Risk */}
                   <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
                     <label className="block text-slate-700 font-bold">Tingkat Risiko Accounting</label>
                     <select
-                      disabled={!isEditMode && !isAddModalOpen}
+                      disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Accounting')}
                       value={formData.accountingRisk || 'Not Assessed'}
                       onChange={(e) => setFormData({ ...formData, accountingRisk: e.target.value as any })}
                       className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded text-slate-900 font-semibold"
@@ -960,13 +1144,29 @@ export function ClientsView({
                       <option value="High">High (Tinggi)</option>
                     </select>
                     <div>
-                      <span className="text-[10px] text-slate-500 font-medium">Alasan Risiko Accounting:</span>
+                      <label className="text-[10px] text-slate-500 font-medium">Alasan Risiko Accounting</label>
                       <textarea
                         rows={2}
-                        disabled={!isEditMode && !isAddModalOpen}
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Accounting')}
                         value={formData.accountingRiskReason || ''}
                         onChange={(e) => setFormData({ ...formData, accountingRiskReason: e.target.value })}
-                        className="w-full mt-1 p-1.5 bg-white border border-slate-200 rounded text-[11px]"
+                        className="w-full mt-1 p-2 bg-white border border-slate-200 rounded text-xs disabled:bg-slate-100"
+                      />
+                      <label className="mt-2 block text-[10px] text-slate-500 font-medium">Rekomendasi & tanggal review berikutnya</label>
+                      <textarea
+                        rows={2}
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Accounting')}
+                        value={formData.accountingRiskRecommendation || ''}
+                        onChange={(e) => setFormData({ ...formData, accountingRiskRecommendation: e.target.value })}
+                        className="w-full mt-1 p-2 bg-white border border-slate-200 rounded text-xs disabled:bg-slate-100"
+                      />
+                      <input
+                        type="date"
+                        aria-label="Tanggal review risiko Accounting berikutnya"
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Accounting')}
+                        value={formData.accountingRiskReviewDate || ''}
+                        onChange={(e) => setFormData({ ...formData, accountingRiskReviewDate: e.target.value })}
+                        className="mt-2 w-full rounded border border-slate-200 bg-white p-2 text-xs disabled:bg-slate-100"
                       />
                     </div>
                   </div>
@@ -975,7 +1175,7 @@ export function ClientsView({
                   <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
                     <label className="block text-slate-700 font-bold">Tingkat Risiko Tax</label>
                     <select
-                      disabled={!isEditMode && !isAddModalOpen}
+                      disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Tax')}
                       value={formData.taxRisk || 'Not Assessed'}
                       onChange={(e) => setFormData({ ...formData, taxRisk: e.target.value as any })}
                       className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded text-slate-900 font-semibold"
@@ -986,13 +1186,29 @@ export function ClientsView({
                       <option value="High">High (Tinggi)</option>
                     </select>
                     <div>
-                      <span className="text-[10px] text-slate-500 font-medium">Alasan Risiko Tax:</span>
+                      <label className="text-[10px] text-slate-500 font-medium">Alasan Risiko Tax</label>
                       <textarea
                         rows={2}
-                        disabled={!isEditMode && !isAddModalOpen}
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Tax')}
                         value={formData.taxRiskReason || ''}
                         onChange={(e) => setFormData({ ...formData, taxRiskReason: e.target.value })}
-                        className="w-full mt-1 p-1.5 bg-white border border-slate-200 rounded text-[11px]"
+                        className="w-full mt-1 p-2 bg-white border border-slate-200 rounded text-xs disabled:bg-slate-100"
+                      />
+                      <label className="mt-2 block text-[10px] text-slate-500 font-medium">Rekomendasi & tanggal review berikutnya</label>
+                      <textarea
+                        rows={2}
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Tax')}
+                        value={formData.taxRiskRecommendation || ''}
+                        onChange={(e) => setFormData({ ...formData, taxRiskRecommendation: e.target.value })}
+                        className="w-full mt-1 p-2 bg-white border border-slate-200 rounded text-xs disabled:bg-slate-100"
+                      />
+                      <input
+                        type="date"
+                        aria-label="Tanggal review risiko Tax berikutnya"
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Tax')}
+                        value={formData.taxRiskReviewDate || ''}
+                        onChange={(e) => setFormData({ ...formData, taxRiskReviewDate: e.target.value })}
+                        className="mt-2 w-full rounded border border-slate-200 bg-white p-2 text-xs disabled:bg-slate-100"
                       />
                     </div>
                   </div>
@@ -1025,11 +1241,87 @@ export function ClientsView({
                   </div>
                 )}
               </div>
+
+              {selectedClient && <section className="space-y-4 rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+                <div className="flex items-start gap-2.5">
+                  <Lightbulb className="mt-0.5 size-4 shrink-0 text-amber-700" />
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-semibold text-slate-900">Saran & tindak lanjut</h4>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-slate-600">Catatan terpisah dari catatan umum klien, dengan divisi, PIC, status, dan target review.</p>
+                  </div>
+                </div>
+
+                {(selectedClient?.suggestions || []).length > 0 ? (
+                  <div className="flex flex-col gap-2">
+                    {(selectedClient?.suggestions || []).map((suggestion) => (
+                      <article key={suggestion.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 text-[10px] font-semibold text-slate-500">
+                            <span>{suggestion.division}</span>
+                            <span>·</span>
+                            <span>{suggestion.createdByName}</span>
+                            <span>·</span>
+                            <span>PIC: {suggestion.division === 'Accounting' ? selectedClient?.accountingStaffPicName : selectedClient?.taxStaffPicName}</span>
+                            <span>·</span>
+                            <time dateTime={suggestion.createdAt}>{new Date(suggestion.createdAt).toLocaleDateString('id-ID')}</time>
+                          </div>
+                          {canManageSuggestion(selectedClient!, suggestion.division) ? (
+                            <select
+                              value={suggestion.status}
+                              onChange={(event) => handleSuggestionStatus(suggestion.id, event.target.value as 'Terbuka' | 'Dalam Tindak Lanjut' | 'Selesai')}
+                              aria-label={`Status saran ${suggestion.division}`}
+                              className="min-h-9 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-700"
+                            >
+                              <option value="Terbuka">Terbuka</option>
+                              <option value="Dalam Tindak Lanjut">Dalam Tindak Lanjut</option>
+                              <option value="Selesai">Selesai</option>
+                            </select>
+                          ) : (
+                            <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">{suggestion.status}</span>
+                          )}
+                        </div>
+                        <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{suggestion.content}</p>
+                        {suggestion.dueDate && <p className="mt-2 text-[10px] font-medium text-amber-800">Target tindak lanjut: {suggestion.dueDate}</p>}
+                        {suggestion.updatedBy && <p className="mt-1 text-[10px] text-slate-400">Pembaruan terakhir oleh {suggestion.updatedBy}{suggestion.updatedAt ? ` · ${new Date(suggestion.updatedAt).toLocaleDateString('id-ID')}` : ''}</p>}
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-lg border border-dashed border-amber-200 bg-white/70 p-3 text-xs text-slate-500">Belum ada saran untuk klien ini.</p>
+                )}
+
+                {selectedClient && canManageSuggestion(selectedClient, suggestionDivision) && (
+                  <div className="grid gap-3 border-t border-amber-200 pt-4">
+                    <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
+                      Divisi
+                      <select value={suggestionDivision} onChange={(event) => setSuggestionDivision(event.target.value as JobDivision)} className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-xs">
+                        {currentUser.role === 'Admin' && <option value="Accounting">Accounting</option>}
+                        {currentUser.role === 'Admin' && <option value="Tax">Tax</option>}
+                        {currentUser.role !== 'Admin' && <option value={currentUser.role.includes('Tax') ? 'Tax' : 'Accounting'}>{currentUser.role.includes('Tax') ? 'Tax' : 'Accounting'}</option>}
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
+                      Saran
+                      <textarea value={suggestionText} onChange={(event) => setSuggestionText(event.target.value)} maxLength={2000} rows={3} placeholder="Tuliskan saran atau langkah tindak lanjut..." className="w-full rounded-lg border border-slate-200 bg-white p-3 text-xs font-normal" />
+                    </label>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                      <label className="flex flex-1 flex-col gap-1 text-[11px] font-semibold text-slate-700">
+                        Target review (opsional)
+                        <input type="date" value={suggestionDueDate} onChange={(event) => setSuggestionDueDate(event.target.value)} className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-xs" />
+                      </label>
+                      <button type="button" onClick={handleAddSuggestion} disabled={savingSuggestion || !suggestionText.trim()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-xs font-semibold text-white transition-colors hover:bg-slate-700 disabled:opacity-50">
+                        <Save className="size-4" />
+                        {savingSuggestion ? 'Menyimpan...' : 'Simpan Saran'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </section>}
             </div>
 
             {/* Drawer Footer with Save / Update Button (Section 7.A & 7.B) */}
             {(isEditMode || isAddModalOpen) && (
-              <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
+              <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end sm:gap-3 sm:p-4">
                 <button
                   type="button"
                   onClick={() => {
@@ -1044,7 +1336,7 @@ export function ClientsView({
                   type="button"
                   onClick={handleSaveClient}
                   disabled={saving}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg transition-colors font-semibold text-xs disabled:opacity-50 shadow-sm"
+                  className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-amber-500 disabled:opacity-50 sm:min-h-10"
                 >
                   <Save className="w-4 h-4" />
                   <span>

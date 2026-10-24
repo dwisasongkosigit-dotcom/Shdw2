@@ -52,7 +52,7 @@ export function Header({
         <button
           type="button"
           onClick={onToggleMobileSidebar}
-          className="inline-flex items-center gap-1.5 rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 lg:hidden"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 lg:hidden"
           aria-label="Menu navigasi"
           aria-controls="primary-navigation"
           aria-expanded={mobileMenuOpen}
@@ -61,6 +61,9 @@ export function Header({
           <span className="text-xs font-semibold sm:hidden">Menu</span>
         </button>
 
+        {branding.logoUrl && (
+          <img src={branding.logoUrl} alt="" aria-hidden="true" onError={(event) => { event.currentTarget.style.visibility = 'hidden'; }} className="hidden size-8 shrink-0 rounded-md object-contain sm:block lg:hidden" />
+        )}
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight truncate">
@@ -113,7 +116,8 @@ export function Header({
           onClick={onRefreshData}
           disabled={isRefreshing}
           title="Sinkronkan data dengan database server"
-          className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors disabled:opacity-50"
+          aria-label="Muat ulang data"
+          className="min-h-11 min-w-11 rounded-lg border border-slate-200 p-2 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-amber-600' : ''}`} />
         </button>
