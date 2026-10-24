@@ -21,9 +21,33 @@ import {
 } from 'lucide-react';
 import { api, type Case, type Client, type CurrentUser, type UserAccount } from '../lib/api';
 import { ClientSegmentationChart } from './ClientSegmentationChart';
+import { ClientPicWorkloadChart, type ClientPicWorkloadItem } from './ClientPicWorkloadChart';
 import { useToast } from './Toast';
 import { ExportDropdown } from './ExportDropdown';
 import type { ColumnDef } from '../lib/exportUtils';
+
+type ClientPicDivision = 'Accounting' | 'Tax';
+
+function getPrimaryPic(client: Client, division: ClientPicDivision) {
+  const spvIsPic = division === 'Accounting' ? client.accountingSpvIsPic : client.taxSpvIsPic;
+  const id = division === 'Accounting'
+    ? spvIsPic ? client.accountingSpvId : client.accountingStaffPicId
+    : spvIsPic ? client.taxSpvId : client.taxStaffPicId;
+  const name = division === 'Accounting'
+    ? spvIsPic ? client.accountingSpvName : client.accountingStaffPicName
+    : spvIsPic ? client.taxSpvName : client.taxStaffPicName;
+  const role = spvIsPic
+    ? `SPV ${division}`
+    : `Staff ${division}`;
+
+  return { id: id || '', name: name || '', role };
+}
+
+function getPicFilterKey(pic: { id: string; name: string }) {
+  if (pic.id) return `user:${pic.id}`;
+  const normalizedName = pic.name.trim().toLocaleLowerCase('id-ID');
+  return normalizedName ? `name:${normalizedName}` : '';
+}
 
 function formatCapitalInput(value?: number | null) {
   if (value === undefined || value === null) return '';
@@ -62,6 +86,7 @@ export function ClientsView({
   const [filterRisk, setFilterRisk] = useState<string>('All');
   const [filterStatus, setFilterStatus] = useState<string>('All');
   const [filterPicStatus, setFilterPicStatus] = useState<string>('All');
+  const [filterPicOwner, setFilterPicOwner] = useState<string>('All');
   const [filterInvestment, setFilterInvestment] = useState<string>('All');
   const [filterDataType, setFilterDataType] = useState<string>('All');
   const [chartDataType, setChartDataType] = useState<'Real' | 'Simulasi' | 'Semua'>('Real');
@@ -111,6 +136,82 @@ export function ClientsView({
     taxPicOwnerName,
     formData.taxSpvName,
   ].every((name) => Boolean(name?.trim() && name !== '-'));
+  const picFilterOptions = useMemo(() => {
+    const options = new Map<string, { key: string; name: string; roles: Set<string> }>();
+    clients.forEach((client) => {
+      (['Accounting', 'Tax'] as const).forEach((division) => {
+        const pic = getPrimaryPic(client, division);
+        const key = getPicFilterKey(pic);
+        if (!key || !pic.name.trim() || pic.name === '-') return;
+        const existing = options.get(key);
+        if (existing) {
+          existing.roles.add(pic.role);
+        } else {
+          options.set(key, { key, name: pic.name, roles: new Set([pic.role]) });
+        }
+      });
+    });
+    return [...options.values()]
+      .map((option) => ({ ...option, roleLabel: [...option.roles].join(' / ') }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [clients]);
+  const picWorkloadData = useMemo<ClientPicWorkloadItem[]>(() => {
+    const workload = new Map<string, {
+      id: string;
+      name: string;
+      roles: Set<string>;
+      clientIds: Set<string>;
+      accountingClientIds: Set<string>;
+      taxClientIds: Set<string>;
+    }>();
+    const supportedRoles = new Set(['Staff Accounting', 'Staff Tax', 'SPV Accounting', 'SPV Tax']);
+
+    users.filter((user) => user.active && supportedRoles.has(user.role)).forEach((user) => {
+      const key = `user:${user.id}`;
+      workload.set(key, {
+        id: key,
+        name: user.name,
+        roles: new Set([user.role]),
+        clientIds: new Set(),
+        accountingClientIds: new Set(),
+        taxClientIds: new Set(),
+      });
+    });
+
+    clients
+      .filter((client) => client.status === 'Aktif' && (chartDataType === 'Semua' || client.dataType === chartDataType))
+      .forEach((client) => {
+        (['Accounting', 'Tax'] as const).forEach((division) => {
+          const pic = getPrimaryPic(client, division);
+          const key = getPicFilterKey(pic);
+          if (!key || !pic.name.trim() || pic.name === '-') return;
+          let item = workload.get(key);
+          if (!item) {
+            item = {
+              id: key,
+              name: pic.name,
+              roles: new Set(),
+              clientIds: new Set(),
+              accountingClientIds: new Set(),
+              taxClientIds: new Set(),
+            };
+            workload.set(key, item);
+          }
+          item.roles.add(pic.role);
+          item.clientIds.add(client.id);
+          (division === 'Accounting' ? item.accountingClientIds : item.taxClientIds).add(client.id);
+        });
+      });
+
+    return [...workload.values()].map((item) => ({
+      id: item.id,
+      name: item.name,
+      role: [...item.roles].join(' / '),
+      totalClients: item.clientIds.size,
+      accountingClients: item.accountingClientIds.size,
+      taxClients: item.taxClientIds.size,
+    }));
+  }, [clients, users, chartDataType]);
 
   // Filter clients
   const filteredClients = useMemo(() => {
@@ -125,6 +226,12 @@ export function ClientsView({
       }
       if (filterStatus !== 'All' && c.status !== filterStatus) return false;
       if (filterPicStatus !== 'All' && c.picAssignmentStatus !== filterPicStatus) return false;
+      if (filterPicOwner !== 'All') {
+        const isAssignedToSelectedPic = (['Accounting', 'Tax'] as const).some((division) =>
+          getPicFilterKey(getPrimaryPic(c, division)) === filterPicOwner
+        );
+        if (!isAssignedToSelectedPic) return false;
+      }
       if (filterInvestment !== 'All' && c.investmentCategory !== filterInvestment) return false;
       if (filterDataType !== 'All' && c.dataType !== filterDataType) return false;
 
@@ -144,7 +251,7 @@ export function ClientsView({
 
       return true;
     });
-  }, [clients, searchTerm, filterType, filterPkp, filterPph, filterRisk, filterStatus, filterPicStatus, filterInvestment, filterDataType]);
+  }, [clients, searchTerm, filterType, filterPkp, filterPph, filterRisk, filterStatus, filterPicStatus, filterPicOwner, filterInvestment, filterDataType]);
 
   const handleOpenDetail = (client: Client, edit = false) => {
     setSelectedClient(client);
@@ -372,6 +479,9 @@ export function ClientsView({
           </div>
         </div>
         <ClientSegmentationChart clients={clients} dataType={chartDataType} />
+        <div className="mt-4">
+          <ClientPicWorkloadChart data={picWorkloadData} dataType={chartDataType} />
+        </div>
       </section>
 
       {/* Multi-facet Filter Row */}
@@ -394,6 +504,18 @@ export function ClientsView({
           <option value="All">Semua Status PIC</option>
           <option value="Lengkap">PIC Utama Lengkap</option>
           <option value="Belum Lengkap">PIC Belum Lengkap</option>
+        </select>
+
+        <select
+          value={filterPicOwner}
+          onChange={(e) => setFilterPicOwner(e.target.value)}
+          aria-label="Filter berdasarkan PIC utama"
+          className="max-w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-slate-700 font-medium focus:outline-none"
+        >
+          <option value="All">Semua PIC Utama</option>
+          {picFilterOptions.map((pic) => (
+            <option key={pic.key} value={pic.key}>{pic.name} — {pic.roleLabel}</option>
+          ))}
         </select>
 
         {/* Jenis OP / Badan */}
