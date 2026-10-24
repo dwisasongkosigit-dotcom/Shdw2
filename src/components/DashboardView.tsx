@@ -9,12 +9,15 @@ import {
   AlertTriangle,
   ArrowUpRight,
   CalendarDays,
+  ClipboardList,
+  FileText,
 } from 'lucide-react';
-import type { CurrentUser, TeamAgendaEntry } from '../lib/api';
+import type { CurrentUser, MeetingMinute, TeamAgendaEntry } from '../lib/api';
 
 interface DashboardViewProps {
   stats: any;
   agendaEntries: TeamAgendaEntry[];
+  meetingMinutes: MeetingMinute[];
   currentUser: CurrentUser;
   onNavigateTab: (tab: any) => void;
   onRefresh: (division?: 'All' | 'Accounting' | 'Tax') => void;
@@ -36,6 +39,7 @@ function meetingDateLabel(value: string) {
 export function DashboardView({
   stats,
   agendaEntries,
+  meetingMinutes,
   currentUser,
   onNavigateTab,
   onRefresh,
@@ -66,8 +70,21 @@ export function DashboardView({
   const participantAliases = new Set([currentUser.name, currentUser.username, currentUser.email].filter(Boolean).map(normalizeParticipant));
   const myUpcomingMeetings = agendaEntries
     .filter((entry) => entry.status === 'Terjadwal' && entry.date >= new Date().toISOString().slice(0, 10))
-    .filter((entry) => entry.participants.some((person) => participantAliases.has(normalizeParticipant(person))))
+    .filter((entry) => entry.participantUserIds?.includes(currentUser.id) || entry.participants.some((person) => participantAliases.has(normalizeParticipant(person))))
     .sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`))
+    .slice(0, 4);
+  const myMeetingMinutes = meetingMinutes
+    .filter((meeting) => meeting.attendeeUserIds?.includes(currentUser.id) || meeting.attendees.some((person) => participantAliases.has(normalizeParticipant(person))))
+    .sort((a, b) => `${b.meetingDate}${b.startTime}`.localeCompare(`${a.meetingDate}${a.startTime}`))
+    .slice(0, 4);
+  const myMeetingTasks = meetingMinutes
+    .flatMap((meeting) => meeting.actionItems
+      .filter((action) => action.status !== 'Selesai' && (
+        action.ownerUserId === currentUser.id ||
+        (action.ownerUserId === undefined && participantAliases.has(normalizeParticipant(action.owner)))
+      ))
+      .map((action) => ({ action, meeting })))
+    .sort((a, b) => (a.action.deadline || a.meeting.meetingDate).localeCompare(b.action.deadline || b.meeting.meetingDate))
     .slice(0, 4);
   const isReadOnly = currentUser.role === 'Owner' || currentUser.role === 'Manager';
 
@@ -158,6 +175,29 @@ export function DashboardView({
           <button type="button" onClick={() => onNavigateTab('agenda')} className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-800">Semua agenda <ArrowUpRight className="size-3.5" /></button>
         </div>
         {myUpcomingMeetings.length ? <ul className="mt-4 divide-y divide-slate-100">{myUpcomingMeetings.map((entry) => <li key={entry.id} className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4"><div className="min-w-0"><p className="truncate text-sm font-medium text-slate-800">{entry.title}</p><p className="mt-1 truncate text-xs text-slate-500">{entry.clientName || entry.meetingType}{entry.location ? ` · ${entry.location}` : ''}</p></div><span className="shrink-0 text-xs font-medium tabular-nums text-slate-600">{meetingDateLabel(entry.date)} · {entry.startTime || 'Waktu belum ditentukan'}</span></li>)}</ul> : <p className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">Belum ada meeting mendatang yang mencantumkan Anda sebagai peserta.</p>}
+      </section>
+
+      <section aria-labelledby="my-minutes-heading" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <span className="rounded-xl bg-slate-100 p-2.5 text-slate-700"><FileText className="size-4" /></span>
+            <div><h2 id="my-minutes-heading" className="text-sm font-semibold text-slate-900">MoM & tindak lanjut saya</h2><p className="mt-1 text-xs text-slate-500">Hasil rapat yang mencantumkan Anda dan tugas yang menjadi tanggung jawab Anda.</p></div>
+          </div>
+          <button type="button" onClick={() => onNavigateTab('mom')} className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-800">Semua MoM <ArrowUpRight className="size-3.5" /></button>
+        </div>
+        <div className="mt-4 grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <div className="min-w-0">
+            <h3 className="flex items-center gap-2 text-xs font-semibold text-slate-700"><FileText className="size-3.5 text-slate-400" />Notulen & hasil rapat</h3>
+            {myMeetingMinutes.length ? <ul className="mt-2 divide-y divide-slate-100">{myMeetingMinutes.map((meeting) => {
+              const result = meeting.agendaItems.find((item) => item.decision.trim())?.decision || meeting.agendaItems.find((item) => item.topic.trim())?.topic;
+              return <li key={meeting.id} className="py-3 first:pt-1 last:pb-0"><p className="truncate text-sm font-medium text-slate-800">{meeting.title}</p><p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{result || 'Hasil rapat belum dicatat.'}</p><p className="mt-1 text-[10px] font-medium text-slate-400">{meetingDateLabel(meeting.meetingDate)} · {meeting.id}</p></li>;
+            })}</ul> : <p className="mt-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">Belum ada notulen rapat yang mencantumkan Anda.</p>}
+          </div>
+          <div className="min-w-0">
+            <h3 className="flex items-center gap-2 text-xs font-semibold text-slate-700"><ClipboardList className="size-3.5 text-slate-400" />Tugas rapat terbuka</h3>
+            {myMeetingTasks.length ? <ul className="mt-2 divide-y divide-slate-100">{myMeetingTasks.map(({ action, meeting }) => <li key={`${meeting.id}-${action.id}`} className="py-3 first:pt-1 last:pb-0"><p className="text-sm font-medium text-slate-800">{action.description}</p><div className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] text-slate-500"><span className={`rounded-full px-2 py-0.5 font-semibold ${action.status === 'Dalam Proses' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{action.status}</span><span>{meeting.id} · {meeting.title}</span>{action.deadline && <span className={action.deadline < new Date().toISOString().slice(0, 10) ? 'font-semibold text-rose-600' : ''}>Tenggat {meetingDateLabel(action.deadline)}</span>}</div></li>)}</ul> : <p className="mt-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">Tidak ada tindak lanjut rapat yang masih terbuka untuk Anda.</p>}
+          </div>
+        </div>
       </section>
 
       {/* Incomplete PIC Alert Banner (Prompt 2 requirement) */}

@@ -21,7 +21,9 @@ import {
   type CurrentUser,
   type Job,
   type TeamAgendaEntry,
+  type UserAccount,
 } from '../lib/api';
+import { MeetingParticipantsField, getParticipantSelection } from './MeetingParticipantsField';
 import { exportToExcel } from '../lib/exportUtils';
 import { useToast } from './Toast';
 
@@ -29,6 +31,7 @@ interface TeamAgendaViewProps {
   entries: TeamAgendaEntry[];
   clients: Client[];
   jobs: Job[];
+  users: UserAccount[];
   currentUser: CurrentUser;
   onRefresh: () => void;
 }
@@ -52,6 +55,8 @@ function emptyDraft(): AgendaDraft {
     clientId: '',
     jobId: '',
     participants: [],
+    participantUserIds: [],
+    externalParticipants: [],
     notes: '',
     status: 'Terjadwal',
   };
@@ -74,7 +79,7 @@ function statusStyle(status: AgendaStatus) {
   return 'border-sky-200 bg-sky-50 text-sky-700';
 }
 
-export function TeamAgendaView({ entries, clients, jobs, currentUser, onRefresh }: TeamAgendaViewProps) {
+export function TeamAgendaView({ entries, clients, jobs, users, currentUser, onRefresh }: TeamAgendaViewProps) {
   const { success, error } = useToast();
   const [query, setQuery] = useState('');
   const [month, setMonth] = useState('');
@@ -83,7 +88,8 @@ export function TeamAgendaView({ entries, clients, jobs, currentUser, onRefresh 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<TeamAgendaEntry | null>(null);
   const [draft, setDraft] = useState<AgendaDraft>(emptyDraft);
-  const [participantsText, setParticipantsText] = useState('');
+  const [selectedParticipantIds, setSelectedParticipantIds] = useState<string[]>([]);
+  const [externalParticipantNames, setExternalParticipantNames] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -108,7 +114,10 @@ export function TeamAgendaView({ entries, clients, jobs, currentUser, onRefresh 
   const completed = entries.filter((entry) => entry.status === 'Selesai').length;
 
   const openEditor = (entry?: TeamAgendaEntry) => {
-    const nextDraft = entry
+    const selection = entry
+      ? getParticipantSelection(entry.participants, entry.participantUserIds, entry.externalParticipants, users)
+      : { userIds: [], externalNames: [] };
+    const nextDraft: AgendaDraft = entry
       ? {
           title: entry.title,
           date: entry.date,
@@ -120,13 +129,16 @@ export function TeamAgendaView({ entries, clients, jobs, currentUser, onRefresh 
           clientId: entry.clientId || '',
           jobId: entry.jobId || '',
           participants: [...entry.participants],
+          participantUserIds: selection.userIds,
+          externalParticipants: selection.externalNames,
           notes: entry.notes,
           status: entry.status,
         }
       : emptyDraft();
     setEditingEntry(entry || null);
     setDraft(nextDraft);
-    setParticipantsText(nextDraft.participants.join('\n'));
+    setSelectedParticipantIds(selection.userIds);
+    setExternalParticipantNames(selection.externalNames);
     setEditorOpen(true);
   };
 
@@ -151,7 +163,12 @@ export function TeamAgendaView({ entries, clients, jobs, currentUser, onRefresh 
       location: draft.location.trim(),
       clientId: draft.clientId || undefined,
       jobId: draft.jobId || undefined,
-      participants: participantsText.split(/[\n,;]/).map((person) => person.trim()).filter(Boolean).slice(0, 50),
+      participants: [
+        ...users.filter((user) => selectedParticipantIds.includes(user.id)).map((user) => user.name),
+        ...externalParticipantNames,
+      ].slice(0, 50),
+      participantUserIds: selectedParticipantIds,
+      externalParticipants: externalParticipantNames,
       notes: draft.notes.trim(),
     };
 
@@ -343,7 +360,7 @@ export function TeamAgendaView({ entries, clients, jobs, currentUser, onRefresh 
                 <Field label="Klien terkait"><select value={draft.clientId || ''} onChange={(event) => setDraft((current) => ({ ...current, clientId: event.target.value, jobId: '' }))} className={inputClass}><option value="">Tidak terkait klien</option>{clients.filter((client) => client.status === 'Aktif').sort((a, b) => a.name.localeCompare(b.name)).map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></Field>
                 <Field label="Pekerjaan terkait"><select value={draft.jobId || ''} onChange={(event) => updateDraft('jobId', event.target.value)} className={inputClass}><option value="">Tidak terkait pekerjaan</option>{jobs.filter((job) => !draft.clientId || job.clientId === draft.clientId).sort((a, b) => a.title.localeCompare(b.title)).map((job) => <option key={job.id} value={job.id}>{job.id} · {job.title}</option>)}</select></Field>
                 <Field label="Lokasi / tautan meeting" className="sm:col-span-2"><input value={draft.location} onChange={(event) => updateDraft('location', event.target.value)} maxLength={180} placeholder="Ruang rapat atau tautan konferensi" className={inputClass} /></Field>
-                <Field label="Peserta" description="Satu nama per baris, atau pisahkan dengan koma." className="sm:col-span-2"><textarea value={participantsText} onChange={(event) => setParticipantsText(event.target.value)} rows={3} maxLength={6000} placeholder="Nama peserta" className={`${inputClass} resize-y`} /></Field>
+                <MeetingParticipantsField users={users} selectedUserIds={selectedParticipantIds} onSelectedUserIdsChange={setSelectedParticipantIds} externalNames={externalParticipantNames} onExternalNamesChange={setExternalParticipantNames} />
                 <Field label="Catatan / persiapan" className="sm:col-span-2"><textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} rows={4} maxLength={3000} placeholder="Konteks rapat, bahan yang perlu disiapkan, atau pengingat…" className={`${inputClass} resize-y`} /></Field>
               </div>
             </div>

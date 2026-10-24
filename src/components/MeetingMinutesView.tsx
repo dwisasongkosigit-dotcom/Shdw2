@@ -21,12 +21,15 @@ import {
   type MeetingActionItem,
   type MeetingAgendaItem,
   type MeetingMinute,
+  type UserAccount,
 } from '../lib/api';
+import { MeetingParticipantsField, getParticipantSelection } from './MeetingParticipantsField';
 import { useToast } from './Toast';
 import { downloadMeetingMinuteWord, printMeetingMinutePdf } from '../lib/meetingExport';
 
 interface MeetingMinutesViewProps {
   meetings: MeetingMinute[];
+  users: UserAccount[];
   currentUser: CurrentUser;
   companyName: string;
   onRefresh: () => void;
@@ -41,8 +44,9 @@ function newItemId() {
   return globalThis.crypto?.randomUUID?.() || `item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function createDraft(meeting?: MeetingMinute): MeetingDraft {
+function createDraft(meeting?: MeetingMinute, users: UserAccount[] = []): MeetingDraft {
   if (meeting) {
+    const selection = getParticipantSelection(meeting.attendees, meeting.attendeeUserIds, meeting.externalAttendees, users);
     return {
       title: meeting.title,
       meetingDate: meeting.meetingDate,
@@ -53,8 +57,13 @@ function createDraft(meeting?: MeetingMinute): MeetingDraft {
       chairperson: meeting.chairperson,
       recorder: meeting.recorder,
       attendees: [...meeting.attendees],
+      attendeeUserIds: selection.userIds,
+      externalAttendees: selection.externalNames,
       agendaItems: meeting.agendaItems.map((item) => ({ ...item })),
-      actionItems: meeting.actionItems.map((item) => ({ ...item })),
+      actionItems: meeting.actionItems.map((item) => {
+        const legacyOwner = users.find((user) => user.name.trim().toLocaleLowerCase('id-ID') === item.owner.trim().toLocaleLowerCase('id-ID'));
+        return { ...item, ownerUserId: item.ownerUserId === undefined ? legacyOwner?.id : item.ownerUserId };
+      }),
       nextMeetingDate: meeting.nextMeetingDate,
     };
   }
@@ -69,6 +78,8 @@ function createDraft(meeting?: MeetingMinute): MeetingDraft {
     chairperson: '',
     recorder: '',
     attendees: [],
+    attendeeUserIds: [],
+    externalAttendees: [],
     agendaItems: [{ id: newItemId(), topic: '', discussion: '', decision: '' }],
     actionItems: [],
     nextMeetingDate: '',
@@ -92,7 +103,7 @@ function isReadOnly(user: CurrentUser) {
   return user.role === 'Owner' || user.role === 'Manager';
 }
 
-export function MeetingMinutesView({ meetings, currentUser, companyName, onRefresh }: MeetingMinutesViewProps) {
+export function MeetingMinutesView({ meetings, users, currentUser, companyName, onRefresh }: MeetingMinutesViewProps) {
   const { success, error } = useToast();
   const [query, setQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('');
@@ -100,6 +111,8 @@ export function MeetingMinutesView({ meetings, currentUser, companyName, onRefre
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState<MeetingMinute | null>(null);
   const [draft, setDraft] = useState<MeetingDraft>(() => createDraft());
+  const [selectedAttendeeIds, setSelectedAttendeeIds] = useState<string[]>([]);
+  const [externalAttendeeNames, setExternalAttendeeNames] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState<'word' | 'pdf' | null>(null);
 
@@ -128,8 +141,11 @@ export function MeetingMinutesView({ meetings, currentUser, companyName, onRefre
   }, [meetings]);
 
   const openEditor = (meeting?: MeetingMinute) => {
+    const nextDraft = createDraft(meeting, users);
     setEditingMeeting(meeting || null);
-    setDraft(createDraft(meeting));
+    setDraft(nextDraft);
+    setSelectedAttendeeIds(nextDraft.attendeeUserIds || []);
+    setExternalAttendeeNames(nextDraft.externalAttendees || []);
     setEditorOpen(true);
   };
 
@@ -142,7 +158,16 @@ export function MeetingMinutesView({ meetings, currentUser, companyName, onRefre
   };
 
   const updateAction = (id: string, key: keyof MeetingActionItem, value: string) => {
-    updateDraft('actionItems', draft.actionItems.map((item) => item.id === id ? { ...item, [key]: value } : item));
+    updateDraft('actionItems', draft.actionItems.map((item) => item.id === id
+      ? { ...item, [key]: value, ...(key === 'owner' ? { ownerUserId: null } : {}) }
+      : item));
+  };
+
+  const assignActionOwner = (id: string, userId: string) => {
+    const user = users.find((candidate) => candidate.id === userId);
+    updateDraft('actionItems', draft.actionItems.map((item) => item.id === id
+      ? { ...item, ownerUserId: userId || null, ...(user ? { owner: user.name } : {}) }
+      : item));
   };
 
   const saveMeeting = async () => {
@@ -160,7 +185,12 @@ export function MeetingMinutesView({ meetings, currentUser, companyName, onRefre
     const payload: MeetingDraft = {
       ...draft,
       title: draft.title.trim(),
-      attendees: draft.attendees.map((name) => name.trim()).filter(Boolean),
+      attendees: [
+        ...users.filter((user) => selectedAttendeeIds.includes(user.id)).map((user) => user.name),
+        ...externalAttendeeNames,
+      ].slice(0, 50),
+      attendeeUserIds: selectedAttendeeIds,
+      externalAttendees: externalAttendeeNames,
       agendaItems,
       actionItems: draft.actionItems.filter((item) => item.description.trim()).map((item) => ({
         ...item,
@@ -374,7 +404,7 @@ export function MeetingMinutesView({ meetings, currentUser, companyName, onRefre
                     <Field label="Rapat berikutnya"><input type="date" value={draft.nextMeetingDate} onChange={(event) => updateDraft('nextMeetingDate', event.target.value)} className={inputClass} /></Field>
                     <Field label="Pimpinan rapat"><input value={draft.chairperson} onChange={(event) => updateDraft('chairperson', event.target.value)} maxLength={120} placeholder="Nama pimpinan rapat" className={inputClass} /></Field>
                     <Field label="Notulis"><input value={draft.recorder} onChange={(event) => updateDraft('recorder', event.target.value)} maxLength={120} placeholder="Nama pencatat" className={inputClass} /></Field>
-                    <Field label="Peserta rapat" hint="Satu nama per baris." className="sm:col-span-2"><textarea rows={3} value={draft.attendees.join('\n')} onChange={(event) => updateDraft('attendees', event.target.value.split('\n'))} maxLength={2400} placeholder={'Nama peserta 1\nNama peserta 2'} className={`${inputClass} resize-y`} /></Field>
+                    <MeetingParticipantsField users={users} selectedUserIds={selectedAttendeeIds} onSelectedUserIdsChange={setSelectedAttendeeIds} externalNames={externalAttendeeNames} onExternalNamesChange={setExternalAttendeeNames} />
                   </div>
                 </EditorSection>
 
@@ -400,15 +430,16 @@ export function MeetingMinutesView({ meetings, currentUser, companyName, onRefre
                 <EditorSection number="03" title="Tindak lanjut" description="Tetapkan pemilik dan tenggat agar setiap keputusan dapat dipantau.">
                   <div className="flex flex-col gap-3">
                     {draft.actionItems.map((item, index) => (
-                      <div key={item.id} className="grid grid-cols-1 items-end gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(130px,0.7fr)_145px_155px_auto]">
+                      <div key={item.id} className="grid grid-cols-1 items-end gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(150px,0.7fr)_minmax(130px,0.7fr)_145px_155px_auto]">
                         <Field label={`Tindak lanjut ${String(index + 1).padStart(2, '0')}`}><input value={item.description} onChange={(event) => updateAction(item.id, 'description', event.target.value)} maxLength={300} placeholder="Uraian tindakan" className={inputClass} /></Field>
-                        <Field label="Penanggung jawab"><input value={item.owner} onChange={(event) => updateAction(item.id, 'owner', event.target.value)} maxLength={120} placeholder="Nama PIC" className={inputClass} /></Field>
+                        <Field label="Pengguna penanggung jawab"><select value={item.ownerUserId || 'manual'} onChange={(event) => assignActionOwner(item.id, event.target.value === 'manual' ? '' : event.target.value)} className={inputClass}><option value="manual">Tamu / isi manual</option>{users.filter((user) => user.active).map((user) => <option key={user.id} value={user.id}>{user.name} · {user.role}</option>)}{item.ownerUserId && !users.some((user) => user.id === item.ownerUserId) && <option value={item.ownerUserId}>{item.owner || 'Pengguna sebelumnya'} · nonaktif</option>}</select></Field>
+                        <Field label="Nama PIC / tamu"><input value={item.owner} onChange={(event) => updateAction(item.id, 'owner', event.target.value)} maxLength={120} placeholder="Nama PIC" className={inputClass} /></Field>
                         <Field label="Tenggat"><input type="date" value={item.deadline} onChange={(event) => updateAction(item.id, 'deadline', event.target.value)} className={inputClass} /></Field>
                         <Field label="Status"><select value={item.status} onChange={(event) => updateAction(item.id, 'status', event.target.value)} className={inputClass}>{actionStatuses.map((status) => <option key={status}>{status}</option>)}</select></Field>
                         <button type="button" onClick={() => updateDraft('actionItems', draft.actionItems.filter((entry) => entry.id !== item.id))} aria-label={`Hapus tindak lanjut ${index + 1}`} className="mb-0.5 rounded-lg p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"><X className="size-4" /></button>
                       </div>
                     ))}
-                    <button type="button" onClick={() => updateDraft('actionItems', [...draft.actionItems, { id: newItemId(), description: '', owner: '', deadline: '', status: 'Belum Dimulai' }])} className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-amber-400 hover:bg-amber-50 hover:text-amber-800"><Plus className="size-3.5" /> Tambah tindak lanjut</button>
+                    <button type="button" onClick={() => updateDraft('actionItems', [...draft.actionItems, { id: newItemId(), description: '', owner: '', ownerUserId: null, deadline: '', status: 'Belum Dimulai' }])} className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-amber-400 hover:bg-amber-50 hover:text-amber-800"><Plus className="size-3.5" /> Tambah tindak lanjut</button>
                   </div>
                 </EditorSection>
               </div>
