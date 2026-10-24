@@ -121,14 +121,25 @@ function riskMetricStyle(tone: string) {
   return `background-color:${color.background}!important;border-color:${color.border}!important;color:${color.text}!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;`;
 }
 
-function riskTableRows(rows: RiskExportRow[], columns: Array<{ key: keyof RiskExportRow; label: string }>) {
-  if (!rows.length) return `<tr><td colspan="${columns.length}" class="empty">Tidak ada data pada periode ini.</td></tr>`;
-  const riskKeys: Array<keyof RiskExportRow> = ['overallRisk', 'accountingRisk', 'taxRisk'];
-  return rows.map((row) => `<tr>${columns.map(({ key }) => {
-    const value = row[key];
-    const tone = riskKeys.includes(key) ? riskTone(value) : '';
-    return `<td>${tone ? `<span class="risk-badge ${tone}" style="${riskBadgeStyle(tone)}">${escapeHtml(value)}</span>` : escapeHtml(value)}</td>`;
-  }).join('')}</tr>`).join('');
+function riskCardMarkup(rows: RiskExportRow[], divisionScope?: 'Accounting' | 'Tax' | 'Both') {
+  if (!rows.length) return '<p class="empty-card">Tidak ada data risiko pada cakupan ini.</p>';
+  const divisions: Array<{ label: string; risk: keyof RiskExportRow; reason: keyof RiskExportRow; action: keyof RiskExportRow; owner: keyof RiskExportRow; review: keyof RiskExportRow }> = divisionScope === 'Accounting'
+    ? [{ label: 'Accounting', risk: 'accountingRisk', reason: 'accountingReason', action: 'accountingAction', owner: 'accountingSpv', review: 'accountingReview' }]
+    : divisionScope === 'Tax'
+      ? [{ label: 'Tax', risk: 'taxRisk', reason: 'taxReason', action: 'taxAction', owner: 'taxSpv', review: 'taxReview' }]
+      : [
+        { label: 'Accounting', risk: 'accountingRisk', reason: 'accountingReason', action: 'accountingAction', owner: 'accountingSpv', review: 'accountingReview' },
+        { label: 'Tax', risk: 'taxRisk', reason: 'taxReason', action: 'taxAction', owner: 'taxSpv', review: 'taxReview' },
+      ];
+  return `<div class="risk-cards">${rows.map((row) => {
+    const divisionsMarkup = divisions.map((division) => {
+      const level = row[division.risk];
+      const tone = riskTone(level);
+      return `<section class="risk-division"><div class="risk-division-head"><strong>${division.label}</strong><span class="risk-badge ${tone}" style="${riskBadgeStyle(tone)}">${escapeHtml(level || 'Belum Dinilai')}</span></div><dl class="risk-fields"><div><dt>Alasan risiko</dt><dd>${escapeHtml(row[division.reason])}</dd></div><div><dt>Rekomendasi mitigasi</dt><dd>${escapeHtml(row[division.action])}</dd></div><div class="risk-meta"><dt>SPV</dt><dd>${escapeHtml(row[division.owner])}</dd><dt>Review berikutnya</dt><dd>${escapeHtml(row[division.review])}</dd></div></dl></section>`;
+    }).join('');
+    const overallTone = riskTone(row.overallRisk);
+    return `<article class="risk-card"><header class="risk-card-head"><div><strong>${escapeHtml(row.clientName)}</strong><small>ID ${escapeHtml(row.clientId)}</small></div><span class="risk-badge ${overallTone}" style="${riskBadgeStyle(overallTone)}">${escapeHtml(row.overallRisk)}</span></header><div class="risk-divisions">${divisionsMarkup}</div></article>`;
+  }).join('')}</div>`;
 }
 
 export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
@@ -139,25 +150,6 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
     const tone = riskTone(metric.metric);
     return `<div class="metric ${tone ? `metric-${tone}` : ''}"${tone ? ` style="${riskMetricStyle(tone)}"` : ''}><dt>${escapeHtml(metric.metric)}</dt><dd${tone ? ` style="color:${riskColors[tone]?.text}!important;"` : ''}>${escapeHtml(metric.value)}</dd><small>${escapeHtml(metric.note)}</small></div>`;
   }).join('');
-  const riskColumns: Array<{ key: keyof RiskExportRow; label: string }> = data.divisionScope === 'Accounting'
-    ? [
-      { key: 'clientName', label: 'Klien' }, { key: 'overallRisk', label: 'Risiko' },
-      { key: 'accountingReason', label: 'Alasan asesmen' }, { key: 'accountingAction', label: 'Tindakan' },
-      { key: 'accountingSpv', label: 'SPV' }, { key: 'accountingReview', label: 'Tinjauan' },
-    ]
-    : data.divisionScope === 'Tax'
-      ? [
-        { key: 'clientName', label: 'Klien' }, { key: 'overallRisk', label: 'Risiko' },
-        { key: 'taxReason', label: 'Alasan asesmen' }, { key: 'taxAction', label: 'Tindakan' },
-        { key: 'taxSpv', label: 'SPV' }, { key: 'taxReview', label: 'Tinjauan' },
-      ]
-      : [
-        { key: 'clientName', label: 'Klien' }, { key: 'overallRisk', label: 'Risiko' },
-        { key: 'accountingRisk', label: 'Acc.' }, { key: 'accountingReason', label: 'Alasan Accounting' },
-        { key: 'accountingAction', label: 'Tindakan Accounting' }, { key: 'accountingSpv', label: 'SPV Accounting' },
-        { key: 'taxRisk', label: 'Tax' }, { key: 'taxReason', label: 'Alasan Tax' },
-        { key: 'taxAction', label: 'Tindakan Tax' }, { key: 'taxSpv', label: 'SPV Tax' },
-      ];
   const investmentColumns: Array<{ key: keyof CapitalExportRow; label: string }> = [
     { key: 'clientId', label: 'ID' }, { key: 'clientName', label: 'Klien' },
     { key: 'investmentCategory', label: 'PMA/PMDN' }, { key: 'deedNumber', label: 'Nomor akta' },
@@ -219,6 +211,22 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
       .risk-medium { background: #ffedd5; border-color: #fed7aa; color: #9a3412; }
       .risk-low { background: #fef9c3; border-color: #fde68a; color: #854d0e; }
       .risk-unassessed { background: #f1f5f9; border-color: #cbd5e1; color: #475569; }
+      .risk-cards { display: grid; gap: 10px; }
+      .risk-card { break-inside: avoid; border: 1px solid #dce1e8; border-radius: 8px; overflow: hidden; }
+      .risk-card-head { align-items: center; background: #f8fafc; border-bottom: 1px solid #dce1e8; display: flex; gap: 12px; justify-content: space-between; padding: 9px 11px; }
+      .risk-card-head strong { color: #101b34; display: block; font-size: 9pt; }
+      .risk-card-head small { color: #8490a0; display: block; font-size: 7pt; margin-top: 2px; }
+      .risk-divisions { display: grid; grid-template-columns: repeat(${data.divisionScope === 'Both' ? '2' : '1'}, minmax(0,1fr)); }
+      .risk-division { min-width: 0; padding: 10px 11px; }
+      .risk-division + .risk-division { border-left: 1px solid #e2e8f0; }
+      .risk-division-head { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
+      .risk-division-head strong { color: #263246; font-size: 8pt; }
+      .risk-fields { display: grid; gap: 7px; margin: 9px 0 0; }
+      .risk-fields dt { color: #8490a0; font-size: 6.5pt; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+      .risk-fields dd { color: #344256; font-size: 8pt; margin: 2px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+      .risk-meta { border-top: 1px solid #e2e8f0; display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 4px 8px; padding-top: 7px; }
+      .risk-meta dd { font-size: 7pt; }
+      .empty-card { border: 1px dashed #dce1e8; border-radius: 8px; color: #718096; padding: 18px; text-align: center; }
       .table-wrap { max-width: 100%; overflow-x: auto; }
       .section { break-inside: auto; }
       .page-break { break-before: page; }
@@ -230,7 +238,7 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
     </style></head><body>
       <header><div class="brand">TMM &amp; BMA Advisory · Management Office</div><h1>Executive Summary</h1><p class="subtitle">Periode ${escapeHtml(data.period)} · ${escapeHtml(data.scopeLabel || 'Semua cakupan')}</p><span class="status">Status: ${escapeHtml(data.overallStatus)}</span><dl class="meta"><div><dt>Periode laporan</dt><dd>${escapeHtml(data.period)}</dd></div><div><dt>Dibuat pada</dt><dd>${escapeHtml(data.generatedAt)}</dd></div><div><dt>Data terakhir tersimpan</dt><dd>${escapeHtml(data.sourceUpdatedAt)}</dd></div><div><dt>Cakupan</dt><dd>${escapeHtml(data.scopeLabel || 'Semua cakupan')}</dd></div></dl><p class="scope">${escapeHtml(data.scopeNote)}</p></header>
       <section class="section"><h2><span>01</span>Ikhtisar periode</h2><dl class="metrics">${metricCards}</dl><h2><span>02</span>Sorotan untuk manajemen</h2><ul class="highlights">${highlights}</ul></section>
-      <section class="section page-break"><h2><span>03</span>Portofolio risiko klien</h2><div class="table-wrap"><table><thead><tr>${riskColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${riskTableRows(data.risks, riskColumns)}</tbody></table></div></section>
+      <section class="section page-break"><h2><span>03</span>Portofolio risiko klien</h2>${riskCardMarkup(data.risks, data.divisionScope)}</section>
       <section class="section page-break"><h2><span>04</span>Investasi & modal sesuai akta</h2><p>Persentase dihitung dari modal disetor dibagi modal dasar yang tercantum dalam akta.</p><div class="table-wrap"><table><thead><tr>${investmentColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.investments, investmentColumns)}</tbody></table></div></section>
       <section class="section page-break"><h2><span>05</span>Pekerjaan, kasus, dan tindak lanjut</h2><div class="table-wrap"><table><thead><tr>${operationColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.operations, operationColumns)}</tbody></table></div></section>
       <section class="section page-break"><h2><span>06</span>Agenda meeting</h2><div class="table-wrap"><table><thead><tr>${agendaColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.agenda, agendaColumns)}</tbody></table></div>${footer}</section>
