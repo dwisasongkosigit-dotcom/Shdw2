@@ -11,6 +11,7 @@ import {
   type MeetingMinute,
   type TeamAgendaEntry,
   type UserAccount,
+  type MonthlyJobTemplate,
 } from './lib/api';
 import { ToastProvider, useToast } from './components/Toast';
 import { Sidebar, type NavTab } from './components/Sidebar';
@@ -47,10 +48,17 @@ function MainApp() {
 
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof window === 'undefined') return 'light';
+    const savedTheme = window.localStorage.getItem('tmm-bma-theme');
+    if (savedTheme === 'light' || savedTheme === 'dark') return savedTheme;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
 
   // Core Data
   const [clients, setClients] = useState<Client[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [monthlyJobTemplates, setMonthlyJobTemplates] = useState<MonthlyJobTemplate[]>([]);
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [cases, setCases] = useState<Case[]>([]);
   const [activities, setActivities] = useState<DailyActivity[]>([]);
@@ -63,6 +71,12 @@ function MainApp() {
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0b1220' : '#f8fafc');
+    window.localStorage.setItem('tmm-bma-theme', theme);
+  }, [theme]);
 
   // Fetch initial branding and check auth session
   const initializeAuthAndBranding = useCallback(async () => {
@@ -96,7 +110,7 @@ function MainApp() {
     setConnectionError(null);
 
     try {
-      const [clientsData, jobsData, casesData, activitiesData, meetingMinutesData, agendaData, statsData, healthData, usersData] =
+      const [clientsData, jobsData, casesData, activitiesData, meetingMinutesData, agendaData, statsData, healthData, usersData, monthlyTemplatesData] =
         await Promise.all([
           api.getClients(),
           api.getJobs(),
@@ -107,10 +121,12 @@ function MainApp() {
           api.getStats(statsDivision === 'All' ? undefined : { division: statsDivision }),
           api.getHealth(),
           api.getUsers(),
+          api.getMonthlyJobTemplates(),
         ]);
 
       setClients(clientsData);
       setJobs(jobsData);
+      setMonthlyJobTemplates(monthlyTemplatesData);
       setUsers(usersData);
       setCases(casesData);
       setActivities(activitiesData);
@@ -159,17 +175,17 @@ function MainApp() {
   // Initial loading screen
   if (loadingInitial) {
     return (
-      <div className="min-h-screen bg-[#070d1e] flex flex-col items-center justify-center text-white">
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-900">
         <div className="w-10 h-10 border-2 border-amber-500 border-t-transparent rounded-full animate-spin mb-4" />
         <h2 className="text-base font-bold tracking-tight">Menghubungkan ke Database...</h2>
-        <p className="text-xs text-slate-400 mt-1">TMM/BMA Client Control Center</p>
+        <p className="text-xs text-slate-500 mt-1">TMM/BMA Client Control Center</p>
       </div>
     );
   }
 
   // Not logged in: Show luxury login view
   if (!currentUser) {
-    return <LoginView branding={branding} onLoginSuccess={handleLoginSuccess} />;
+    return <LoginView branding={branding} theme={theme} onToggleTheme={() => setTheme((current) => current === 'light' ? 'dark' : 'light')} onLoginSuccess={handleLoginSuccess} />;
   }
 
   return (
@@ -198,6 +214,8 @@ function MainApp() {
           branding={branding}
           onRefreshData={() => loadAllBusinessData()}
           isRefreshing={isRefreshing}
+          theme={theme}
+          onToggleTheme={() => setTheme((current) => current === 'light' ? 'dark' : 'light')}
         />
 
         {/* Connection Failure Error Banner (Rule I.4) */}
@@ -230,6 +248,8 @@ function MainApp() {
           {currentTab === 'dashboard' && (
             <DashboardView
               stats={stats}
+              jobs={jobs}
+              cases={cases}
               agendaEntries={agendaEntries}
               meetingMinutes={meetingMinutes}
               currentUser={currentUser}
@@ -252,6 +272,7 @@ function MainApp() {
               clients={clients}
               cases={cases}
               users={users}
+              monthlyJobTemplates={monthlyJobTemplates}
               currentUser={currentUser}
               onRefresh={() => loadAllBusinessData()}
             />
@@ -262,6 +283,7 @@ function MainApp() {
               jobs={jobs}
               clients={clients}
               users={users}
+              monthlyJobTemplates={monthlyJobTemplates}
               currentUser={currentUser}
               onRefresh={() => loadAllBusinessData()}
             />

@@ -95,6 +95,7 @@ export interface Client {
   paidUpCapital?: number | null;
   dataType: ClientDataType;
   suggestions: ClientSuggestion[];
+  monthlyJobTemplateIds?: string[];
 
   // Per-division owner and reviewer assignments
   accountingStaffPicId: string;
@@ -181,6 +182,18 @@ export interface JobHistoryItem {
   notes?: string;
 }
 
+export interface MonthlyJobTemplate {
+  id: string;
+  title: string;
+  division: JobDivision;
+  description: string;
+  priority: JobPriority;
+  deadlineDay: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Job {
   id: string; // e.g. JOB-2026-001
   clientId: string;
@@ -199,6 +212,9 @@ export interface Job {
   notes: string;
   status: JobStatus;
   progressPercent: number;
+  jobType?: 'Continuing' | 'Additional';
+  recurringTemplateId?: string;
+  recurringMonth?: string;
   reviewNotes?: string;
   completedAt?: string;
   approvedBy?: string;
@@ -387,6 +403,7 @@ export interface DatabaseSchema {
   users: User[];
   clients: Client[];
   jobs: Job[];
+  monthlyJobTemplates?: MonthlyJobTemplate[];
   cases: Case[];
   activities: DailyActivity[];
   auditLogs: AuditLog[];

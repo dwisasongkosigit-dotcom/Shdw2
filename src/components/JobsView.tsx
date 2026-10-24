@@ -20,7 +20,8 @@ import {
   Download,
   AlertOctagon,
 } from 'lucide-react';
-import { api, type Job, type JobDivision, type Client, type CurrentUser, type JobStatus, type UserAccount } from '../lib/api';
+import { api, type Job, type JobDivision, type Client, type CurrentUser, type JobStatus, type UserAccount, type MonthlyJobTemplate } from '../lib/api';
+import { MonthlyJobTemplatesPanel } from './MonthlyJobTemplatesPanel';
 import { useToast } from './Toast';
 import { ExportDropdown } from './ExportDropdown';
 import type { ColumnDef } from '../lib/exportUtils';
@@ -29,6 +30,7 @@ interface JobsViewProps {
   jobs: Job[];
   clients: Client[];
   users: UserAccount[];
+  monthlyJobTemplates: MonthlyJobTemplate[];
   currentUser: CurrentUser;
   onRefresh: () => void;
   isRefreshing?: boolean;
@@ -39,6 +41,7 @@ export function JobsView({
   jobs,
   clients,
   users,
+  monthlyJobTemplates,
   currentUser,
   onRefresh,
   isRefreshing = false,
@@ -49,6 +52,8 @@ export function JobsView({
   const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>('All');
   const [statusFilter, setStatusFilter] = useState<string>(currentUser.role.startsWith('SPV') ? 'Siap Direview' : 'All');
   const [priorityFilter, setPriorityFilter] = useState<string>('All');
+  const [jobTypeFilter, setJobTypeFilter] = useState<'All' | 'Continuing' | 'Additional'>('All');
+  const [activePanel, setActivePanel] = useState<'jobs' | 'templates'>('jobs');
   const [searchTerm, setSearchTerm] = useState('');
 
   // Selected job for detail / update
@@ -90,6 +95,7 @@ export function JobsView({
   const today = new Date().toISOString().split('T')[0];
 
   const isReadOnly = currentUser.role === 'Owner' || currentUser.role === 'Manager';
+  const isAdmin = currentUser.role === 'Admin';
   const isSPV =
     !isReadOnly &&
     (currentUser.role === 'Admin' ||
@@ -120,6 +126,7 @@ export function JobsView({
         }
       }
       if (priorityFilter !== 'All' && j.priority !== priorityFilter) return false;
+      if (jobTypeFilter !== 'All' && (j.jobType || 'Additional') !== jobTypeFilter) return false;
 
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
@@ -131,7 +138,7 @@ export function JobsView({
       }
       return true;
     });
-  }, [jobs, divisionFilter, statusFilter, priorityFilter, searchTerm, today]);
+  }, [jobs, divisionFilter, statusFilter, priorityFilter, jobTypeFilter, searchTerm, today]);
 
   const handleOpenDetail = (job: Job) => {
     setSelectedJob(job);
@@ -445,8 +452,24 @@ export function JobsView({
     ? ['Accounting', 'Tax']
     : [newJobData.division || 'Accounting'];
 
+  if (isAdmin && activePanel === 'templates') {
+    return (
+      <div className="space-y-4 sm:space-y-6">
+        <div role="tablist" aria-label="Bagian Job Management" className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
+          <button type="button" role="tab" aria-selected="false" onClick={() => setActivePanel('jobs')} className="min-h-10 rounded-md px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50">Daftar Job</button>
+          <button type="button" role="tab" aria-selected="true" className="min-h-10 rounded-md bg-slate-900 px-3 text-xs font-semibold text-white">Database Job Bulanan</button>
+        </div>
+        <MonthlyJobTemplatesPanel templates={monthlyJobTemplates} onRefresh={onRefresh} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4 sm:gap-6">
+      {isAdmin && <div role="tablist" aria-label="Bagian Job Management" className="inline-flex self-start rounded-lg border border-slate-200 bg-white p-1">
+        <button type="button" role="tab" aria-selected="true" className="min-h-10 rounded-md bg-slate-900 px-3 text-xs font-semibold text-white">Daftar Job</button>
+        <button type="button" role="tab" aria-selected="false" onClick={() => setActivePanel('templates')} className="min-h-10 rounded-md px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50">Database Job Bulanan</button>
+      </div>}
       {currentUser.role.startsWith('SPV') && (
         <button
           type="button"
@@ -560,6 +583,16 @@ export function JobsView({
 
         {/* Priority Dropdown */}
         <select
+          value={jobTypeFilter}
+          onChange={(e) => setJobTypeFilter(e.target.value as 'All' | 'Continuing' | 'Additional')}
+          aria-label="Filter jenis pekerjaan"
+          className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-slate-700 font-medium focus:outline-none"
+        >
+          <option value="All">Semua Jenis Job</option>
+          <option value="Continuing">Berkelanjutan</option>
+          <option value="Additional">Tambahan</option>
+        </select>
+        <select
           value={priorityFilter}
           onChange={(e) => setPriorityFilter(e.target.value)}
           className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-slate-700 font-medium focus:outline-none"
@@ -614,8 +647,9 @@ export function JobsView({
                         <div className="font-semibold text-slate-900 group-hover:text-amber-700 transition-colors line-clamp-1">
                           {job.title}
                         </div>
-                        <div className="text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
-                          {job.id} · Prioritas: {job.priority} · v{job.version}
+                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400 font-mono tabular-nums">
+                          <span>{job.id} · Prioritas: {job.priority} · v{job.version}</span>
+                          <span className={`rounded-full px-2 py-0.5 font-sans text-[10px] font-semibold ${job.jobType === 'Continuing' ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>{job.jobType === 'Continuing' ? `Berkelanjutan · ${job.recurringMonth || ''}` : 'Tambahan'}</span>
                         </div>
                       </td>
 
@@ -736,7 +770,7 @@ export function JobsView({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-slate-900">{job.title}</h3>
-                    <p className="mt-1 text-[11px] font-mono text-slate-500">{job.id} · {job.division}</p>
+                    <p className="mt-1 text-[11px] font-mono text-slate-500">{job.id} · {job.division} · {job.jobType === 'Continuing' ? `Berkelanjutan ${job.recurringMonth || ''}` : 'Tambahan'}</p>
                   </div>
                   <ChevronRight className="size-4 shrink-0 text-slate-400" />
                 </div>
