@@ -88,6 +88,25 @@ function tableRows<T>(rows: T[], columns: Array<{ key: keyof T; label: string }>
   return rows.map((row) => `<tr>${columns.map(({ key }) => `<td>${escapeHtml(row[key])}</td>`).join('')}</tr>`).join('');
 }
 
+function riskTone(value: unknown) {
+  const risk = String(value ?? '').toLowerCase();
+  if (risk.includes('high')) return 'risk-high';
+  if (risk.includes('medium')) return 'risk-medium';
+  if (risk.includes('low')) return 'risk-low';
+  if (risk.includes('assessed') || risk.includes('dinilai')) return 'risk-unassessed';
+  return '';
+}
+
+function riskTableRows(rows: RiskExportRow[], columns: Array<{ key: keyof RiskExportRow; label: string }>) {
+  if (!rows.length) return `<tr><td colspan="${columns.length}" class="empty">Tidak ada data pada periode ini.</td></tr>`;
+  const riskKeys: Array<keyof RiskExportRow> = ['overallRisk', 'accountingRisk', 'taxRisk'];
+  return rows.map((row) => `<tr>${columns.map(({ key }) => {
+    const value = row[key];
+    const tone = riskKeys.includes(key) ? riskTone(value) : '';
+    return `<td>${tone ? `<span class="risk-badge ${tone}">${escapeHtml(value)}</span>` : escapeHtml(value)}</td>`;
+  }).join('')}</tr>`).join('');
+}
+
 export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
   const printWindow = window.open('', '_blank');
   if (!printWindow) throw new Error('Jendela cetak terblokir. Izinkan pop-up untuk mengekspor PDF.');
@@ -165,19 +184,26 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
       th, td { border: 1px solid #dce1e8; padding: 6px; vertical-align: top; overflow-wrap: anywhere; }
       tbody tr:nth-child(even) { background: #f8fafc; }
       .empty { color: #718096; text-align: center; padding: 16px; }
+      .risk-badge { display: inline-block; border: 1px solid transparent; border-radius: 999px; font-size: 7pt; font-weight: 700; line-height: 1.4; padding: 3px 8px; white-space: nowrap; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .risk-high { background: #ffe4e6; border-color: #fecdd3; color: #9f1239; }
+      .risk-medium { background: #ffedd5; border-color: #fed7aa; color: #9a3412; }
+      .risk-low { background: #fef9c3; border-color: #fde68a; color: #854d0e; }
+      .risk-unassessed { background: #f1f5f9; border-color: #cbd5e1; color: #475569; }
+      .table-wrap { max-width: 100%; overflow-x: auto; }
       .section { break-inside: auto; }
       .page-break { break-before: page; }
       tr { break-inside: avoid; }
       footer { border-top: 1px solid #e2e8f0; color: #8490a0; font-size: 7pt; margin-top: 24px; padding-top: 8px; }
-      @media screen { body { margin: 20px auto; max-width: ${orientation === 'landscape' ? '1120px' : '780px'}; padding: 40px 48px; box-shadow: 0 4px 30px #101b3418; } }
-      @media print { .section { break-inside: auto; } }
+      @media screen { body { margin: 20px auto; width: calc(100% - 32px); max-width: ${orientation === 'landscape' ? '1120px' : '780px'}; padding: 40px 48px; box-shadow: 0 4px 30px #101b3418; } .table-wrap table { min-width: 680px; } }
+      @media screen and (max-width: 640px) { body { margin: 0; width: 100%; padding: 18px 14px; box-shadow: none; } h1 { font-size: 21pt; } .meta { grid-template-columns: 1fr; gap: 8px; padding: 11px; } .metrics { grid-template-columns: repeat(2, minmax(0,1fr)); } .metric { min-height: 70px; padding: 8px; } .metric dd { font-size: 15pt; } h2 { margin-top: 20px; } .table-wrap { margin-right: -14px; padding-right: 14px; } }
+      @media print { body { margin: 0; width: auto; max-width: none; padding: 0; box-shadow: none; } .table-wrap { overflow: visible; } .table-wrap table { min-width: 0; } .section { break-inside: auto; } }
     </style></head><body>
       <header><div class="brand">TMM &amp; BMA Advisory · Management Office</div><h1>Executive Summary</h1><p class="subtitle">Periode ${escapeHtml(data.period)} · ${escapeHtml(data.scopeLabel || 'Semua cakupan')}</p><span class="status">Status: ${escapeHtml(data.overallStatus)}</span><dl class="meta"><div><dt>Periode laporan</dt><dd>${escapeHtml(data.period)}</dd></div><div><dt>Dibuat pada</dt><dd>${escapeHtml(data.generatedAt)}</dd></div><div><dt>Data terakhir tersimpan</dt><dd>${escapeHtml(data.sourceUpdatedAt)}</dd></div><div><dt>Cakupan</dt><dd>${escapeHtml(data.scopeLabel || 'Semua cakupan')}</dd></div></dl><p class="scope">${escapeHtml(data.scopeNote)}</p></header>
       <section class="section"><h2><span>01</span>Ikhtisar periode</h2><dl class="metrics">${metricCards}</dl><h2><span>02</span>Sorotan untuk manajemen</h2><ul class="highlights">${highlights}</ul></section>
-      <section class="section page-break"><h2><span>03</span>Portofolio risiko klien</h2><table><thead><tr>${riskColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.risks, riskColumns)}</tbody></table></section>
-      <section class="section page-break"><h2><span>04</span>Investasi & modal sesuai akta</h2><p>Persentase dihitung dari modal disetor dibagi modal dasar yang tercantum dalam akta.</p><table><thead><tr>${investmentColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.investments, investmentColumns)}</tbody></table></section>
-      <section class="section page-break"><h2><span>05</span>Pekerjaan, kasus, dan tindak lanjut</h2><table><thead><tr>${operationColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.operations, operationColumns)}</tbody></table></section>
-      <section class="section page-break"><h2><span>06</span>Agenda meeting</h2><table><thead><tr>${agendaColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.agenda, agendaColumns)}</tbody></table>${footer}</section>
+      <section class="section page-break"><h2><span>03</span>Portofolio risiko klien</h2><div class="table-wrap"><table><thead><tr>${riskColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${riskTableRows(data.risks, riskColumns)}</tbody></table></div></section>
+      <section class="section page-break"><h2><span>04</span>Investasi & modal sesuai akta</h2><p>Persentase dihitung dari modal disetor dibagi modal dasar yang tercantum dalam akta.</p><div class="table-wrap"><table><thead><tr>${investmentColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.investments, investmentColumns)}</tbody></table></div></section>
+      <section class="section page-break"><h2><span>05</span>Pekerjaan, kasus, dan tindak lanjut</h2><div class="table-wrap"><table><thead><tr>${operationColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.operations, operationColumns)}</tbody></table></div></section>
+      <section class="section page-break"><h2><span>06</span>Agenda meeting</h2><div class="table-wrap"><table><thead><tr>${agendaColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.agenda, agendaColumns)}</tbody></table></div>${footer}</section>
       <script>window.addEventListener('load', () => setTimeout(() => window.print(), 250));</script>
     </body></html>`);
   printWindow.document.close();
@@ -224,6 +250,24 @@ export async function exportExecutiveSummaryExcel(data: ExecutiveSummaryExportDa
         cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
         if (index % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
       });
+      if (name === 'Risiko Klien') {
+        columns.forEach((column, columnIndex) => {
+          if (!['overallRisk', 'accountingRisk', 'taxRisk'].includes(String(column.key))) return;
+          const tone = riskTone(row[column.key]);
+          const colors: Record<string, { fill: string; font: string }> = {
+            'risk-high': { fill: 'FFFFE4E6', font: 'FF9F1239' },
+            'risk-medium': { fill: 'FFFFEDD5', font: 'FF9A3412' },
+            'risk-low': { fill: 'FFFEF9C3', font: 'FF854D0E' },
+            'risk-unassessed': { fill: 'FFF1F5F9', font: 'FF475569' },
+          };
+          const colorsForTone = colors[tone];
+          if (!colorsForTone) return;
+          const cell = nextRow.getCell(columnIndex + 1);
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorsForTone.fill } };
+          cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: colorsForTone.font } };
+          cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        });
+      }
     });
     if (rows.length) worksheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: Math.max(3, rows.length + 3), column: columns.length } };
   };
