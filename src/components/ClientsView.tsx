@@ -558,7 +558,7 @@ export function ClientsView({
           onChange={(e) => setFilterPkp(e.target.value)}
           className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-slate-700 font-medium focus:outline-none"
         >
-          <option value="All">Semua Status PKP</option>
+          <option value="All">Semua Status</option>
           <option value="PKP">PKP</option>
           <option value="Non-PKP">Non-PKP</option>
           <option value="Belum Diisi">Belum Diisi</option>
