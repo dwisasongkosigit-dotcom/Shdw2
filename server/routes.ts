@@ -39,6 +39,12 @@ import type {
 
 export const apiRouter = Router();
 
+function hasDivisionAccess(role: string, division: string) {
+  return role === 'Admin' ||
+    (role.includes('Accounting') && division === 'Accounting') ||
+    (role.includes('Tax') && division === 'Tax');
+}
+
 // Forward async handler rejections to the Express error middleware
 function asyncHandler<R extends Request>(fn: (req: R, res: Response, next: NextFunction) => Promise<void>) {
   return (req: R, res: Response, next: NextFunction) => {
@@ -898,17 +904,6 @@ apiRouter.get('/jobs', authenticateToken, (req: AuthenticatedRequest, res: Respo
   const db = getDb();
   let results = [...db.jobs];
   const { division, status, picId, spvId, clientId, priority } = req.query;
-  const currentUser = req.user!;
-
-  if (currentUser.role === 'Staff Accounting') {
-    results = results.filter((job) => job.division === 'Accounting' && job.picId === currentUser.userId);
-  } else if (currentUser.role === 'Staff Tax') {
-    results = results.filter((job) => job.division === 'Tax' && job.picId === currentUser.userId);
-  } else if (currentUser.role === 'SPV Accounting') {
-    results = results.filter((job) => job.division === 'Accounting');
-  } else if (currentUser.role === 'SPV Tax') {
-    results = results.filter((job) => job.division === 'Tax');
-  }
 
   if (division) results = results.filter((j) => j.division === division);
   if (status) results = results.filter((j) => j.status === status);
@@ -1239,6 +1234,14 @@ apiRouter.post(
       res.status(400).json({ error: 'Klien, judul, divisi, dan uraian masalah wajib diisi.' });
       return;
     }
+    if (!['Accounting', 'Tax'].includes(data.division)) {
+      res.status(400).json({ error: 'Divisi kasus tidak valid.' });
+      return;
+    }
+    if (!hasDivisionAccess(req.user!.role, data.division)) {
+      res.status(403).json({ error: 'Anda hanya dapat membuat kasus untuk divisi sendiri.' });
+      return;
+    }
 
     const db = getDb();
     const year = new Date().getFullYear();
@@ -1307,6 +1310,19 @@ apiRouter.put(
   (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const updates = req.body;
+    const targetCase = getDb().cases.find((item) => item.id === id);
+    if (!targetCase) {
+      res.status(404).json({ error: 'Kasus tidak ditemukan.' });
+      return;
+    }
+    const user = req.user!;
+    const isAssignedStaff = !user.role.startsWith('Staff') ||
+      targetCase.picId === user.userId || targetCase.followUpPicId === user.userId;
+    if (!hasDivisionAccess(user.role, targetCase.division) || !isAssignedStaff ||
+        (updates.division && updates.division !== targetCase.division && user.role !== 'Admin')) {
+      res.status(403).json({ error: 'Anda tidak memiliki izin mengubah kasus di divisi ini.' });
+      return;
+    }
     let savedCase: Case | null = null;
 
     mutateDb((database) => {
@@ -1361,6 +1377,18 @@ apiRouter.post(
       return;
     }
 
+    const targetCase = getDb().cases.find((item) => item.id === id);
+    if (!targetCase) {
+      res.status(404).json({ error: 'Kasus tidak ditemukan.' });
+      return;
+    }
+    const user = req.user!;
+    const isAssignedStaff = !user.role.startsWith('Staff') ||
+      targetCase.picId === user.userId || targetCase.followUpPicId === user.userId;
+    if (!hasDivisionAccess(user.role, targetCase.division) || !isAssignedStaff) {
+      res.status(403).json({ error: 'Anda tidak memiliki izin menambahkan tindakan pada kasus ini.' });
+      return;
+    }
     let updatedCase: Case | null = null;
 
     mutateDb((database) => {
@@ -1459,6 +1487,9 @@ apiRouter.delete(
     mutateDb((database) => {
       const targetCase = database.cases.find((c) => c.id === id);
       if (!targetCase) throw new Error('Kasus tidak ditemukan.');
+      if (!hasDivisionAccess(req.user!.role, targetCase.division)) {
+        throw new Error('Anda tidak memiliki izin mengubah kasus di divisi ini.');
+      }
 
       targetCase.timeline = targetCase.timeline || [];
       const itemIdx = targetCase.timeline.findIndex((t) => t.id === timelineId);
@@ -1527,6 +1558,14 @@ apiRouter.post(
       res.status(400).json({ error: 'Klien, divisi, dan deskripsi aktivitas wajib diisi.' });
       return;
     }
+    if (!['Accounting', 'Tax'].includes(data.division)) {
+      res.status(400).json({ error: 'Divisi aktivitas tidak valid.' });
+      return;
+    }
+    if (!hasDivisionAccess(req.user!.role, data.division)) {
+      res.status(403).json({ error: 'Anda hanya dapat mencatat aktivitas untuk divisi sendiri.' });
+      return;
+    }
 
     const db = getDb();
     const nextNumber = db.activities.length + 1;
@@ -1585,8 +1624,11 @@ apiRouter.put(
       const act = database.activities.find((a) => a.id === id);
       if (!act) throw new Error('Aktivitas tidak ditemukan.');
 
-      if (req.user?.role.startsWith('Staff') && act.picId !== req.user.userId) {
-        throw new Error('Staff hanya dapat memperbarui catatan aktivitas miliknya sendiri.');
+      const user = req.user!;
+      if (!hasDivisionAccess(user.role, act.division) ||
+          (user.role.startsWith('Staff') && act.picId !== user.userId) ||
+          (updates.division && updates.division !== act.division && user.role !== 'Admin')) {
+        throw new Error('Anda tidak memiliki izin memperbarui aktivitas di divisi ini.');
       }
 
       Object.assign(act, updates, {
@@ -1615,8 +1657,11 @@ apiRouter.delete(
       const index = database.activities.findIndex((a) => a.id === id);
       if (index === -1) throw new Error('Aktivitas tidak ditemukan.');
 
-      if (req.user?.role.startsWith('Staff') && database.activities[index].picId !== req.user.userId) {
-        throw new Error('Staff tidak memiliki izin menghapus log aktivitas staf lain.');
+      const user = req.user!;
+      const activity = database.activities[index];
+      if (!hasDivisionAccess(user.role, activity.division) ||
+          (user.role.startsWith('Staff') && activity.picId !== user.userId)) {
+        throw new Error('Anda tidak memiliki izin menghapus aktivitas di divisi ini.');
       }
 
       const deleted = database.activities.splice(index, 1)[0];

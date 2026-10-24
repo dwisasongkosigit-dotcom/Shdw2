@@ -45,11 +45,8 @@ export function JobsView({
   lastUpdated,
 }: JobsViewProps) {
   const { success, error, warning } = useToast();
-  const isDivisionRestricted = currentUser.role.startsWith('Staff') || currentUser.role.startsWith('SPV');
   const currentDivision = currentUser.role.includes('Accounting') ? 'Accounting' : 'Tax';
-  const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>(
-    isDivisionRestricted ? currentDivision : 'All'
-  );
+  const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [priorityFilter, setPriorityFilter] = useState<string>('All');
   const [searchTerm, setSearchTerm] = useState('');
@@ -448,31 +445,30 @@ export function JobsView({
       <div className="p-3.5 bg-white border border-slate-200 rounded-xl flex flex-wrap gap-2.5 items-center text-xs">
         {/* Division Tab */}
         <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
-          {!isDivisionRestricted && <button
+          <button
             onClick={() => setDivisionFilter('All')}
             className={`px-3 py-1 rounded-md font-medium transition-colors ${
               divisionFilter === 'All' ? 'bg-white text-slate-900 shadow-sm font-semibold' : 'text-slate-600'
             }`}
           >
             Semua Divisi
-          </button>}
-          {!isDivisionRestricted && <button
+          </button>
+          <button
             onClick={() => setDivisionFilter('Accounting')}
             className={`px-3 py-1 rounded-md font-medium transition-colors ${
               divisionFilter === 'Accounting' ? 'bg-white text-slate-900 shadow-sm font-semibold' : 'text-slate-600'
             }`}
           >
             Accounting
-          </button>}
-          {!isDivisionRestricted && <button
+          </button>
+          <button
             onClick={() => setDivisionFilter('Tax')}
             className={`px-3 py-1 rounded-md font-medium transition-colors ${
               divisionFilter === 'Tax' ? 'bg-white text-slate-900 shadow-sm font-semibold' : 'text-slate-600'
             }`}
           >
             Tax
-          </button>}
-          {isDivisionRestricted && <span className="px-3 py-1 rounded-md bg-white text-slate-900 shadow-sm font-semibold">{currentDivision}</span>}
+          </button>
         </div>
 
         {/* Status Dropdown */}
@@ -751,8 +747,11 @@ export function JobsView({
                 </div>
               )}
 
-              {/* Action Form: Disabled if Read-Only (Owner/Manager) */}
-              {!isReadOnly ? (
+              {/* Only the responsible division and assigned staff can update this job. */}
+              {(!isReadOnly &&
+                (currentUser.role === 'Admin' ||
+                  (currentUser.role.startsWith('SPV') && selectedJob.division === currentDivision) ||
+                  (isStaff && selectedJob.division === currentDivision && selectedJob.picId === currentUser.id))) ? (
                 <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-4">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wider">
