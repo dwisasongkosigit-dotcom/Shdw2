@@ -26,6 +26,7 @@ import {
 import type {
   Client,
   Job,
+  MonthlyJobTemplate,
   Case,
   DailyActivity,
   User,
@@ -722,6 +723,7 @@ apiRouter.post(
       paidUpCapital: data.paidUpCapital ?? null,
       dataType: data.dataType || 'Real',
       suggestions: [],
+      monthlyJobTemplateIds: [],
       notes: data.notes || '',
       npwp: data.npwp || '',
       address: data.address || '',
@@ -786,6 +788,9 @@ apiRouter.put(
       const client = database.clients.find((c) => c.id === id);
       if (!client) throw new Error('Klien tidak ditemukan.');
       const currentUser = req.user!;
+      if (updates.monthlyJobTemplateIds !== undefined && JSON.stringify(updates.monthlyJobTemplateIds) !== JSON.stringify(client.monthlyJobTemplateIds || [])) {
+        throw new Error('Penugasan job rutin harus disimpan melalui pengaturan Job rutin bulanan.');
+      }
       if (currentUser.role !== 'Admin' && !currentUser.role.startsWith('SPV')) {
         throw new Error('Akses ditolak: hanya Admin atau supervisor yang dapat mengubah master klien.');
       }
@@ -1206,10 +1211,207 @@ apiRouter.delete(
 // ==========================================
 // 6. JOB MANAGEMENT & SPV APPROVAL
 // ==========================================
+function validateMonthlyJobTemplate(data: any) {
+  const title = typeof data?.title === 'string' ? data.title.trim() : '';
+  const division = data?.division;
+  const description = typeof data?.description === 'string' ? data.description.trim() : '';
+  const priority = data?.priority || 'Sedang';
+  const deadlineDay = Number(data?.deadlineDay);
+  if (!title || title.length > 200) return { error: 'Nama template wajib diisi dan maksimal 200 karakter.' } as const;
+  if (division !== 'Accounting' && division !== 'Tax') return { error: 'Divisi template tidak valid.' } as const;
+  if (!['Rendah', 'Sedang', 'Tinggi', 'Mendesak'].includes(priority)) return { error: 'Prioritas template tidak valid.' } as const;
+  if (!Number.isInteger(deadlineDay) || deadlineDay < 1 || deadlineDay > 31) return { error: 'Tanggal deadline harus antara 1 dan 31.' } as const;
+  if (description.length > 2000) return { error: 'Deskripsi template maksimal 2.000 karakter.' } as const;
+  return { value: { title, division, description, priority, deadlineDay } } as const;
+}
+
+apiRouter.get('/job-templates', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const templates = getDb().monthlyJobTemplates || [];
+  if (req.user?.role === 'Admin') {
+    res.json(templates);
+    return;
+  }
+  const division = req.user?.role.includes('Accounting') ? 'Accounting' : req.user?.role.includes('Tax') ? 'Tax' : null;
+  res.json(templates.filter((template) => template.active && (!division || template.division === division)));
+});
+
+apiRouter.post('/job-templates', authenticateToken, requireRole('Admin'), requireWritable, (req: AuthenticatedRequest, res: Response) => {
+  const validated = validateMonthlyJobTemplate(req.body);
+  if ('error' in validated) {
+    res.status(400).json({ error: validated.error });
+    return;
+  }
+  const now = new Date().toISOString();
+  const template: MonthlyJobTemplate = {
+    id: `JBT-${randomUUID().toUpperCase()}`,
+    ...validated.value,
+    active: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+  mutateDb((database) => {
+    database.monthlyJobTemplates = database.monthlyJobTemplates || [];
+    database.monthlyJobTemplates.unshift(template);
+    logAudit('MONTHLY_JOB_TEMPLATE_CREATED', 'Job', `Template job bulanan '${template.title}' dibuat untuk divisi ${template.division}.`, { userId: req.user!.userId, name: req.user!.name, role: req.user!.role }, template.id, template.title);
+  });
+  res.status(201).json({ success: true, template, message: 'Template job bulanan berhasil dibuat.' });
+});
+
+apiRouter.put('/job-templates/:id', authenticateToken, requireRole('Admin'), requireWritable, (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  let savedTemplate: MonthlyJobTemplate | null = null;
+  mutateDb((database) => {
+    const template = (database.monthlyJobTemplates || []).find((item) => item.id === id);
+    if (!template) throw new Error('Template job bulanan tidak ditemukan.');
+    const candidate = { ...template, ...req.body };
+    const validated = validateMonthlyJobTemplate(candidate);
+    if ('error' in validated) throw new Error(validated.error);
+    if (req.body.active !== undefined && typeof req.body.active !== 'boolean') throw new Error('Status aktif template tidak valid.');
+    Object.assign(template, validated.value, req.body.active === undefined ? {} : { active: req.body.active }, { updatedAt: new Date().toISOString() });
+    savedTemplate = template;
+    logAudit('MONTHLY_JOB_TEMPLATE_UPDATED', 'Job', `Template job bulanan '${template.title}' diperbarui.`, { userId: req.user!.userId, name: req.user!.name, role: req.user!.role }, template.id, template.title);
+  });
+  res.json({ success: true, template: savedTemplate, message: 'Template job bulanan berhasil diperbarui.' });
+});
+
+apiRouter.put('/clients/:id/monthly-jobs', authenticateToken, requireRole('Admin', 'SPV Accounting', 'SPV Tax'), requireWritable, (req: AuthenticatedRequest, res: Response) => {
+  const templateIds = req.body?.templateIds;
+  if (!Array.isArray(templateIds) || templateIds.length > 100 || templateIds.some((id: unknown) => typeof id !== 'string')) {
+    res.status(400).json({ error: 'Daftar template job bulanan tidak valid.' });
+    return;
+  }
+  const currentUser = req.user!;
+  let savedClient: Client | null = null;
+  mutateDb((database) => {
+    const client = database.clients.find((item) => item.id === req.params.id);
+    if (!client) throw new Error('Klien tidak ditemukan.');
+    if (currentUser.role === 'SPV Accounting' && client.accountingSpvId !== currentUser.userId) throw new Error('SPV Accounting hanya dapat mendelegasikan job pada klien yang menjadi tanggung jawabnya.');
+    if (currentUser.role === 'SPV Tax' && client.taxSpvId !== currentUser.userId) throw new Error('SPV Tax hanya dapat mendelegasikan job pada klien yang menjadi tanggung jawabnya.');
+    const uniqueIds = [...new Set<string>(templateIds)];
+    const templates = database.monthlyJobTemplates || [];
+    for (const templateId of uniqueIds) {
+      const template = templates.find((item) => item.id === templateId && item.active);
+      if (!template) throw new Error('Template aktif tidak ditemukan. Muat ulang daftar template lalu coba lagi.');
+      if (currentUser.role === 'SPV Accounting' && template.division !== 'Accounting') throw new Error('SPV Accounting hanya dapat memilih template Accounting.');
+      if (currentUser.role === 'SPV Tax' && template.division !== 'Tax') throw new Error('SPV Tax hanya dapat memilih template Tax.');
+    }
+    const assignedIds = currentUser.role === 'SPV Accounting' || currentUser.role === 'SPV Tax'
+      ? [
+          ...(client.monthlyJobTemplateIds || []).filter((id) => {
+            const existing = templates.find((template) => template.id === id);
+            return existing && existing.division !== (currentUser.role === 'SPV Accounting' ? 'Accounting' : 'Tax');
+          }),
+          ...uniqueIds,
+        ]
+      : uniqueIds;
+    client.monthlyJobTemplateIds = [...new Set(assignedIds)];
+    client.version = (client.version || 1) + 1;
+    client.updatedAt = new Date().toISOString();
+    client.updatedBy = currentUser.name;
+    savedClient = client;
+    logAudit('CLIENT_MONTHLY_JOBS_UPDATED', 'Client', `Penugasan template job bulanan klien ${client.name} diperbarui (${uniqueIds.length} template aktif).`, { userId: currentUser.userId, name: currentUser.name, role: currentUser.role }, client.id, client.name);
+  });
+  res.json({ success: true, client: savedClient, message: 'Job rutin bulanan klien berhasil disimpan.' });
+});
+
+function getJakartaMonth() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const monthKey = `${values.year}-${values.month}`;
+  return { year: Number(values.year), month: Number(values.month), monthKey, firstDay: `${monthKey}-01` };
+}
+
+function createCurrentMonthRecurringJobs() {
+  const db = getDb();
+  const { year, month, monthKey, firstDay } = getJakartaMonth();
+  const now = new Date().toISOString();
+  const templates = (db.monthlyJobTemplates || []).filter((template) => template.active);
+  const newJobs: Job[] = [];
+  let sequence = db.jobs.length + 1;
+  const nextId = () => {
+    let id = '';
+    do {
+      id = `JOB-${year}-${String(sequence++).padStart(3, '0')}`;
+    } while (db.jobs.some((job) => job.id === id) || newJobs.some((job) => job.id === id));
+    return id;
+  };
+
+  for (const client of db.clients) {
+    if (client.status !== 'Aktif') continue;
+    const assignedTemplateIds = new Set(client.monthlyJobTemplateIds || []);
+    for (const template of templates) {
+      if (!assignedTemplateIds.has(template.id)) continue;
+      if (db.jobs.some((job) => job.recurringTemplateId === template.id && job.clientId === client.id && job.recurringMonth === monthKey)) continue;
+      const division = template.division;
+      const isAccounting = division === 'Accounting';
+      const spvId = isAccounting ? client.accountingSpvId : client.taxSpvId;
+      const spvRole = isAccounting ? 'SPV Accounting' : 'SPV Tax';
+      const staffRole = isAccounting ? 'Staff Accounting' : 'Staff Tax';
+      const spvIsPic = isAccounting ? client.accountingSpvIsPic : client.taxSpvIsPic;
+      const picId = spvIsPic ? spvId : isAccounting ? client.accountingStaffPicId : client.taxStaffPicId;
+      const picRole = spvIsPic ? spvRole : staffRole;
+      const pic = db.users.find((user) => user.id === picId && user.active && user.role === picRole);
+      const reviewer = db.users.find((user) => user.id === spvId && user.active && user.role === spvRole);
+      if (!pic || !reviewer) continue;
+      const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      const deadline = `${monthKey}-${String(Math.min(template.deadlineDay, daysInMonth)).padStart(2, '0')}`;
+      newJobs.push({
+        id: nextId(),
+        clientId: client.id,
+        clientName: client.name,
+        division,
+        title: template.title,
+        picId: pic.id,
+        picName: pic.name,
+        spvId: reviewer.id,
+        spvName: reviewer.name,
+        createdAt: now,
+        startDate: firstDay,
+        deadline,
+        priority: template.priority,
+        description: template.description,
+        notes: `Job rutin ${monthKey} dibuat otomatis dari template ${template.title}.`,
+        status: 'Belum Dimulai',
+        progressPercent: 0,
+        jobType: 'Continuing',
+        recurringTemplateId: template.id,
+        recurringMonth: monthKey,
+        version: 1,
+        history: [{
+          id: `JH-${randomUUID().slice(0, 12)}`,
+          timestamp: now,
+          userId: 'SYSTEM',
+          userName: 'Sistem Otomatis',
+          action: `Job rutin bulanan ${monthKey} dibuat otomatis`,
+          toStatus: 'Belum Dimulai',
+          notes: `Ditugaskan kepada ${pic.name} (Reviewer: ${reviewer.name}).`,
+        }],
+        updatedAt: now,
+        updatedBy: 'Sistem Otomatis',
+      });
+    }
+  }
+
+  if (newJobs.length) {
+    mutateDb((database) => {
+      database.jobs.unshift(...newJobs);
+      for (const job of newJobs) {
+        logAudit('MONTHLY_JOB_GENERATED', 'Job', `Job rutin ${job.id} (${job.title}) dibuat untuk ${job.clientName} pada ${monthKey}.`, { userId: 'SYSTEM', name: 'Sistem Otomatis', role: 'Admin' }, job.id, job.title);
+      }
+    });
+  }
+}
+
 apiRouter.get('/jobs', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  createCurrentMonthRecurringJobs();
   const db = getDb();
   let results = [...db.jobs];
-  const { division, status, picId, spvId, clientId, priority } = req.query;
+  const { division, status, picId, spvId, clientId, priority, jobType, recurringMonth } = req.query;
 
   if (division) results = results.filter((j) => j.division === division);
   if (status) results = results.filter((j) => j.status === status);
@@ -1217,6 +1419,8 @@ apiRouter.get('/jobs', authenticateToken, (req: AuthenticatedRequest, res: Respo
   if (spvId) results = results.filter((j) => j.spvId === spvId);
   if (clientId) results = results.filter((j) => j.clientId === clientId);
   if (priority) results = results.filter((j) => j.priority === priority);
+  if (jobType) results = results.filter((j) => (j.jobType || 'Additional') === jobType);
+  if (recurringMonth) results = results.filter((j) => j.recurringMonth === recurringMonth);
 
   res.json(results);
 });
@@ -1313,6 +1517,7 @@ apiRouter.post(
         notes: data.notes || '',
         status: 'Belum Dimulai',
         progressPercent: 0,
+        jobType: 'Additional',
         version: 1,
         history: [{
           id: `JH-${Date.now()}-${index + 1}`,

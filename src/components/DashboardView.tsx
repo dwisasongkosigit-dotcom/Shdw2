@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Building2,
   Briefcase,
@@ -12,10 +12,12 @@ import {
   ClipboardList,
   FileText,
 } from 'lucide-react';
-import type { CurrentUser, MeetingMinute, TeamAgendaEntry } from '../lib/api';
+import type { CurrentUser, MeetingMinute, TeamAgendaEntry, Job, Case } from '../lib/api';
 
 interface DashboardViewProps {
   stats: any;
+  jobs: Job[];
+  cases: Case[];
   agendaEntries: TeamAgendaEntry[];
   meetingMinutes: MeetingMinute[];
   currentUser: CurrentUser;
@@ -36,8 +38,16 @@ function meetingDateLabel(value: string) {
   return new Intl.DateTimeFormat('id-ID', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(date);
 }
 
+function currentJakartaMonth() {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}`;
+}
+
 export function DashboardView({
   stats,
+  jobs: allJobs,
+  cases: allCases,
   agendaEntries,
   meetingMinutes,
   currentUser,
@@ -56,6 +66,34 @@ export function DashboardView({
     setDivisionFilter(division);
     onDivisionChange(division);
   };
+  const [fromMonth, setFromMonth] = useState(currentJakartaMonth);
+  const [toMonth, setToMonth] = useState(currentJakartaMonth);
+  const validMonthRange = fromMonth <= toMonth;
+  const monthlySummary = useMemo(() => {
+    const roleDivision = currentUser.role.includes('Accounting') ? 'Accounting' : currentUser.role.includes('Tax') ? 'Tax' : null;
+    const selectedDivision = roleDivision || (divisionFilter === 'All' ? null : divisionFilter);
+    const scopedJobs = allJobs.filter((job) => {
+      if (selectedDivision && job.division !== selectedDivision) return false;
+      if (currentUser.role.startsWith('Staff') && job.picId !== currentUser.id) return false;
+      const month = job.recurringMonth || job.startDate?.slice(0, 7) || job.createdAt.slice(0, 7);
+      return validMonthRange && month >= fromMonth && month <= toMonth;
+    });
+    const scopedCases = allCases.filter((item) => {
+      if (selectedDivision && item.division !== selectedDivision) return false;
+      if (currentUser.role.startsWith('Staff') && item.picId !== currentUser.id && item.followUpPicId !== currentUser.id) return false;
+      const month = item.createdAt.slice(0, 7);
+      return validMonthRange && month >= fromMonth && month <= toMonth;
+    });
+    const summarize = <T,>(items: T[], isDone: (item: T) => boolean) => {
+      const completed = items.filter(isDone).length;
+      return { total: items.length, completed, unfinished: items.length - completed };
+    };
+    return {
+      continuing: summarize(scopedJobs.filter((job) => job.jobType === 'Continuing'), (job) => job.status === 'Selesai'),
+      additional: summarize(scopedJobs.filter((job) => job.jobType !== 'Continuing'), (job) => job.status === 'Selesai'),
+      cases: summarize(scopedCases, (item) => item.status === 'Resolved' || item.status === 'Closed'),
+    };
+  }, [allJobs, allCases, currentUser.id, currentUser.role, divisionFilter, fromMonth, toMonth, validMonthRange]);
 
   if (!stats) {
     return (
@@ -166,6 +204,41 @@ export function DashboardView({
           </div>
         </div>
       </div>
+
+      <section aria-labelledby="monthly-activity-heading" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-700">Rekap periode</p>
+            <h2 id="monthly-activity-heading" className="mt-1 text-sm font-semibold text-slate-900">Penyelesaian tugas per kelompok</h2>
+            <p className="mt-1 text-xs text-slate-500">Status saat ini untuk tugas yang dibuat pada rentang bulan terpilih.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:min-w-[19rem]">
+            <label className="text-[11px] font-semibold text-slate-600">Dari bulan
+              <input type="month" value={fromMonth} max={toMonth} onChange={(event) => setFromMonth(event.target.value)} aria-label="Bulan awal rekap" className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-800" />
+            </label>
+            <label className="text-[11px] font-semibold text-slate-600">Sampai bulan
+              <input type="month" value={toMonth} min={fromMonth} onChange={(event) => setToMonth(event.target.value)} aria-label="Bulan akhir rekap" className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-800" />
+            </label>
+          </div>
+        </div>
+        {!validMonthRange && <p role="alert" className="mt-3 text-xs font-medium text-rose-600">Rentang bulan tidak valid. Pilih bulan akhir yang sama atau setelah bulan awal.</p>}
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {([
+            { title: 'Job berkelanjutan', summary: monthlySummary.continuing, icon: CalendarDays, accent: 'text-sky-700 bg-sky-50' },
+            { title: 'Job Management tambahan', summary: monthlySummary.additional, icon: Briefcase, accent: 'text-amber-700 bg-amber-50' },
+            { title: 'Case Register', summary: monthlySummary.cases, icon: ShieldAlert, accent: 'text-rose-700 bg-rose-50' },
+          ] as const).map(({ title, summary, icon: Icon, accent }) => (
+            <article key={title} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3.5">
+              <div className="flex items-center gap-2"><span className={`rounded-lg p-2 ${accent}`}><Icon className="size-4" /></span><h3 className="text-xs font-semibold text-slate-800">{title}</h3></div>
+              <p className="mt-3 text-2xl font-bold tabular-nums text-slate-900">{summary.total}<span className="ml-1.5 text-[11px] font-medium text-slate-500">total tugas</span></p>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-200 pt-2 text-[11px]">
+                <span className="text-emerald-700">Selesai <strong className="tabular-nums">{summary.completed}</strong></span>
+                <span className="text-amber-700">Belum selesai <strong className="tabular-nums">{summary.unfinished}</strong></span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
 
       <section aria-labelledby="my-meetings-heading" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex items-start justify-between gap-3">

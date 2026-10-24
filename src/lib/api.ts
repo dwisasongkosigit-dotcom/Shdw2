@@ -65,6 +65,7 @@ export interface Client {
   paidUpCapital?: number | null;
   dataType: 'Real' | 'Simulasi' | 'Belum Diatur';
   suggestions: ClientSuggestion[];
+  monthlyJobTemplateIds?: string[];
 
   // Per-division owner and reviewer assignments
   accountingStaffPicId: string;
@@ -147,6 +148,18 @@ export type JobStatus =
   | 'Perlu Revisi'
   | 'Selesai';
 
+export interface MonthlyJobTemplate {
+  id: string;
+  title: string;
+  division: JobDivision;
+  description: string;
+  priority: JobPriority;
+  deadlineDay: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Job {
   id: string;
   clientId: string;
@@ -165,6 +178,9 @@ export interface Job {
   notes: string;
   status: JobStatus;
   progressPercent: number;
+  jobType?: 'Continuing' | 'Additional';
+  recurringTemplateId?: string;
+  recurringMonth?: string;
   reviewNotes?: string;
   completedAt?: string;
   approvedBy?: string;
@@ -488,6 +504,24 @@ export const api = {
   deleteClient: (id: string) =>
     request<{ success: boolean; message: string }>(`/api/clients/${id}`, {
       method: 'DELETE',
+    }),
+  updateClientMonthlyJobs: (id: string, templateIds: string[]) =>
+    request<{ success: boolean; client: Client; message: string }>(`/api/clients/${id}/monthly-jobs`, {
+      method: 'PUT',
+      body: JSON.stringify({ templateIds }),
+    }),
+
+  // Monthly job library
+  getMonthlyJobTemplates: () => request<MonthlyJobTemplate[]>('/api/job-templates'),
+  createMonthlyJobTemplate: (data: Partial<MonthlyJobTemplate>) =>
+    request<{ success: boolean; template: MonthlyJobTemplate; message: string }>('/api/job-templates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateMonthlyJobTemplate: (id: string, data: Partial<MonthlyJobTemplate>) =>
+    request<{ success: boolean; template: MonthlyJobTemplate; message: string }>(`/api/job-templates/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
     }),
 
   // Jobs

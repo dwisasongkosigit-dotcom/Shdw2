@@ -1,4 +1,4 @@
-import { ClipboardList, Menu, RefreshCw, Database, Shield } from 'lucide-react';
+import { ClipboardList, Menu, RefreshCw, Database, Shield, Moon, Sun } from 'lucide-react';
 import type { CurrentUser, BrandingConfig } from '../lib/api';
 
 interface HeaderProps {
@@ -10,6 +10,8 @@ interface HeaderProps {
   branding: BrandingConfig;
   onRefreshData: () => void;
   isRefreshing?: boolean;
+  theme: 'light' | 'dark';
+  onToggleTheme: () => void;
 }
 
 const TAB_TITLES: Record<string, { title: string; subtitle: string }> = {
@@ -38,6 +40,8 @@ export function Header({
   branding,
   onRefreshData,
   isRefreshing = false,
+  theme,
+  onToggleTheme,
 }: HeaderProps) {
   const meta = TAB_TITLES[currentTab] || { title: 'Control Center', subtitle: 'Sistem Terpadu' };
 
@@ -49,7 +53,7 @@ export function Header({
   }).format(new Date());
 
   return (
-    <header className="sticky top-0 z-30 h-16 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between gap-4">
+    <header className="sticky top-0 z-30 h-16 bg-white border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between gap-4">
       <div className="flex items-center gap-3 min-w-0">
         <button
           type="button"
@@ -112,6 +116,16 @@ export function Header({
             </span>
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={onToggleTheme}
+          aria-label={theme === 'dark' ? 'Aktifkan mode terang' : 'Aktifkan mode gelap'}
+          title={theme === 'dark' ? 'Mode terang' : 'Mode gelap'}
+          className="min-h-11 min-w-11 rounded-lg border border-slate-200 p-2 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
+        >
+          {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+        </button>
 
         {/* Refresh Data Button */}
         <button

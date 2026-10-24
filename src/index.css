@@ -1,1 +1,85 @@
 @import "tailwindcss";
+
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  background: #0b1220;
+}
+
+:root[data-theme='dark'] body {
+  background-color: #0b1220;
+  color: #e2e8f0;
+}
+
+:root[data-theme='dark'] [class~='bg-white'],
+:root[data-theme='dark'] [class~='bg-white/95'] {
+  background-color: #111a2b !important;
+}
+
+:root[data-theme='dark'] [class~='bg-slate-50'],
+:root[data-theme='dark'] [class~='bg-slate-50/50'],
+:root[data-theme='dark'] [class~='bg-slate-50/70'],
+:root[data-theme='dark'] [class~='bg-slate-50/80'] {
+  background-color: #172337 !important;
+}
+
+:root[data-theme='dark'] [class~='bg-slate-100'],
+:root[data-theme='dark'] [class~='bg-slate-100/80'] {
+  background-color: #1c2a3e !important;
+}
+
+:root[data-theme='dark'] [class~='bg-slate-200'] {
+  background-color: #26354b !important;
+}
+
+:root[data-theme='dark'] [class~='text-slate-900'],
+:root[data-theme='dark'] [class~='text-slate-800'] {
+  color: #edf2f7 !important;
+}
+
+:root[data-theme='dark'] [class~='text-slate-700'],
+:root[data-theme='dark'] [class~='text-slate-600'] {
+  color: #c4cfdd !important;
+}
+
+:root[data-theme='dark'] [class~='text-slate-500'],
+:root[data-theme='dark'] [class~='text-slate-400'] {
+  color: #91a1b7 !important;
+}
+
+:root[data-theme='dark'] [class~='text-slate-300'],
+:root[data-theme='dark'] [class~='text-slate-200'] {
+  color: #b8c5d6 !important;
+}
+
+:root[data-theme='dark'] [class~='border-slate-100'],
+:root[data-theme='dark'] [class~='border-slate-200'],
+:root[data-theme='dark'] [class~='border-slate-200/90'],
+:root[data-theme='dark'] [class~='border-slate-200/80'],
+:root[data-theme='dark'] [class~='border-slate-300'] {
+  border-color: #2a3a50 !important;
+}
+
+:root[data-theme='dark'] [class~='divide-slate-100'] > :not([hidden]) ~ :not([hidden]) {
+  border-color: #26354b !important;
+}
+
+:root[data-theme='dark'] input,
+:root[data-theme='dark'] select,
+:root[data-theme='dark'] textarea {
+  color-scheme: dark;
+}
+
+:root[data-theme='dark'] select option {
+  background-color: #111a2b;
+  color: #e2e8f0;
+}
+
+:root[data-theme='dark'] ::placeholder {
+  color: #8091a8;
+  opacity: 1;
+}

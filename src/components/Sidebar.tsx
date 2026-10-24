@@ -98,7 +98,7 @@ export function Sidebar({
       {/* Mobile backdrop */}
       {isOpenMobile && (
         <div
-          className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-slate-950/70 lg:hidden"
           onClick={onCloseMobile}
         />
       )}

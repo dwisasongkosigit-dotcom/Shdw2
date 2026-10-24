@@ -41,6 +41,10 @@ function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
   if (!Array.isArray(db.agendaEntries)) db.agendaEntries = [];
   if (!Array.isArray(db.auditLogs)) db.auditLogs = [];
   if (!Array.isArray(db.backups)) db.backups = [];
+  if (!Array.isArray(db.monthlyJobTemplates)) db.monthlyJobTemplates = [];
+  db.clients.forEach((client: any) => {
+    if (!Array.isArray(client.monthlyJobTemplateIds)) client.monthlyJobTemplateIds = [];
+  });
 
   if (db.branding && (!db.branding.logoUrl || db.branding.logoUrl === LEGACY_LOGO_PATH)) {
     db.branding.logoUrl = DEFAULT_LOGO_PATH;

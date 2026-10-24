@@ -18,8 +18,9 @@ import {
   Download,
   AlertOctagon,
   ChevronRight,
+  CalendarDays,
 } from 'lucide-react';
-import { api, type Case, type Client, type CurrentUser, type UserAccount } from '../lib/api';
+import { api, type Case, type Client, type CurrentUser, type UserAccount, type MonthlyJobTemplate } from '../lib/api';
 import { ClientSegmentationChart } from './ClientSegmentationChart';
 import { ClientPicWorkloadChart, type ClientPicWorkloadItem } from './ClientPicWorkloadChart';
 import { useToast } from './Toast';
@@ -63,6 +64,7 @@ interface ClientsViewProps {
   clients: Client[];
   cases: Case[];
   users: UserAccount[];
+  monthlyJobTemplates: MonthlyJobTemplate[];
   currentUser: CurrentUser;
   onRefresh: () => void;
   isRefreshing?: boolean;
@@ -73,6 +75,7 @@ export function ClientsView({
   clients,
   cases,
   users,
+  monthlyJobTemplates,
   currentUser,
   onRefresh,
   isRefreshing = false,
@@ -96,6 +99,8 @@ export function ClientsView({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [picChangeNote, setPicChangeNote] = useState('');
+  const [selectedMonthlyTemplateIds, setSelectedMonthlyTemplateIds] = useState<string[]>([]);
+  const [savingMonthlyJobs, setSavingMonthlyJobs] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState<Partial<Client>>({});
@@ -125,6 +130,9 @@ export function ClientsView({
   const canEditClient = (client: Client) => isAdmin ||
     (currentUser.role === 'SPV Accounting' && client.accountingSpvId === currentUser.id) ||
     (currentUser.role === 'SPV Tax' && client.taxSpvId === currentUser.id);
+  const selectableMonthlyTemplates = monthlyJobTemplates.filter((template) =>
+    template.active && (isAdmin || (currentUser.role === 'SPV Accounting' && template.division === 'Accounting') || (currentUser.role === 'SPV Tax' && template.division === 'Tax'))
+  );
   const selectedClientCases = useMemo(() => selectedClient
     ? cases.filter((item) => item.clientId === selectedClient.id).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     : [], [cases, selectedClient?.id]);
@@ -256,6 +264,7 @@ export function ClientsView({
   const handleOpenDetail = (client: Client, edit = false) => {
     setSelectedClient(client);
     setFormData({ ...client });
+    setSelectedMonthlyTemplateIds((client.monthlyJobTemplateIds || []).filter((id) => selectableMonthlyTemplates.some((template) => template.id === id)));
     setPicChangeNote('');
     setIsEditMode(!isReadOnly && edit);
   };
@@ -292,6 +301,7 @@ export function ClientsView({
       taxSpvId: taxSpv?.id || '',
     });
     setPicChangeNote('');
+    setSelectedMonthlyTemplateIds([]);
     setIsAddModalOpen(true);
   };
 
@@ -324,6 +334,22 @@ export function ClientsView({
       error('Gagal Menyimpan', err.message || 'Terjadi kesalahan saat menyimpan ke database server. Data lama Anda tetap utuh.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveMonthlyJobAssignments = async () => {
+    if (!selectedClient) return;
+    setSavingMonthlyJobs(true);
+    try {
+      const response = await api.updateClientMonthlyJobs(selectedClient.id, selectedMonthlyTemplateIds);
+      setSelectedClient(response.client);
+      setFormData((current) => ({ ...current, monthlyJobTemplateIds: response.client.monthlyJobTemplateIds || [] }));
+      success('Job rutin disimpan', `Template pekerjaan bulanan untuk ${response.client.name} berhasil diperbarui.`);
+      onRefresh();
+    } catch (cause: any) {
+      error('Gagal menyimpan job rutin', cause.message || 'Periksa penugasan lalu coba lagi.');
+    } finally {
+      setSavingMonthlyJobs(false);
     }
   };
 
@@ -972,6 +998,28 @@ export function ClientsView({
                   </div>
                 </div>
               </div>
+
+              {selectedClient && isEditMode && canEditClient(selectedClient) && (
+                <section aria-labelledby="client-monthly-jobs-heading" className="space-y-3 rounded-xl border border-sky-200 bg-sky-50/50 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h4 id="client-monthly-jobs-heading" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-900"><CalendarDays className="size-4 text-sky-700" />Job rutin bulanan</h4>
+                      <p className="mt-1 text-[11px] leading-5 text-slate-600">Pilih template yang otomatis dibuat untuk klien ini setiap awal bulan. Anda hanya dapat mengatur divisi yang menjadi tanggung jawab Anda.</p>
+                    </div>
+                    <button type="button" onClick={handleSaveMonthlyJobAssignments} disabled={savingMonthlyJobs} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-sky-700 px-3 text-xs font-semibold text-white hover:bg-sky-800 disabled:opacity-60"><Save className="size-3.5" />{savingMonthlyJobs ? 'Menyimpan…' : 'Simpan penugasan'}</button>
+                  </div>
+                  {selectableMonthlyTemplates.length ? (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {selectableMonthlyTemplates.map((template) => (
+                        <label key={template.id} className="flex min-h-12 items-start gap-2.5 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                          <input type="checkbox" checked={selectedMonthlyTemplateIds.includes(template.id)} disabled={savingMonthlyJobs} onChange={(event) => setSelectedMonthlyTemplateIds((current) => event.target.checked ? [...current, template.id] : current.filter((id) => id !== template.id))} className="mt-0.5 size-4 accent-sky-700" />
+                          <span className="min-w-0"><span className="block font-semibold text-slate-800">{template.title}</span><span className="mt-1 block text-[10px] text-slate-500">{template.division} · Deadline tgl {template.deadlineDay}</span></span>
+                        </label>
+                      ))}
+                    </div>
+                  ) : <p className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-4 text-center text-xs text-slate-500">Belum ada template aktif untuk divisi Anda. Minta Admin menambahkannya di Job Management.</p>}
+                </section>
+              )}
 
               {formData.type !== 'OP' && (
                 <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-4" aria-labelledby="client-capital-title">
