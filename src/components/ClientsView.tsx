@@ -17,10 +17,9 @@ import {
   UserX,
   Download,
   AlertOctagon,
-  Lightbulb,
   ChevronRight,
 } from 'lucide-react';
-import { api, type Case, type Client, type CurrentUser, type UserAccount, type JobDivision } from '../lib/api';
+import { api, type Case, type Client, type CurrentUser, type UserAccount } from '../lib/api';
 import { ClientSegmentationChart } from './ClientSegmentationChart';
 import { useToast } from './Toast';
 import { ExportDropdown } from './ExportDropdown';
@@ -66,11 +65,6 @@ export function ClientsView({
   const [filterInvestment, setFilterInvestment] = useState<string>('All');
   const [filterDataType, setFilterDataType] = useState<string>('All');
   const [chartDataType, setChartDataType] = useState<'Real' | 'Simulasi' | 'Semua'>('Real');
-  const [suggestionText, setSuggestionText] = useState('');
-  const [suggestionDivision, setSuggestionDivision] = useState<JobDivision>(currentUser.role.includes('Tax') ? 'Tax' : 'Accounting');
-  const [suggestionDueDate, setSuggestionDueDate] = useState('');
-  const [savingSuggestion, setSavingSuggestion] = useState(false);
-
   // Modal states
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -106,11 +100,6 @@ export function ClientsView({
   const canEditClient = (client: Client) => isAdmin ||
     (currentUser.role === 'SPV Accounting' && client.accountingSpvId === currentUser.id) ||
     (currentUser.role === 'SPV Tax' && client.taxSpvId === currentUser.id);
-  const canManageSuggestion = (client: Client, division: JobDivision) => isAdmin ||
-    (division === 'Accounting' && currentUser.role === 'SPV Accounting' && client.accountingSpvId === currentUser.id) ||
-    (division === 'Tax' && currentUser.role === 'SPV Tax' && client.taxSpvId === currentUser.id) ||
-    (division === 'Accounting' && currentUser.role === 'Staff Accounting' && client.accountingStaffPicId === currentUser.id) ||
-    (division === 'Tax' && currentUser.role === 'Staff Tax' && client.taxStaffPicId === currentUser.id);
   const selectedClientCases = useMemo(() => selectedClient
     ? cases.filter((item) => item.clientId === selectedClient.id).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     : [], [cases, selectedClient?.id]);
@@ -140,8 +129,7 @@ export function ClientsView({
         const matchesAccSpv = c.accountingSpvName && c.accountingSpvName.toLowerCase().includes(q);
         const matchesTaxSpv = c.taxSpvName && c.taxSpvName.toLowerCase().includes(q);
         const matchesNotes = c.notes && c.notes.toLowerCase().includes(q);
-        const matchesSuggestions = (c.suggestions || []).some((suggestion) => suggestion.content.toLowerCase().includes(q));
-        if (!matchesName && !matchesId && !matchesAccStaff && !matchesTaxStaff && !matchesAccSpv && !matchesTaxSpv && !matchesNotes && !matchesSuggestions) {
+        if (!matchesName && !matchesId && !matchesAccStaff && !matchesTaxStaff && !matchesAccSpv && !matchesTaxSpv && !matchesNotes) {
           return false;
         }
       }
@@ -154,9 +142,6 @@ export function ClientsView({
     setSelectedClient(client);
     setFormData({ ...client });
     setPicChangeNote('');
-    setSuggestionText('');
-    setSuggestionDueDate('');
-    setSuggestionDivision(currentUser.role.includes('Tax') ? 'Tax' : 'Accounting');
     setIsEditMode(!isReadOnly && edit);
   };
 
@@ -174,7 +159,6 @@ export function ClientsView({
       entityType: 'PT',
       investmentCategory: 'Belum Ditentukan',
       dataType: 'Real',
-      suggestions: [],
       status: 'Aktif',
       pkpStatus: 'PKP',
       pphRegime: 'PPh Badan Tarif Umum',
@@ -223,41 +207,6 @@ export function ClientsView({
       error('Gagal Menyimpan', err.message || 'Terjadi kesalahan saat menyimpan ke database server. Data lama Anda tetap utuh.');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleAddSuggestion = async () => {
-    if (!selectedClient || !suggestionText.trim()) return;
-    setSavingSuggestion(true);
-    try {
-      const response = await api.addClientSuggestion(selectedClient.id, {
-        content: suggestionText.trim(),
-        division: suggestionDivision,
-        dueDate: suggestionDueDate || undefined,
-      });
-      setSelectedClient(response.client);
-      setFormData((previous) => ({ ...previous, version: response.client.version, suggestions: response.client.suggestions }));
-      setSuggestionText('');
-      setSuggestionDueDate('');
-      success('Saran Dicatat', 'Saran tersimpan pada riwayat klien.');
-      onRefresh();
-    } catch (err: any) {
-      error('Gagal Menyimpan Saran', err.message);
-    } finally {
-      setSavingSuggestion(false);
-    }
-  };
-
-  const handleSuggestionStatus = async (suggestionId: string, status: 'Terbuka' | 'Dalam Tindak Lanjut' | 'Selesai') => {
-    if (!selectedClient) return;
-    try {
-      const response = await api.updateClientSuggestion(selectedClient.id, suggestionId, status);
-      setSelectedClient(response.client);
-      setFormData((previous) => ({ ...previous, version: response.client.version, suggestions: response.client.suggestions }));
-      success('Status Saran Diperbarui', 'Perubahan tercatat pada riwayat klien.');
-      onRefresh();
-    } catch (err: any) {
-      error('Gagal Memperbarui Saran', err.message);
     }
   };
 
@@ -316,7 +265,6 @@ export function ClientsView({
       { header: 'Kategori Investasi', key: 'investmentCategory', width: 18, align: 'center', render: (c) => c.investmentCategory || 'Belum Ditentukan' },
       { header: 'Jenis Data', key: 'dataType', width: 12, align: 'center', render: (c) => c.dataType || 'Belum Diatur' },
       { header: 'Status Kontrak', key: 'status', width: 16, align: 'center', render: (c) => c.status },
-      { header: 'Saran Aktif', key: 'activeSuggestions', width: 12, align: 'center', render: (c) => (c.suggestions || []).filter((suggestion) => suggestion.status !== 'Selesai').length },
       { header: 'Status PKP', key: 'pkpStatus', width: 14, align: 'center', render: (c) => c.pkpStatus || '-' },
       { header: 'Rezim PPh', key: 'pphRegime', width: 22, render: (c) => c.pphRegime || '-' },
       { header: 'Tahun Pajak', key: 'taxYearEffective', width: 14, align: 'center', render: (c) => c.taxYearEffective || '-' },
@@ -687,9 +635,7 @@ export function ClientsView({
           <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
             Tidak ada klien yang sesuai dengan kriteria filter.
           </div>
-        ) : filteredClients.map((client) => {
-          const activeSuggestions = (client.suggestions || []).filter((suggestion) => suggestion.status !== 'Selesai').length;
-          return (
+        ) : filteredClients.map((client) => (
             <article key={client.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <button type="button" onClick={() => handleOpenDetail(client)} className="w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 rounded-lg">
                 <div className="flex items-start justify-between gap-3">
@@ -709,30 +655,26 @@ export function ClientsView({
                   <div><span className="text-slate-400">SPV Tax</span><p className="mt-0.5 truncate font-medium text-slate-700">{client.taxSpvName || '-'}</p></div>
                 </div>
               </button>
-              <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
-                <span className="text-[11px] text-slate-500">{activeSuggestions} saran aktif</span>
+              <div className="mt-3 flex items-center justify-end border-t border-slate-100 pt-3">
                 <div className="flex gap-2">
                   {canEditClient(client) && <button type="button" onClick={() => handleOpenDetail(client, true)} className="min-h-10 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700">Edit klien</button>}
                   <button type="button" onClick={() => handleOpenDetail(client)} className="min-h-10 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white">Detail</button>
                 </div>
               </div>
             </article>
-          );
-        })}
+          ))}
       </div>
 
-      {/* Detail / Edit Drawer and Centered Add Client Modal */}
+      {/* Client detail and edit modal */}
       {(selectedClient || isAddModalOpen) && (
-        <div className={`fixed inset-0 z-50 flex bg-slate-950/60 backdrop-blur-sm ${isAddModalOpen ? 'items-center justify-center overflow-y-auto p-3 sm:p-5' : 'justify-end'}`}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/60 p-3 backdrop-blur-sm sm:p-5">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="client-form-title"
-            className={isAddModalOpen
-              ? 'flex max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl animate-in zoom-in-95 duration-200 sm:max-h-[calc(100dvh-2.5rem)]'
-              : 'flex h-dvh w-full max-w-2xl flex-col overflow-hidden bg-white shadow-2xl animate-in slide-in-from-right duration-200 sm:h-full'}
+            className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl animate-in zoom-in-95 duration-200 sm:max-h-[calc(100dvh-2.5rem)]"
           >
-            {/* Drawer Header */}
+            {/* Client modal header */}
             <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/50 p-3 sm:p-5">
               <div className="min-w-0 flex-1">
                 <h3 id="client-form-title" className="truncate text-sm font-bold text-slate-900 sm:text-base">
@@ -791,7 +733,7 @@ export function ClientsView({
               </div>
             </div>
 
-            {/* Drawer Content */}
+            {/* Client modal content */}
             <div className="flex-1 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6 sm:pb-6 flex flex-col gap-6 text-xs">
               {/* Basic Client Info */}
               <div className="space-y-4">
@@ -1201,24 +1143,12 @@ export function ClientsView({
                       <label htmlFor="accounting-risk-reason" className="block text-xs font-semibold text-slate-700">Alasan Risiko Accounting</label>
                       <textarea
                         id="accounting-risk-reason"
-                        rows={4}
+                        rows={9}
                         disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Accounting')}
                         value={formData.accountingRiskReason || ''}
                         onChange={(e) => setFormData({ ...formData, accountingRiskReason: e.target.value })}
                         placeholder="Jelaskan faktor utama yang mendasari tingkat risiko..."
-                        className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label htmlFor="accounting-risk-recommendation" className="block text-xs font-semibold text-slate-700">Rekomendasi Mitigasi</label>
-                      <textarea
-                        id="accounting-risk-recommendation"
-                        rows={4}
-                        disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Accounting')}
-                        value={formData.accountingRiskRecommendation || ''}
-                        onChange={(e) => setFormData({ ...formData, accountingRiskRecommendation: e.target.value })}
-                        placeholder="Tuliskan langkah mitigasi atau tindak lanjut yang disarankan..."
-                        className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
+                        className="min-h-56 w-full resize-y rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm leading-7 text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
@@ -1255,24 +1185,12 @@ export function ClientsView({
                       <label htmlFor="tax-risk-reason" className="block text-xs font-semibold text-slate-700">Alasan Risiko Tax</label>
                       <textarea
                         id="tax-risk-reason"
-                        rows={4}
+                        rows={9}
                         disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Tax')}
                         value={formData.taxRiskReason || ''}
                         onChange={(e) => setFormData({ ...formData, taxRiskReason: e.target.value })}
                         placeholder="Jelaskan faktor utama yang mendasari tingkat risiko..."
-                        className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label htmlFor="tax-risk-recommendation" className="block text-xs font-semibold text-slate-700">Rekomendasi Mitigasi</label>
-                      <textarea
-                        id="tax-risk-recommendation"
-                        rows={4}
-                        disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Tax')}
-                        value={formData.taxRiskRecommendation || ''}
-                        onChange={(e) => setFormData({ ...formData, taxRiskRecommendation: e.target.value })}
-                        placeholder="Tuliskan langkah mitigasi atau tindak lanjut yang disarankan..."
-                        className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
+                        className="min-h-56 w-full resize-y rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm leading-7 text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
@@ -1296,20 +1214,20 @@ export function ClientsView({
                       <History className="w-3.5 h-3.5 text-amber-600" />
                       <span>Riwayat Perubahan Penilaian Risiko:</span>
                     </div>
-                    <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                    <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
                       {selectedClient.riskHistory.map((item) => (
                         <div
                           key={item.id}
-                          className="p-2.5 bg-slate-50 border border-slate-200 rounded-md text-[11px]"
+                          className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm"
                         >
-                          <div className="flex justify-between items-center text-slate-500 mb-1">
+                          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-slate-500">
                             <span className="font-semibold text-slate-800">
                               {item.division}: {item.previousLevel} → {item.newLevel}
                             </span>
                             <span className="font-mono tabular-nums">{item.date}</span>
                           </div>
-                          <p className="text-slate-600">{item.reason}</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">Penilai: {item.assessedBy}</p>
+                          <p className="whitespace-pre-wrap leading-7 text-slate-700">{item.reason}</p>
+                          <p className="mt-1 text-xs text-slate-400">Penilai: {item.assessedBy}</p>
                         </div>
                       ))}
                     </div>
@@ -1319,7 +1237,7 @@ export function ClientsView({
 
               {selectedClient && !isEditMode && !isAddModalOpen && <section aria-labelledby="client-cases-title" className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div><h4 id="client-cases-title" className="text-sm font-semibold text-slate-900">Case Register terkait</h4><p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">Daftar case operasional klien ini. Terpisah dari saran dan tindak lanjut asesmen risiko.</p></div>
+                  <div><h4 id="client-cases-title" className="text-sm font-semibold text-slate-900">Case Register terkait</h4><p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">Daftar case operasional yang tercatat untuk klien ini.</p></div>
                   <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-600">{selectedClientCases.length} case</span>
                 </div>
                 {selectedClientCases.length ? <div className="flex flex-col gap-2">{selectedClientCases.map((item) => <article key={item.id} className="min-w-0 rounded-lg border border-slate-200 bg-white p-3">
@@ -1331,84 +1249,9 @@ export function ClientsView({
                 </article>)}</div> : <p className="rounded-lg border border-dashed border-slate-200 bg-white/70 p-3 text-xs text-slate-500">Belum ada case yang terdaftar untuk klien ini.</p>}
               </section>}
 
-              {selectedClient && <section className="space-y-4 rounded-xl border border-amber-200 bg-amber-50/50 p-4">
-                <div className="flex items-start gap-2.5">
-                  <Lightbulb className="mt-0.5 size-4 shrink-0 text-amber-700" />
-                  <div className="min-w-0">
-                    <h4 className="text-sm font-semibold text-slate-900">Saran & tindak lanjut</h4>
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-slate-600">Catatan terpisah dari catatan umum klien, dengan divisi, PIC, status, dan target review.</p>
-                  </div>
-                </div>
-
-                {(selectedClient?.suggestions || []).length > 0 ? (
-                  <div className="flex flex-col gap-2">
-                    {(selectedClient?.suggestions || []).map((suggestion) => (
-                      <article key={suggestion.id} className="rounded-lg border border-slate-200 bg-white p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 text-[10px] font-semibold text-slate-500">
-                            <span>{suggestion.division}</span>
-                            <span>·</span>
-                            <span>{suggestion.createdByName}</span>
-                            <span>·</span>
-                            <span>PIC: {suggestion.division === 'Accounting' ? selectedClient?.accountingStaffPicName : selectedClient?.taxStaffPicName}</span>
-                            <span>·</span>
-                            <time dateTime={suggestion.createdAt}>{new Date(suggestion.createdAt).toLocaleDateString('id-ID')}</time>
-                          </div>
-                          {canManageSuggestion(selectedClient!, suggestion.division) ? (
-                            <select
-                              value={suggestion.status}
-                              onChange={(event) => handleSuggestionStatus(suggestion.id, event.target.value as 'Terbuka' | 'Dalam Tindak Lanjut' | 'Selesai')}
-                              aria-label={`Status saran ${suggestion.division}`}
-                              className="min-h-9 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-700"
-                            >
-                              <option value="Terbuka">Terbuka</option>
-                              <option value="Dalam Tindak Lanjut">Dalam Tindak Lanjut</option>
-                              <option value="Selesai">Selesai</option>
-                            </select>
-                          ) : (
-                            <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">{suggestion.status}</span>
-                          )}
-                        </div>
-                        <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{suggestion.content}</p>
-                        {suggestion.dueDate && <p className="mt-2 text-[10px] font-medium text-amber-800">Target tindak lanjut: {suggestion.dueDate}</p>}
-                        {suggestion.updatedBy && <p className="mt-1 text-[10px] text-slate-400">Pembaruan terakhir oleh {suggestion.updatedBy}{suggestion.updatedAt ? ` · ${new Date(suggestion.updatedAt).toLocaleDateString('id-ID')}` : ''}</p>}
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="rounded-lg border border-dashed border-amber-200 bg-white/70 p-3 text-xs text-slate-500">Belum ada saran untuk klien ini.</p>
-                )}
-
-                {selectedClient && canManageSuggestion(selectedClient, suggestionDivision) && (
-                  <div className="grid gap-3 border-t border-amber-200 pt-4">
-                    <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
-                      Divisi
-                      <select value={suggestionDivision} onChange={(event) => setSuggestionDivision(event.target.value as JobDivision)} className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-xs">
-                        {currentUser.role === 'Admin' && <option value="Accounting">Accounting</option>}
-                        {currentUser.role === 'Admin' && <option value="Tax">Tax</option>}
-                        {currentUser.role !== 'Admin' && <option value={currentUser.role.includes('Tax') ? 'Tax' : 'Accounting'}>{currentUser.role.includes('Tax') ? 'Tax' : 'Accounting'}</option>}
-                      </select>
-                    </label>
-                    <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
-                      Saran
-                      <textarea value={suggestionText} onChange={(event) => setSuggestionText(event.target.value)} maxLength={2000} rows={3} placeholder="Tuliskan saran atau langkah tindak lanjut..." className="w-full rounded-lg border border-slate-200 bg-white p-3 text-xs font-normal" />
-                    </label>
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                      <label className="flex flex-1 flex-col gap-1 text-[11px] font-semibold text-slate-700">
-                        Target review (opsional)
-                        <input type="date" value={suggestionDueDate} onChange={(event) => setSuggestionDueDate(event.target.value)} className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-xs" />
-                      </label>
-                      <button type="button" onClick={handleAddSuggestion} disabled={savingSuggestion || !suggestionText.trim()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-xs font-semibold text-white transition-colors hover:bg-slate-700 disabled:opacity-50">
-                        <Save className="size-4" />
-                        {savingSuggestion ? 'Menyimpan...' : 'Simpan Saran'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </section>}
             </div>
 
-            {/* Drawer Footer with Save / Update Button (Section 7.A & 7.B) */}
+            {/* Client form actions */}
             {(isEditMode || isAddModalOpen) && (
               <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end sm:gap-3 sm:p-4">
                 <button
