@@ -249,6 +249,7 @@ function MainApp() {
           {currentTab === 'clients' && (
             <ClientsView
               clients={clients}
+              cases={cases}
               users={users}
               currentUser={currentUser}
               onRefresh={() => loadAllBusinessData()}
