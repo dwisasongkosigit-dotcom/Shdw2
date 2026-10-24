@@ -342,8 +342,8 @@ export function TeamAgendaView({ entries, clients, jobs, users, currentUser, onR
       </div>
 
       {editorOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/55 p-0 backdrop-blur-sm sm:items-center sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditorOpen(false); }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="agenda-editor-title" className="flex max-h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-sm sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditorOpen(false); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="agenda-editor-title" className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[calc(100dvh-2.5rem)]">
             <header className="flex items-start justify-between gap-4 border-b border-slate-200 bg-[#0d1830] px-5 py-4 text-white sm:px-7">
               <div><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-300">Management Office · Agenda Tim 3</p><h2 id="agenda-editor-title" className="mt-1 text-lg font-semibold">{editingEntry ? 'Perbarui agenda' : 'Jadwalkan meeting'}</h2></div>
               <button type="button" aria-label="Tutup formulir agenda" onClick={() => setEditorOpen(false)} className="rounded-lg p-2 text-slate-300 transition hover:bg-white/10 hover:text-white"><X className="size-4" /></button>

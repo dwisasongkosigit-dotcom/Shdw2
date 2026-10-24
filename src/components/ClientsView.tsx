@@ -716,14 +716,21 @@ export function ClientsView({
         })}
       </div>
 
-      {/* Detail / Edit Drawer Modal */}
+      {/* Detail / Edit Drawer and Centered Add Client Modal */}
       {(selectedClient || isAddModalOpen) && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex justify-end">
-          <div className="w-full max-w-2xl bg-white h-dvh sm:h-full shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200">
+        <div className={`fixed inset-0 z-50 flex bg-slate-950/60 backdrop-blur-sm ${isAddModalOpen ? 'items-center justify-center overflow-y-auto p-3 sm:p-5' : 'justify-end'}`}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-form-title"
+            className={isAddModalOpen
+              ? 'flex max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl animate-in zoom-in-95 duration-200 sm:max-h-[calc(100dvh-2.5rem)]'
+              : 'flex h-dvh w-full max-w-2xl flex-col overflow-hidden bg-white shadow-2xl animate-in slide-in-from-right duration-200 sm:h-full'}
+          >
             {/* Drawer Header */}
             <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/50 p-3 sm:p-5">
               <div className="min-w-0 flex-1">
-                <h3 className="truncate text-sm font-bold text-slate-900 sm:text-base">
+                <h3 id="client-form-title" className="truncate text-sm font-bold text-slate-900 sm:text-base">
                   {isAddModalOpen
                     ? 'Tambah Klien Baru'
                     : isEditMode
@@ -1169,85 +1176,109 @@ export function ClientsView({
                 </h4>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   {/* Accounting Risk */}
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
-                    <label className="block text-slate-700 font-bold">Tingkat Risiko Accounting</label>
-                    <select
-                      disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Accounting')}
-                      value={formData.accountingRisk || 'Not Assessed'}
-                      onChange={(e) => setFormData({ ...formData, accountingRisk: e.target.value as any })}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded text-slate-900 font-semibold"
-                    >
-                      <option value="Not Assessed">Not Assessed</option>
-                      <option value="Low">Low (Rendah)</option>
-                      <option value="Medium">Medium (Sedang)</option>
-                      <option value="High">High (Tinggi)</option>
-                    </select>
-                    <div>
-                      <label className="text-[10px] text-slate-500 font-medium">Alasan Risiko Accounting</label>
+                  <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="accounting-risk-level" className="block text-xs font-semibold text-slate-700">Tingkat Risiko Accounting</label>
+                      <select
+                        id="accounting-risk-level"
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Accounting')}
+                        value={formData.accountingRisk || 'Not Assessed'}
+                        onChange={(e) => setFormData({ ...formData, accountingRisk: e.target.value as any })}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 disabled:bg-slate-100"
+                      >
+                        <option value="Not Assessed">Not Assessed</option>
+                        <option value="Low">Low (Rendah)</option>
+                        <option value="Medium">Medium (Sedang)</option>
+                        <option value="High">High (Tinggi)</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="accounting-risk-reason" className="block text-xs font-semibold text-slate-700">Alasan Risiko Accounting</label>
                       <textarea
-                        rows={2}
+                        id="accounting-risk-reason"
+                        rows={4}
                         disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Accounting')}
                         value={formData.accountingRiskReason || ''}
                         onChange={(e) => setFormData({ ...formData, accountingRiskReason: e.target.value })}
-                        className="w-full mt-1 p-2 bg-white border border-slate-200 rounded text-xs disabled:bg-slate-100"
+                        placeholder="Jelaskan faktor utama yang mendasari tingkat risiko..."
+                        className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
                       />
-                      <label className="mt-2 block text-[10px] text-slate-500 font-medium">Rekomendasi & tanggal review berikutnya</label>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="accounting-risk-recommendation" className="block text-xs font-semibold text-slate-700">Rekomendasi Mitigasi</label>
                       <textarea
-                        rows={2}
+                        id="accounting-risk-recommendation"
+                        rows={4}
                         disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Accounting')}
                         value={formData.accountingRiskRecommendation || ''}
                         onChange={(e) => setFormData({ ...formData, accountingRiskRecommendation: e.target.value })}
-                        className="w-full mt-1 p-2 bg-white border border-slate-200 rounded text-xs disabled:bg-slate-100"
+                        placeholder="Tuliskan langkah mitigasi atau tindak lanjut yang disarankan..."
+                        className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
                       />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="accounting-risk-review-date" className="block text-xs font-semibold text-slate-700">Tanggal Review Berikutnya</label>
                       <input
+                        id="accounting-risk-review-date"
                         type="date"
-                        aria-label="Tanggal review risiko Accounting berikutnya"
                         disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Accounting')}
                         value={formData.accountingRiskReviewDate || ''}
                         onChange={(e) => setFormData({ ...formData, accountingRiskReviewDate: e.target.value })}
-                        className="mt-2 w-full rounded border border-slate-200 bg-white p-2 text-xs disabled:bg-slate-100"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 disabled:bg-slate-100"
                       />
                     </div>
                   </div>
 
                   {/* Tax Risk */}
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
-                    <label className="block text-slate-700 font-bold">Tingkat Risiko Tax</label>
-                    <select
-                      disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Tax')}
-                      value={formData.taxRisk || 'Not Assessed'}
-                      onChange={(e) => setFormData({ ...formData, taxRisk: e.target.value as any })}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded text-slate-900 font-semibold"
-                    >
-                      <option value="Not Assessed">Not Assessed</option>
-                      <option value="Low">Low (Rendah)</option>
-                      <option value="Medium">Medium (Sedang)</option>
-                      <option value="High">High (Tinggi)</option>
-                    </select>
-                    <div>
-                      <label className="text-[10px] text-slate-500 font-medium">Alasan Risiko Tax</label>
+                  <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="tax-risk-level" className="block text-xs font-semibold text-slate-700">Tingkat Risiko Tax</label>
+                      <select
+                        id="tax-risk-level"
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Tax')}
+                        value={formData.taxRisk || 'Not Assessed'}
+                        onChange={(e) => setFormData({ ...formData, taxRisk: e.target.value as any })}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 disabled:bg-slate-100"
+                      >
+                        <option value="Not Assessed">Not Assessed</option>
+                        <option value="Low">Low (Rendah)</option>
+                        <option value="Medium">Medium (Sedang)</option>
+                        <option value="High">High (Tinggi)</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="tax-risk-reason" className="block text-xs font-semibold text-slate-700">Alasan Risiko Tax</label>
                       <textarea
-                        rows={2}
+                        id="tax-risk-reason"
+                        rows={4}
                         disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Tax')}
                         value={formData.taxRiskReason || ''}
                         onChange={(e) => setFormData({ ...formData, taxRiskReason: e.target.value })}
-                        className="w-full mt-1 p-2 bg-white border border-slate-200 rounded text-xs disabled:bg-slate-100"
+                        placeholder="Jelaskan faktor utama yang mendasari tingkat risiko..."
+                        className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
                       />
-                      <label className="mt-2 block text-[10px] text-slate-500 font-medium">Rekomendasi & tanggal review berikutnya</label>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="tax-risk-recommendation" className="block text-xs font-semibold text-slate-700">Rekomendasi Mitigasi</label>
                       <textarea
-                        rows={2}
+                        id="tax-risk-recommendation"
+                        rows={4}
                         disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Tax')}
                         value={formData.taxRiskRecommendation || ''}
                         onChange={(e) => setFormData({ ...formData, taxRiskRecommendation: e.target.value })}
-                        className="w-full mt-1 p-2 bg-white border border-slate-200 rounded text-xs disabled:bg-slate-100"
+                        placeholder="Tuliskan langkah mitigasi atau tindak lanjut yang disarankan..."
+                        className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
                       />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="tax-risk-review-date" className="block text-xs font-semibold text-slate-700">Tanggal Review Berikutnya</label>
                       <input
+                        id="tax-risk-review-date"
                         type="date"
-                        aria-label="Tanggal review risiko Tax berikutnya"
                         disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Tax')}
                         value={formData.taxRiskReviewDate || ''}
                         onChange={(e) => setFormData({ ...formData, taxRiskReviewDate: e.target.value })}
-                        className="mt-2 w-full rounded border border-slate-200 bg-white p-2 text-xs disabled:bg-slate-100"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 disabled:bg-slate-100"
                       />
                     </div>
                   </div>
