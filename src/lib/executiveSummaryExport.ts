@@ -123,19 +123,19 @@ function riskMetricStyle(tone: string) {
 
 function riskCardMarkup(rows: RiskExportRow[], divisionScope?: 'Accounting' | 'Tax' | 'Both') {
   if (!rows.length) return '<p class="empty-card">Tidak ada data risiko pada cakupan ini.</p>';
-  const divisions: Array<{ label: string; risk: keyof RiskExportRow; reason: keyof RiskExportRow; action: keyof RiskExportRow; owner: keyof RiskExportRow; review: keyof RiskExportRow }> = divisionScope === 'Accounting'
-    ? [{ label: 'Accounting', risk: 'accountingRisk', reason: 'accountingReason', action: 'accountingAction', owner: 'accountingSpv', review: 'accountingReview' }]
+  const divisions: Array<{ label: string; risk: keyof RiskExportRow; reason: keyof RiskExportRow; owner: keyof RiskExportRow; review: keyof RiskExportRow }> = divisionScope === 'Accounting'
+    ? [{ label: 'Accounting', risk: 'accountingRisk', reason: 'accountingReason', owner: 'accountingSpv', review: 'accountingReview' }]
     : divisionScope === 'Tax'
-      ? [{ label: 'Tax', risk: 'taxRisk', reason: 'taxReason', action: 'taxAction', owner: 'taxSpv', review: 'taxReview' }]
+      ? [{ label: 'Tax', risk: 'taxRisk', reason: 'taxReason', owner: 'taxSpv', review: 'taxReview' }]
       : [
-        { label: 'Accounting', risk: 'accountingRisk', reason: 'accountingReason', action: 'accountingAction', owner: 'accountingSpv', review: 'accountingReview' },
-        { label: 'Tax', risk: 'taxRisk', reason: 'taxReason', action: 'taxAction', owner: 'taxSpv', review: 'taxReview' },
+        { label: 'Accounting', risk: 'accountingRisk', reason: 'accountingReason', owner: 'accountingSpv', review: 'accountingReview' },
+        { label: 'Tax', risk: 'taxRisk', reason: 'taxReason', owner: 'taxSpv', review: 'taxReview' },
       ];
   return `<div class="risk-cards">${rows.map((row) => {
     const divisionsMarkup = divisions.map((division) => {
       const level = row[division.risk];
       const tone = riskTone(level);
-      return `<section class="risk-division"><div class="risk-division-head"><strong>${division.label}</strong><span class="risk-badge ${tone}" style="${riskBadgeStyle(tone)}">${escapeHtml(level || 'Belum Dinilai')}</span></div><dl class="risk-fields"><div><dt>Alasan risiko</dt><dd>${escapeHtml(row[division.reason])}</dd></div><div><dt>Rekomendasi mitigasi</dt><dd>${escapeHtml(row[division.action])}</dd></div><div class="risk-meta"><dt>SPV</dt><dd>${escapeHtml(row[division.owner])}</dd><dt>Review berikutnya</dt><dd>${escapeHtml(row[division.review])}</dd></div></dl></section>`;
+      return `<section class="risk-division"><div class="risk-division-head"><strong>${division.label}</strong><span class="risk-badge ${tone}" style="${riskBadgeStyle(tone)}">${escapeHtml(level || 'Belum Dinilai')}</span></div><dl class="risk-fields"><div><dt>Alasan risiko</dt><dd>${escapeHtml(row[division.reason])}</dd></div><div class="risk-meta"><dt>SPV</dt><dd>${escapeHtml(row[division.owner])}</dd><dt>Review berikutnya</dt><dd>${escapeHtml(row[division.review])}</dd></div></dl></section>`;
     }).join('');
     const overallTone = riskTone(row.overallRisk);
     return `<article class="risk-card"><header class="risk-card-head"><div><strong>${escapeHtml(row.clientName)}</strong><small>ID ${escapeHtml(row.clientId)}</small></div><span class="risk-badge ${overallTone}" style="${riskBadgeStyle(overallTone)}">${escapeHtml(row.overallRisk)}</span></header><div class="risk-divisions">${divisionsMarkup}</div></article>`;
@@ -223,7 +223,7 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
       .risk-division-head strong { color: #263246; font-size: 8pt; }
       .risk-fields { display: grid; gap: 7px; margin: 9px 0 0; }
       .risk-fields dt { color: #8490a0; font-size: 6.5pt; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
-      .risk-fields dd { color: #344256; font-size: 8pt; margin: 2px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+      .risk-fields dd { color: #344256; font-size: 9pt; line-height: 1.55; margin: 3px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
       .risk-meta { border-top: 1px solid #e2e8f0; display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 4px 8px; padding-top: 7px; }
       .risk-meta dd { font-size: 7pt; }
       .empty-card { border: 1px dashed #dce1e8; border-radius: 8px; color: #718096; padding: 18px; text-align: center; }
