@@ -1152,6 +1152,18 @@ export function ClientsView({
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
+                      <label htmlFor="accounting-risk-recommendation" className="block text-xs font-semibold text-slate-700">Saran / Plan Accounting</label>
+                      <textarea
+                        id="accounting-risk-recommendation"
+                        rows={5}
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Accounting')}
+                        value={formData.accountingRiskRecommendation || ''}
+                        onChange={(e) => setFormData({ ...formData, accountingRiskRecommendation: e.target.value })}
+                        placeholder="Tuliskan saran atau rencana tindak lanjut..."
+                        className="min-h-32 w-full resize-y rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
                       <label htmlFor="accounting-risk-review-date" className="block text-xs font-semibold text-slate-700">Tanggal Review Berikutnya</label>
                       <input
                         id="accounting-risk-review-date"
@@ -1191,6 +1203,18 @@ export function ClientsView({
                         onChange={(e) => setFormData({ ...formData, taxRiskReason: e.target.value })}
                         placeholder="Jelaskan faktor utama yang mendasari tingkat risiko..."
                         className="min-h-56 w-full resize-y rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm leading-7 text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="tax-risk-recommendation" className="block text-xs font-semibold text-slate-700">Saran / Plan Tax</label>
+                      <textarea
+                        id="tax-risk-recommendation"
+                        rows={5}
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAddModalOpen && !isAdmin && currentUser.role !== 'SPV Tax')}
+                        value={formData.taxRiskRecommendation || ''}
+                        onChange={(e) => setFormData({ ...formData, taxRiskRecommendation: e.target.value })}
+                        placeholder="Tuliskan saran atau rencana tindak lanjut..."
+                        className="min-h-32 w-full resize-y rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
