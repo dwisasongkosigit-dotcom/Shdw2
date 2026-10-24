@@ -115,7 +115,7 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
 
   printWindow.document.open();
   printWindow.document.write(`<!doctype html>
-    <html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Executive Summary Tim 3 · ${escapeHtml(data.period)}</title>
+    <html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Executive Summary · ${escapeHtml(data.period)}</title>
     <style>
       @page { size: A4 landscape; margin: 14mm; }
       * { box-sizing: border-box; }
@@ -139,12 +139,12 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
       footer { border-top: 1px solid #e2e8f0; color: #8490a0; font-size: 7pt; margin-top: 18px; padding-top: 7px; }
       @media screen { body { margin: 24px auto; max-width: 1120px; padding: 38px; box-shadow: 0 4px 30px #101b3418; } }
     </style></head><body>
-      <header><div class="brand">TMM &amp; BMA Advisory · Management Office</div><h1>Executive Summary Tim 3</h1><p class="meta">Periode ${escapeHtml(data.period)} · Dibuat ${escapeHtml(data.generatedAt)} · Data tersimpan ${escapeHtml(data.sourceUpdatedAt)}</p><span class="status">Status tim: ${escapeHtml(data.overallStatus)}</span><p class="scope">${escapeHtml(data.scopeNote)}</p></header>
+      <header><div class="brand">TMM &amp; BMA Advisory · Management Office</div><h1>Executive Summary</h1><p class="meta">Periode ${escapeHtml(data.period)} · Dibuat ${escapeHtml(data.generatedAt)} · Data tersimpan ${escapeHtml(data.sourceUpdatedAt)}</p><span class="status">Status tim: ${escapeHtml(data.overallStatus)}</span><p class="scope">${escapeHtml(data.scopeNote)}</p></header>
       <section class="section"><h2>Ikhtisar periode</h2><table><thead><tr><th>Indikator</th><th>Nilai</th><th>Catatan</th></tr></thead><tbody>${metricRows}</tbody></table><h2>Sorotan untuk manajemen</h2><div class="highlights">${data.highlights.length ? data.highlights.map((item) => `<div class="highlight">${escapeHtml(item)}</div>`).join('') : '<div class="highlight">Tidak ada keputusan khusus yang teridentifikasi dari data saat ini.</div>'}</div></section>
       <section class="section page-break"><h2>Portofolio risiko klien</h2><table><thead><tr>${riskColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.risks, riskColumns)}</tbody></table></section>
       <section class="section page-break"><h2>Pekerjaan, kasus, dan tindak lanjut</h2><table><thead><tr>${operationColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.operations, operationColumns)}</tbody></table></section>
       <section class="section page-break"><h2>Agenda mendatang dan bulan terpilih</h2><table><thead><tr>${agendaColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.agenda, agendaColumns)}</tbody></table></section>
-      <footer>TMM &amp; BMA Advisory · Dokumen internal · Executive Summary Tim 3</footer>
+      <footer>TMM &amp; BMA Advisory · Dokumen internal · Executive Summary</footer>
       <script>window.addEventListener('load', () => setTimeout(() => window.print(), 250));</script>
     </body></html>`);
   printWindow.document.close();

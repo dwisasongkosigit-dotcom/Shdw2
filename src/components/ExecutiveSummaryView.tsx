@@ -204,7 +204,7 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
     period: periodLabel,
     generatedAt: new Intl.DateTimeFormat('id-ID', { dateStyle: 'long', timeStyle: 'short' }).format(new Date()),
     sourceUpdatedAt: lastUpdated ? new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(lastUpdated)) : 'Belum tersedia',
-    scopeNote: 'Cakupan laporan memakai seluruh klien dan data operasional yang tersedia di workspace. Saat ini belum ada atribut keanggotaan Tim 3 yang terpisah di model data.',
+    scopeNote: 'Cakupan laporan memakai seluruh klien dan data operasional yang tersedia di workspace. Saat ini belum ada pemetaan keanggotaan tim yang terpisah di model data.',
     overallStatus,
     metrics,
     risks: riskRows,
@@ -231,7 +231,7 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
       <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0a1128] via-[#111d39] to-[#1b2a48] px-5 py-6 text-white shadow-lg sm:px-7 sm:py-7">
         <div className="pointer-events-none absolute -right-12 -top-24 size-72 rounded-full border border-amber-300/10" />
         <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-2xl"><div className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-300"><span className="size-1.5 rounded-full bg-amber-300" />Management Office · Tim 3</div><h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Executive Summary</h1><p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">Gambaran portofolio risiko, progres pekerjaan, hambatan, dan keputusan yang perlu perhatian manager.</p></div>
+          <div className="max-w-2xl"><div className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-300"><span className="size-1.5 rounded-full bg-amber-300" />Management Office</div><h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Executive Summary</h1><p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">Gambaran portofolio risiko, progres pekerjaan, hambatan, dan keputusan yang perlu perhatian manager.</p></div>
           <div className="flex flex-wrap items-center gap-2">
             <label className="sr-only" htmlFor="executive-period">Periode ringkasan</label><input id="executive-period" type="month" value={period} onChange={(event) => setPeriod(event.target.value || new Date().toISOString().slice(0, 7))} className="min-h-10 rounded-xl border border-white/15 bg-white/[0.08] px-3 py-2 text-xs font-medium text-white outline-none [color-scheme:dark] focus:border-amber-400" />
             <button type="button" onClick={() => runExport('pdf')} disabled={Boolean(exporting)} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/[0.07] px-3.5 py-2.5 text-xs font-semibold text-white transition hover:bg-white/[0.13] disabled:opacity-50"><FileText className="size-4" />{exporting === 'pdf' ? 'Menyiapkan…' : 'Ekspor PDF'}</button>
@@ -240,7 +240,7 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
         </div>
       </section>
 
-      <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-xs leading-5 text-amber-950 sm:flex-row sm:items-center sm:justify-between"><div><span className="font-semibold">Cakupan data:</span> seluruh klien dan operasional yang tersedia di workspace. Model saat ini belum memiliki penanda keanggotaan Tim 3 terpisah; level risiko adalah snapshot manual Accounting/Tax.</div><span className={`inline-flex shrink-0 items-center gap-2 self-start rounded-full border px-3 py-1.5 text-[11px] font-semibold sm:self-auto ${overallTone}`}><span className="size-1.5 rounded-full bg-current" />{overallStatus}</span></div>
+      <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-xs leading-5 text-amber-950 sm:flex-row sm:items-center sm:justify-between"><div><span className="font-semibold">Cakupan data:</span> seluruh klien dan operasional yang tersedia di workspace. Model saat ini belum memiliki penanda keanggotaan tim terpisah; level risiko adalah snapshot manual Accounting/Tax.</div><span className={`inline-flex shrink-0 items-center gap-2 self-start rounded-full border px-3 py-1.5 text-[11px] font-semibold sm:self-auto ${overallTone}`}><span className="size-1.5 rounded-full bg-current" />{overallStatus}</span></div>
 
       <section aria-label="Indikator utama" className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Klien High Risk" value={riskCounts.High} note="Kategori tertinggi per klien" icon={<ShieldAlert />} tone="rose" onClick={() => setSelectedRisk('High')} />

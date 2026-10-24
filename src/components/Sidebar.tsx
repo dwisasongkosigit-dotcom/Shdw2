@@ -79,7 +79,7 @@ export function Sidebar({
     { id: 'activities', label: 'Daily Activity', icon: CalendarCheck },
     { id: 'mom', label: 'Minutes of Meeting', icon: ClipboardList },
     { id: 'agenda', label: 'Agenda Tim', icon: CalendarDays },
-    { id: 'executive-summary', label: 'Executive Summary Tim 3', icon: BarChart3, managementOnly: true },
+    { id: 'executive-summary', label: 'Executive Summary', icon: BarChart3, managementOnly: true },
     { id: 'reports', label: 'Laporan & Audit', icon: FileSpreadsheet },
     { id: 'backup', label: 'Cadangan & Pemulihan', icon: Database, adminOnly: true },
     { id: 'audit', label: 'Audit Log Sistem', icon: ShieldCheck, auditOnly: true },
