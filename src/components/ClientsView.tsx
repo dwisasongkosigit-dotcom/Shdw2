@@ -103,6 +103,14 @@ export function ClientsView({
   const selectedClientCases = useMemo(() => selectedClient
     ? cases.filter((item) => item.clientId === selectedClient.id).slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     : [], [cases, selectedClient?.id]);
+  const accountingPicOwnerName = formData.accountingSpvIsPic ? formData.accountingSpvName : formData.accountingStaffPicName;
+  const taxPicOwnerName = formData.taxSpvIsPic ? formData.taxSpvName : formData.taxStaffPicName;
+  const isPicAssignmentComplete = [
+    accountingPicOwnerName,
+    formData.accountingSpvName,
+    taxPicOwnerName,
+    formData.taxSpvName,
+  ].every((name) => Boolean(name?.trim() && name !== '-'));
 
   // Filter clients
   const filteredClients = useMemo(() => {
@@ -169,6 +177,8 @@ export function ClientsView({
       accountingStaffPicId: accountingStaff?.id || '',
       taxStaffPicName: taxStaff?.name || '',
       taxStaffPicId: taxStaff?.id || '',
+      accountingSpvIsPic: false,
+      taxSpvIsPic: false,
       accountingSpvName: accountingSpv?.name || '',
       accountingSpvId: accountingSpv?.id || '',
       taxSpvName: taxSpv?.name || '',
@@ -269,11 +279,11 @@ export function ClientsView({
       { header: 'Rezim PPh', key: 'pphRegime', width: 22, render: (c) => c.pphRegime || '-' },
       { header: 'Tahun Pajak', key: 'taxYearEffective', width: 14, align: 'center', render: (c) => c.taxYearEffective || '-' },
       { header: 'Fasilitas UMKM s/d', key: 'umkmEnd', width: 18, align: 'center', render: (c) => c.umkmFacilityEndYear ? `s/d ${c.umkmFacilityEndYear}` : '-' },
-      { header: 'Staff Acc PIC', key: 'accountingStaffPicName', width: 20, render: (c) => c.accountingStaffPicName || '-' },
-      { header: 'Staff Tax PIC', key: 'taxStaffPicName', width: 20, render: (c) => c.taxStaffPicName || '-' },
-      { header: 'SPV Acc', key: 'accountingSpvName', width: 20, render: (c) => c.accountingSpvName || '-' },
-      { header: 'SPV Tax', key: 'taxSpvName', width: 20, render: (c) => c.taxSpvName || '-' },
-      { header: 'Status 4 PIC', key: 'picAssignmentStatus', width: 16, align: 'center', render: (c) => c.picAssignmentStatus },
+      { header: 'PIC Accounting', key: 'accountingStaffPicName', width: 20, render: (c) => c.accountingSpvIsPic ? c.accountingSpvName || '-' : c.accountingStaffPicName || '-' },
+      { header: 'PIC Tax', key: 'taxStaffPicName', width: 20, render: (c) => c.taxSpvIsPic ? c.taxSpvName || '-' : c.taxStaffPicName || '-' },
+      { header: 'SPV Reviewer Acc', key: 'accountingSpvName', width: 20, render: (c) => c.accountingSpvName || '-' },
+      { header: 'SPV Reviewer Tax', key: 'taxSpvName', width: 20, render: (c) => c.taxSpvName || '-' },
+      { header: 'Status PIC', key: 'picAssignmentStatus', width: 16, align: 'center', render: (c) => c.picAssignmentStatus },
       { header: 'Risiko Acc', key: 'accountingRisk', width: 14, align: 'center', render: (c) => c.accountingRisk || '-' },
       { header: 'Risiko Tax', key: 'taxRisk', width: 14, align: 'center', render: (c) => c.taxRisk || '-' },
       { header: 'NPWP', key: 'npwp', width: 22, render: (c) => c.npwp || '-' },
@@ -296,7 +306,7 @@ export function ClientsView({
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Cari ID, nama klien, 4 PIC, atau catatan..."
+            placeholder="Cari ID, nama klien, PIC utama, atau catatan..."
             className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-slate-200 rounded-lg placeholder-slate-400 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
           />
         </div>
@@ -382,7 +392,7 @@ export function ClientsView({
           }`}
         >
           <option value="All">Semua Status PIC</option>
-          <option value="Lengkap">PIC Lengkap (4 PIC)</option>
+          <option value="Lengkap">PIC Utama Lengkap</option>
           <option value="Belum Lengkap">PIC Belum Lengkap</option>
         </select>
 
@@ -472,7 +482,7 @@ export function ClientsView({
                 <th className="py-3 px-3">Bentuk & Profil</th>
                 <th className="py-3 px-3">Status PKP</th>
                 <th className="py-3 px-3">Rezim PPh</th>
-                <th className="py-3 px-3">Penugasan 4 PIC Klien</th>
+                <th className="py-3 px-3">PIC Utama & Reviewer</th>
                 <th className="py-3 px-3 text-center">Status PIC</th>
                 <th className="py-3 px-3 text-center">Risiko Acc / Tax</th>
                 <th className="py-3 px-4 text-right">Aksi</th>
@@ -545,13 +555,13 @@ export function ClientsView({
                       {/* 4 PIC Assignments Detail */}
                       <td className="py-3 px-3 text-[11px] space-y-0.5 max-w-[210px]">
                         <div className="truncate text-slate-800">
-                          <span className="font-semibold text-slate-500">Staf Acc:</span> {client.accountingStaffPicName || '-'}
+                          <span className="font-semibold text-slate-500">PIC Acc:</span> {client.accountingSpvIsPic ? `${client.accountingSpvName} (SPV)` : client.accountingStaffPicName || '-'}
                         </div>
                         <div className="truncate text-slate-800">
-                          <span className="font-semibold text-slate-500">Staf Tax:</span> {client.taxStaffPicName || '-'}
+                          <span className="font-semibold text-slate-500">PIC Tax:</span> {client.taxSpvIsPic ? `${client.taxSpvName} (SPV)` : client.taxStaffPicName || '-'}
                         </div>
                         <div className="truncate text-slate-500 text-[10px]">
-                          <span>SPV: {client.accountingSpvName?.split(',')[0]} (Acc) · {client.taxSpvName?.split(',')[0]} (Tax)</span>
+                          <span>SPV Reviewer: {client.accountingSpvName?.split(',')[0]} (Acc) · {client.taxSpvName?.split(',')[0]} (Tax)</span>
                         </div>
                       </td>
 
@@ -651,8 +661,8 @@ export function ClientsView({
                   <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-semibold text-rose-700">Risiko {client.accountingRisk === 'High' || client.taxRisk === 'High' ? 'High' : client.accountingRisk === 'Medium' || client.taxRisk === 'Medium' ? 'Medium' : client.accountingRisk === 'Low' || client.taxRisk === 'Low' ? 'Low' : 'Belum Dinilai'}</span>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]">
-                  <div><span className="text-slate-400">SPV Accounting</span><p className="mt-0.5 truncate font-medium text-slate-700">{client.accountingSpvName || '-'}</p></div>
-                  <div><span className="text-slate-400">SPV Tax</span><p className="mt-0.5 truncate font-medium text-slate-700">{client.taxSpvName || '-'}</p></div>
+                  <div><span className="text-slate-400">PIC Accounting</span><p className="mt-0.5 truncate font-medium text-slate-700">{client.accountingSpvIsPic ? `${client.accountingSpvName} (SPV)` : client.accountingStaffPicName || '-'}</p></div>
+                  <div><span className="text-slate-400">PIC Tax</span><p className="mt-0.5 truncate font-medium text-slate-700">{client.taxSpvIsPic ? `${client.taxSpvName} (SPV)` : client.taxStaffPicName || '-'}</p></div>
                 </div>
               </button>
               <div className="mt-3 flex items-center justify-end border-t border-slate-100 pt-3">
@@ -875,26 +885,41 @@ export function ClientsView({
                 <div className="flex items-center justify-between pb-1 border-b border-slate-200">
                   <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
                     <Users className="w-3.5 h-3.5 text-amber-600" />
-                    <span>2. Pembagian 4 PIC Klien Wajib</span>
+                    <span>2. PIC Utama dan Reviewer per Divisi</span>
                   </h4>
                   <span
                     className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      formData.picAssignmentStatus === 'Lengkap'
+                      isPicAssignmentComplete
                         ? 'bg-emerald-100 text-emerald-800'
                         : 'bg-amber-100 text-amber-900'
                     }`}
                   >
-                    Status: {formData.picAssignmentStatus || 'Belum Lengkap'}
+                    Status: {isPicAssignmentComplete ? 'Lengkap' : 'Belum Lengkap'}
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label className="block text-slate-700 font-semibold mb-1">
-                      1. Staff Accounting PIC
+                      PIC Utama Accounting
+                    </label>
+                    <label className="mb-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(formData.accountingSpvIsPic)}
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
+                        onChange={(event) => setFormData({
+                          ...formData,
+                          accountingSpvIsPic: event.target.checked,
+                          accountingStaffPicId: event.target.checked ? '' : formData.accountingStaffPicId,
+                          accountingStaffPicName: event.target.checked ? '' : formData.accountingStaffPicName,
+                        })}
+                        className="mt-0.5 accent-amber-600"
+                      />
+                      <span>SPV Accounting menjadi PIC utama dan yang menangani klien ini; bukan staff.</span>
                     </label>
                     <select
-                      disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
+                      disabled={Boolean(formData.accountingSpvIsPic) || (!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
                       value={formData.accountingStaffPicId || ''}
                       onChange={(e) => {
                         const user = users.find((candidate) => candidate.id === e.target.value);
@@ -918,10 +943,25 @@ export function ClientsView({
 
                   <div>
                     <label className="block text-slate-700 font-semibold mb-1">
-                      2. Staff Tax PIC
+                      PIC Utama Tax
+                    </label>
+                    <label className="mb-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(formData.taxSpvIsPic)}
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
+                        onChange={(event) => setFormData({
+                          ...formData,
+                          taxSpvIsPic: event.target.checked,
+                          taxStaffPicId: event.target.checked ? '' : formData.taxStaffPicId,
+                          taxStaffPicName: event.target.checked ? '' : formData.taxStaffPicName,
+                        })}
+                        className="mt-0.5 accent-amber-600"
+                      />
+                      <span>SPV Tax menjadi PIC utama dan yang menangani klien ini; bukan staff.</span>
                     </label>
                     <select
-                      disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
+                      disabled={Boolean(formData.taxSpvIsPic) || (!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
                       value={formData.taxStaffPicId || ''}
                       onChange={(e) => {
                         const user = users.find((candidate) => candidate.id === e.target.value);
@@ -945,7 +985,7 @@ export function ClientsView({
 
                   <div>
                     <label className="block text-slate-700 font-semibold mb-1">
-                      3. SPV Accounting Reviewer
+                      SPV Accounting (Reviewer dan PIC jika dipilih)
                     </label>
                     <select
                       disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
@@ -972,7 +1012,7 @@ export function ClientsView({
 
                   <div>
                     <label className="block text-slate-700 font-semibold mb-1">
-                      4. SPV Tax Reviewer
+                      SPV Tax (Reviewer dan PIC jika dipilih)
                     </label>
                     <select
                       disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
@@ -1028,7 +1068,7 @@ export function ClientsView({
                             <span className="font-mono">{h.timestamp?.split('T')[0]}</span>
                           </div>
                           <p className="text-slate-700 font-medium">
-                            Acc: {h.accountingStaff} (SPV: {h.accountingSpv}) | Tax: {h.taxStaff} (SPV: {h.taxSpv})
+                            Acc PIC: {h.accountingSpvIsPic ? `${h.accountingSpv} (SPV)` : h.accountingStaff} (Reviewer: {h.accountingSpv}) | Tax PIC: {h.taxSpvIsPic ? `${h.taxSpv} (SPV)` : h.taxStaff} (Reviewer: {h.taxSpv})
                           </p>
                           {h.notes && <p className="text-slate-500 italic mt-0.5">{h.notes}</p>}
                         </div>

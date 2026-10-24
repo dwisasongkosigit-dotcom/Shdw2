@@ -180,7 +180,7 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
     if (overdueJobs.length) items.push(`${overdueJobs.length} pekerjaan melewati tenggat dan belum selesai; prioritas pertama: ${overdueJobs[0].clientName} · ${overdueJobs[0].title}.`);
     if (overdueCases.length) items.push(`${overdueCases.length} follow-up kasus melewati tanggal rencana; tinjau PIC dan langkah berikutnya.`);
     if (readyForReview.length) items.push(`${readyForReview.length} pekerjaan menunggu review SPV.`);
-    if (incompletePicClients.length) items.push(`${incompletePicClients.length} klien aktif belum memiliki 4 PIC lengkap.`);
+    if (incompletePicClients.length) items.push(`${incompletePicClients.length} klien aktif belum memiliki PIC utama Accounting/Tax atau SPV reviewer yang lengkap.`);
     if (!items.length) items.push('Tidak ada pekerjaan terlambat, follow-up lewat jadwal, atau klien High Risk pada data yang tersedia.');
     return items;
   }, [incompletePicClients.length, overdueCases.length, overdueJobs, readyForReview.length, riskCounts.High]);

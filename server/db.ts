@@ -83,7 +83,7 @@ function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
     });
   }
 
-  // Ensure 4 PIC assignment fields exist on each client
+  // Ensure PIC ownership and reviewer assignment fields exist on each client
   db.clients.forEach((c: any) => {
     if (!c.version) c.version = 1;
     if (!c.picHistory) c.picHistory = [];
@@ -96,6 +96,8 @@ function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
     // Ensure 4 distinct PIC roles:
     if (!c.accountingStaffPicId) c.accountingStaffPicId = c.accountingPicId || 'USR-STF-ACC';
     if (!c.accountingStaffPicName) c.accountingStaffPicName = c.accountingPicName || 'Budi Pratama, S.Ak.';
+    if (typeof c.accountingSpvIsPic !== 'boolean') c.accountingSpvIsPic = false;
+    if (typeof c.taxSpvIsPic !== 'boolean') c.taxSpvIsPic = false;
     if (!c.taxStaffPicId) c.taxStaffPicId = c.taxPicId || 'USR-STF-TAX';
     if (!c.taxStaffPicName) c.taxStaffPicName = c.taxPicName || 'Dewi Lestari, S.Tr.Akt.';
     if (!c.accountingSpvId) c.accountingSpvId = 'USR-SPV-ACC';
@@ -104,19 +106,21 @@ function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
     if (!c.taxSpvName) c.taxSpvName = 'Ratna Kartika, SE, BKP';
 
     // Verification of completeness: all 4 must be valid non-empty
+    const accountingOwner = c.accountingSpvIsPic ? c.accountingSpvName : c.accountingStaffPicName;
+    const taxOwner = c.taxSpvIsPic ? c.taxSpvName : c.taxStaffPicName;
     const isComplete =
-      Boolean(c.accountingStaffPicName && c.accountingStaffPicName !== '-' && c.accountingStaffPicName.trim()) &&
-      Boolean(c.taxStaffPicName && c.taxStaffPicName !== '-' && c.taxStaffPicName.trim()) &&
+      Boolean(accountingOwner && accountingOwner !== '-' && accountingOwner.trim()) &&
+      Boolean(taxOwner && taxOwner !== '-' && taxOwner.trim()) &&
       Boolean(c.accountingSpvName && c.accountingSpvName !== '-' && c.accountingSpvName.trim()) &&
       Boolean(c.taxSpvName && c.taxSpvName !== '-' && c.taxSpvName.trim());
 
     c.picAssignmentStatus = isComplete ? 'Lengkap' : 'Belum Lengkap';
 
     // Synchronize backward-compat fields
-    c.accountingPicId = c.accountingStaffPicId;
-    c.accountingPicName = c.accountingStaffPicName;
-    c.taxPicId = c.taxStaffPicId;
-    c.taxPicName = c.taxStaffPicName;
+    c.accountingPicId = c.accountingSpvIsPic ? c.accountingSpvId : c.accountingStaffPicId;
+    c.accountingPicName = c.accountingSpvIsPic ? c.accountingSpvName : c.accountingStaffPicName;
+    c.taxPicId = c.taxSpvIsPic ? c.taxSpvId : c.taxStaffPicId;
+    c.taxPicName = c.taxSpvIsPic ? c.taxSpvName : c.taxStaffPicName;
     c.spvId = c.accountingSpvId;
     c.spvName = c.accountingSpvName;
   });

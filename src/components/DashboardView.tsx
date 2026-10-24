@@ -244,7 +244,7 @@ export function DashboardView({
             <span>
               <strong>Perhatian Penugasan:</strong> Terdapat{' '}
               <span className="font-bold underline">{clients.incompletePicCount} klien</span> dengan status{' '}
-              <span className="font-semibold text-rose-700">"Pembagian PIC Belum Lengkap"</span> (wajib memiliki 4 PIC: 1 Staf Acc, 1 Staf Tax, 1 SPV Acc, 1 SPV Tax).
+              <span className="font-semibold text-rose-700">"Pembagian PIC Belum Lengkap"</span> (PIC utama Accounting dan Tax serta SPV reviewer harus ditetapkan; SPV dapat menjadi PIC utama).
             </span>
           </div>
           <span className="font-semibold text-amber-800 text-[11px] shrink-0 underline">
