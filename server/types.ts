@@ -278,6 +278,7 @@ export interface MeetingActionItem {
   id: string;
   description: string;
   owner: string;
+  ownerUserId?: string | null;
   deadline: string;
   status: 'Belum Dimulai' | 'Dalam Proses' | 'Selesai';
 }
@@ -293,6 +294,8 @@ export interface MeetingMinute {
   chairperson: string;
   recorder: string;
   attendees: string[];
+  attendeeUserIds?: string[];
+  externalAttendees?: string[];
   agendaItems: MeetingAgendaItem[];
   actionItems: MeetingActionItem[];
   nextMeetingDate: string;
@@ -319,6 +322,8 @@ export interface TeamAgendaEntry {
   jobId?: string;
   jobTitle?: string;
   participants: string[];
+  participantUserIds?: string[];
+  externalParticipants?: string[];
   notes: string;
   status: AgendaStatus;
   createdAt: string;

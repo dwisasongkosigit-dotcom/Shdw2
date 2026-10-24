@@ -230,6 +230,7 @@ function MainApp() {
             <DashboardView
               stats={stats}
               agendaEntries={agendaEntries}
+              meetingMinutes={meetingMinutes}
               currentUser={currentUser}
               onNavigateTab={(tab) => setCurrentTab(tab)}
               onRefresh={(division) => loadAllBusinessData(division)}
@@ -296,6 +297,7 @@ function MainApp() {
           {currentTab === 'mom' && (
             <MeetingMinutesView
               meetings={meetingMinutes}
+              users={users}
               currentUser={currentUser}
               companyName={branding.companyName}
               onRefresh={() => loadAllBusinessData()}
@@ -307,6 +309,7 @@ function MainApp() {
               entries={agendaEntries}
               clients={clients}
               jobs={jobs}
+              users={users}
               currentUser={currentUser}
               onRefresh={() => loadAllBusinessData()}
             />

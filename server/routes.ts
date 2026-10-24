@@ -57,10 +57,22 @@ function asyncHandler<R extends Request>(fn: (req: R, res: Response, next: NextF
   };
 }
 
-function normalizeMeetingMinute(data: any) {
+function normalizeMeetingMinute(data: any, users: User[]) {
   const text = (value: unknown, maxLength = 1000) =>
     typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
   const validStatuses: MeetingActionItem['status'][] = ['Belum Dimulai', 'Dalam Proses', 'Selesai'];
+  const attendeeUserIds: string[] = Array.isArray(data?.attendeeUserIds)
+    ? [...new Set<string>(data.attendeeUserIds.slice(0, 50).map((id: unknown) => text(id, 80)).filter((id: string) => Boolean(id)))]
+    : [];
+  const externalAttendees = Array.isArray(data?.externalAttendees)
+    ? data.externalAttendees.slice(0, 50).map((name: unknown) => text(name, 120)).filter(Boolean)
+    : [];
+  const hasStructuredAttendees = Array.isArray(data?.attendeeUserIds) || Array.isArray(data?.externalAttendees);
+  const attendees = hasStructuredAttendees
+    ? [...attendeeUserIds.map((id: string) => users.find((user) => user.id === id)?.name).filter((name): name is string => Boolean(name)), ...externalAttendees]
+    : Array.isArray(data?.attendees)
+      ? data.attendees.slice(0, 40).map((name: unknown) => text(name, 120)).filter(Boolean)
+      : [];
 
   return {
     title: text(data?.title, 180),
@@ -71,9 +83,8 @@ function normalizeMeetingMinute(data: any) {
     location: text(data?.location, 180),
     chairperson: text(data?.chairperson, 120),
     recorder: text(data?.recorder, 120),
-    attendees: Array.isArray(data?.attendees)
-      ? data.attendees.slice(0, 40).map((name: unknown) => text(name, 120)).filter(Boolean)
-      : [],
+    attendees,
+    ...(hasStructuredAttendees ? { attendeeUserIds, externalAttendees } : {}),
     agendaItems: Array.isArray(data?.agendaItems)
       ? data.agendaItems.slice(0, 40).map((item: any) => ({
           id: text(item?.id, 80) || randomUUID(),
@@ -86,7 +97,8 @@ function normalizeMeetingMinute(data: any) {
       ? data.actionItems.slice(0, 60).map((item: any) => ({
           id: text(item?.id, 80) || randomUUID(),
           description: text(item?.description, 300),
-          owner: text(item?.owner, 120),
+          owner: users.find((user) => user.id === item?.ownerUserId)?.name || text(item?.owner, 120),
+          ownerUserId: item?.ownerUserId === null ? null : text(item?.ownerUserId, 80) || undefined,
           deadline: text(item?.deadline, 10),
           status: validStatuses.includes(item?.status) ? item.status : 'Belum Dimulai',
         })).filter((item: { description: string }) => item.description)
@@ -95,11 +107,23 @@ function normalizeMeetingMinute(data: any) {
   };
 }
 
-function normalizeAgendaEntry(data: any) {
+function normalizeAgendaEntry(data: any, users: User[]) {
   const text = (value: unknown, maxLength = 1000) =>
     typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
   const validDivisions: AgendaDivision[] = ['Lintas Divisi', 'Accounting', 'Tax'];
   const validStatuses: AgendaStatus[] = ['Terjadwal', 'Selesai', 'Dibatalkan'];
+  const participantUserIds: string[] = Array.isArray(data?.participantUserIds)
+    ? [...new Set<string>(data.participantUserIds.slice(0, 50).map((id: unknown) => text(id, 80)).filter((id: string) => Boolean(id)))]
+    : [];
+  const externalParticipants = Array.isArray(data?.externalParticipants)
+    ? data.externalParticipants.slice(0, 50).map((name: unknown) => text(name, 120)).filter(Boolean)
+    : [];
+  const hasStructuredParticipants = Array.isArray(data?.participantUserIds) || Array.isArray(data?.externalParticipants);
+  const participants = hasStructuredParticipants
+    ? [...participantUserIds.map((id: string) => users.find((user) => user.id === id)?.name).filter((name): name is string => Boolean(name)), ...externalParticipants]
+    : Array.isArray(data?.participants)
+      ? data.participants.slice(0, 50).map((name: unknown) => text(name, 120)).filter(Boolean)
+      : [];
 
   return {
     title: text(data?.title, 180),
@@ -111,12 +135,15 @@ function normalizeAgendaEntry(data: any) {
     location: text(data?.location, 180),
     clientId: text(data?.clientId, 80),
     jobId: text(data?.jobId, 80),
-    participants: Array.isArray(data?.participants)
-      ? data.participants.slice(0, 50).map((name: unknown) => text(name, 120)).filter(Boolean)
-      : [],
+    participants,
+    ...(hasStructuredParticipants ? { participantUserIds, externalParticipants } : {}),
     notes: text(data?.notes, 3000),
     status: validStatuses.includes(data?.status) ? data.status : 'Terjadwal',
   };
+}
+
+function hasUnknownUserIds(ids: string[], users: User[]) {
+  return ids.some((id) => !users.some((user) => user.id === id));
 }
 
 function validateAgendaEntry(entry: ReturnType<typeof normalizeAgendaEntry>) {
@@ -1928,14 +1955,18 @@ apiRouter.post(
   authenticateToken,
   requireWritable,
   (req: AuthenticatedRequest, res: Response) => {
-    const data = normalizeAgendaEntry(req.body);
+    const database = getDb();
+    const data = normalizeAgendaEntry(req.body, database.users);
+    if (hasUnknownUserIds(data.participantUserIds || [], database.users)) {
+      res.status(400).json({ error: 'Salah satu peserta internal tidak ditemukan.' });
+      return;
+    }
     const validationError = validateAgendaEntry(data);
     if (validationError) {
       res.status(400).json({ error: validationError });
       return;
     }
 
-    const database = getDb();
     const client = data.clientId ? database.clients.find((item) => item.id === data.clientId) : undefined;
     const job = data.jobId ? database.jobs.find((item) => item.id === data.jobId) : undefined;
     if (data.clientId && !client) {
@@ -1987,14 +2018,18 @@ apiRouter.put(
   authenticateToken,
   requireWritable,
   (req: AuthenticatedRequest, res: Response) => {
-    const data = normalizeAgendaEntry(req.body);
+    const database = getDb();
+    const data = normalizeAgendaEntry(req.body, database.users);
+    if (hasUnknownUserIds(data.participantUserIds || [], database.users)) {
+      res.status(400).json({ error: 'Salah satu peserta internal tidak ditemukan.' });
+      return;
+    }
     const validationError = validateAgendaEntry(data);
     if (validationError) {
       res.status(400).json({ error: validationError });
       return;
     }
 
-    const database = getDb();
     const client = data.clientId ? database.clients.find((item) => item.id === data.clientId) : undefined;
     const job = data.jobId ? database.jobs.find((item) => item.id === data.jobId) : undefined;
     if (data.clientId && !client) {
@@ -2073,14 +2108,22 @@ apiRouter.post(
   authenticateToken,
   requireWritable,
   (req: AuthenticatedRequest, res: Response) => {
-    const data = normalizeMeetingMinute(req.body);
+    const database = getDb();
+    const data = normalizeMeetingMinute(req.body, database.users);
+    const referencedUserIds = [
+      ...(data.attendeeUserIds || []),
+      ...data.actionItems.flatMap((item: MeetingActionItem) => item.ownerUserId ? [item.ownerUserId] : []),
+    ];
+    if (hasUnknownUserIds(referencedUserIds, database.users)) {
+      res.status(400).json({ error: 'Salah satu peserta atau penanggung jawab internal tidak ditemukan.' });
+      return;
+    }
     const validationError = validateMeetingMinute(data);
     if (validationError) {
       res.status(400).json({ error: validationError });
       return;
     }
 
-    const database = getDb();
     const year = data.meetingDate.slice(0, 4);
     const nextNumber = database.meetingMinutes
       .map((meeting) => meeting.id.match(new RegExp(`^MOM-${year}-(\\d+)$`)))
@@ -2116,7 +2159,16 @@ apiRouter.put(
   authenticateToken,
   requireWritable,
   (req: AuthenticatedRequest, res: Response) => {
-    const data = normalizeMeetingMinute(req.body);
+    const database = getDb();
+    const data = normalizeMeetingMinute(req.body, database.users);
+    const referencedUserIds = [
+      ...(data.attendeeUserIds || []),
+      ...data.actionItems.flatMap((item: MeetingActionItem) => item.ownerUserId ? [item.ownerUserId] : []),
+    ];
+    if (hasUnknownUserIds(referencedUserIds, database.users)) {
+      res.status(400).json({ error: 'Salah satu peserta atau penanggung jawab internal tidak ditemukan.' });
+      return;
+    }
     const validationError = validateMeetingMinute(data);
     if (validationError) {
       res.status(400).json({ error: validationError });
