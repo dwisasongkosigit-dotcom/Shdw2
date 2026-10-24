@@ -12,8 +12,11 @@ import {
   FileText,
   ShieldAlert,
   Users,
+  Building2,
+  UserRound,
+  X,
 } from 'lucide-react';
-import type { Client, Case, DailyActivity, Job, TeamAgendaEntry } from '../lib/api';
+import type { Client, Case, CurrentUser, DailyActivity, Job, TeamAgendaEntry } from '../lib/api';
 import {
   exportExecutiveSummaryExcel,
   printExecutiveSummaryPdf,
@@ -31,6 +34,7 @@ interface ExecutiveSummaryViewProps {
   cases: Case[];
   activities: DailyActivity[];
   agendaEntries: TeamAgendaEntry[];
+  currentUser: CurrentUser;
   lastUpdated?: string;
   onNavigateTab: (tab: 'clients' | 'jobs' | 'cases' | 'agenda') => void;
 }
@@ -80,11 +84,16 @@ function isOpenCase(item: Case) {
   return item.status !== 'Resolved' && item.status !== 'Closed';
 }
 
-export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaEntries, lastUpdated, onNavigateTab }: ExecutiveSummaryViewProps) {
+export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaEntries, currentUser, lastUpdated, onNavigateTab }: ExecutiveSummaryViewProps) {
   const { success, error } = useToast();
   const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
   const [selectedRisk, setSelectedRisk] = useState<RiskBucket>('High');
   const [exporting, setExporting] = useState<'pdf' | 'excel' | null>(null);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportClientTypes, setExportClientTypes] = useState<Client['type'][]>(['Badan', 'OP']);
+  const [exportDivision, setExportDivision] = useState<'Accounting' | 'Tax' | 'Both'>(
+    currentUser.role === 'SPV Accounting' ? 'Accounting' : currentUser.role === 'SPV Tax' ? 'Tax' : 'Both'
+  );
 
   const today = new Date().toISOString().slice(0, 10);
   const { start: periodStart, end: periodEnd } = monthBounds(period);
@@ -150,44 +159,66 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
   }, [incompletePicClients.length, overdueCases.length, overdueJobs, readyForReview.length, riskCounts.High]);
 
   const operations: OperationsExportRow[] = [
-    ...overdueJobs.map((job) => ({ category: 'Pekerjaan terlambat', reference: job.id, client: job.clientName, division: job.division, owner: job.picName, status: job.status, deadline: formatDate(job.deadline), summary: job.title || job.description || 'Tinjau progres dan rencana pemulihan tenggat.' })),
-    ...readyForReview.map((job) => ({ category: 'Menunggu review SPV', reference: job.id, client: job.clientName, division: job.division, owner: job.spvName || 'Belum ditentukan', status: job.status, deadline: formatDate(job.deadline), summary: job.title || job.description || 'Pekerjaan menunggu keputusan review.' })),
-    ...overdueCases.map((item) => ({ category: 'Follow-up kasus terlambat', reference: item.id, client: item.clientName, division: item.division, owner: item.followUpPicName || item.picName, status: item.status, deadline: formatDate(item.nextFollowUpDate), summary: item.followUpPlan || item.latestProgress || 'Konfirmasi langkah berikutnya bersama PIC.' })),
-    ...incompletePicClients.map((client) => ({ category: 'PIC belum lengkap', reference: client.id, client: client.name, division: 'Lintas Divisi', owner: 'Admin / SPV', status: client.picAssignmentStatus, deadline: '—', summary: 'Lengkapi penugasan Staff Accounting, Staff Tax, SPV Accounting, dan SPV Tax.' })),
+    ...overdueJobs.map((job) => ({ clientId: job.clientId, category: 'Pekerjaan terlambat', reference: job.id, client: job.clientName, division: job.division, owner: job.picName, status: job.status, deadline: formatDate(job.deadline), summary: job.title || job.description || 'Tinjau progres dan rencana pemulihan tenggat.' })),
+    ...readyForReview.map((job) => ({ clientId: job.clientId, category: 'Menunggu review SPV', reference: job.id, client: job.clientName, division: job.division, owner: job.spvName || 'Belum ditentukan', status: job.status, deadline: formatDate(job.deadline), summary: job.title || job.description || 'Pekerjaan menunggu keputusan review.' })),
+    ...overdueCases.map((item) => ({ clientId: item.clientId, category: 'Follow-up kasus terlambat', reference: item.id, client: item.clientName, division: item.division, owner: item.followUpPicName || item.picName, status: item.status, deadline: formatDate(item.nextFollowUpDate), summary: item.followUpPlan || item.latestProgress || 'Konfirmasi langkah berikutnya bersama PIC.' })),
+    ...incompletePicClients.map((client) => ({ clientId: client.id, category: 'PIC belum lengkap', reference: client.id, client: client.name, division: 'Lintas Divisi', owner: 'Admin / SPV', status: client.picAssignmentStatus, deadline: '—', summary: 'Lengkapi penugasan PIC untuk Accounting dan Tax.' })),
   ];
 
-  const metrics: SummaryMetric[] = [
-    { metric: 'Klien aktif', value: activeClients.length, note: 'Snapshot status klien saat ini.' },
-    { metric: 'High Risk', value: riskCounts.High, note: 'Klien unik; memakai level tertinggi di antara dua asesmen divisi.' },
-    { metric: 'Medium Risk', value: riskCounts.Medium, note: 'Klien unik; memakai level tertinggi di antara dua asesmen divisi.' },
-    { metric: 'Low Risk', value: riskCounts.Low, note: 'Klien unik; memakai level tertinggi di antara dua asesmen divisi.' },
-    { metric: 'Belum dinilai', value: riskCounts['Not Assessed'], note: 'Kedua divisi belum memiliki level risiko High/Medium/Low.' },
-    { metric: 'Pekerjaan aktif', value: openJobs.length, note: 'Seluruh pekerjaan yang belum berstatus Selesai.' },
-    { metric: 'Pekerjaan terlambat', value: overdueJobs.length, note: 'Pekerjaan terbuka dengan tenggat sebelum hari ini.' },
-    { metric: 'Menunggu review SPV', value: readyForReview.length, note: 'Status pekerjaan Siap Direview.' },
-    { metric: 'Kasus terbuka', value: openCases.length, note: 'Status kasus selain Resolved dan Closed.' },
-    { metric: 'Aktivitas periode', value: periodActivities.length, note: `Log aktivitas pada ${periodLabel}.` },
-    { metric: 'Pekerjaan selesai periode', value: completedInPeriod, note: `Tanggal penyelesaian pada ${periodLabel}.` },
-    { metric: 'Agenda periode', value: periodAgenda.length, note: `Jadwal yang tidak dibatalkan pada ${periodLabel}.` },
+  const selectedExportDivisions: Array<'Accounting' | 'Tax'> = exportDivision === 'Both' ? ['Accounting', 'Tax'] : [exportDivision];
+  const selectedExportClients = activeClients.filter((client) => exportClientTypes.includes(client.type));
+  const selectedExportClientIds = new Set(clients.filter((client) => exportClientTypes.includes(client.type)).map((client) => client.id));
+  const selectedRiskRows = riskClients.filter((client) => selectedExportClientIds.has(client.id)).map((client) => {
+    const selectedRiskLevel = exportDivision === 'Accounting' ? client.accountingRisk : exportDivision === 'Tax' ? client.taxRisk : client.overallRisk;
+    return {
+      clientId: client.id,
+      clientName: client.name,
+      overallRisk: riskLabel[selectedRiskLevel],
+      accountingRisk: exportDivision === 'Tax' ? '' : client.accountingRisk,
+      accountingReason: exportDivision === 'Tax' ? '' : client.accountingRiskReason || 'Belum ada alasan asesmen yang dicatat.',
+      accountingAction: exportDivision === 'Tax' ? '' : client.accountingRiskRecommendation || 'Belum ada tindakan mitigasi yang dicatat.',
+      accountingSpv: exportDivision === 'Tax' ? '' : client.accountingSpvName || 'Belum ditentukan',
+      accountingReview: exportDivision === 'Tax' ? '' : formatDate(client.accountingRiskReviewDate),
+      taxRisk: exportDivision === 'Accounting' ? '' : client.taxRisk,
+      taxReason: exportDivision === 'Accounting' ? '' : client.taxRiskReason || 'Belum ada alasan asesmen yang dicatat.',
+      taxAction: exportDivision === 'Accounting' ? '' : client.taxRiskRecommendation || 'Belum ada tindakan mitigasi yang dicatat.',
+      taxSpv: exportDivision === 'Accounting' ? '' : client.taxSpvName || 'Belum ditentukan',
+      taxReview: exportDivision === 'Accounting' ? '' : formatDate(client.taxRiskReviewDate),
+    };
+  });
+  const selectedRiskCounts = {
+    High: selectedRiskRows.filter((client) => client.overallRisk === riskLabel.High).length,
+    Medium: selectedRiskRows.filter((client) => client.overallRisk === riskLabel.Medium).length,
+    Low: selectedRiskRows.filter((client) => client.overallRisk === riskLabel.Low).length,
+    'Not Assessed': selectedRiskRows.filter((client) => client.overallRisk === riskLabel['Not Assessed']).length,
+  };
+  const selectedExportJobs = jobs.filter((job) => selectedExportClientIds.has(job.clientId) && selectedExportDivisions.includes(job.division));
+  const selectedOpenJobs = selectedExportJobs.filter(isOpenJob);
+  const selectedOverdueJobs = selectedOpenJobs.filter((job) => job.deadline && job.deadline < today);
+  const selectedReadyForReview = selectedExportJobs.filter((job) => job.status === 'Siap Direview');
+  const selectedExportCases = cases.filter((item) => selectedExportClientIds.has(item.clientId) && selectedExportDivisions.includes(item.division));
+  const selectedOpenCases = selectedExportCases.filter(isOpenCase);
+  const selectedOverdueCases = selectedOpenCases.filter((item) => item.nextFollowUpDate && item.nextFollowUpDate < today);
+  const selectedActivityCount = periodActivities.filter((activity) => selectedExportClientIds.has(activity.clientId) && selectedExportDivisions.includes(activity.division)).length;
+  const selectedCompletedCount = selectedExportJobs.filter((job) => job.status === 'Selesai' && job.completedAt && dateOnly(job.completedAt) >= periodStart && dateOnly(job.completedAt) <= periodEnd).length;
+  const selectedAgenda = agendaEntries.filter((entry) => entry.date >= periodStart && entry.date <= periodEnd && entry.status !== 'Dibatalkan')
+    .filter((entry) => (!entry.clientId || selectedExportClientIds.has(entry.clientId)) && (entry.division === 'Lintas Divisi' || selectedExportDivisions.includes(entry.division)))
+    .sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`));
+  const selectedOperations = operations.filter((item) => selectedExportClientIds.has(item.clientId || '') && (item.category === 'PIC belum lengkap' ? exportDivision === 'Both' : selectedExportDivisions.includes(item.division as 'Accounting' | 'Tax')));
+  const selectedRiskNeedsAttention = selectedRiskCounts.High > 0 || selectedOverdueJobs.length > 0 || selectedOverdueCases.length > 0;
+  const selectedRiskNeedsMonitoring = selectedRiskCounts.Medium > 0 || selectedReadyForReview.length > 0;
+  const selectedOverallStatus = selectedRiskNeedsAttention ? 'Perlu perhatian' : selectedRiskNeedsMonitoring ? 'Perlu dipantau' : 'Terkendali';
+  const selectedHighlights = [
+    ...(selectedRiskCounts.High ? [`${selectedRiskCounts.High} klien berstatus High Risk pada cakupan yang dipilih.`] : []),
+    ...(selectedOverdueJobs.length ? [`${selectedOverdueJobs.length} pekerjaan melewati tenggat; prioritas pertama: ${selectedOverdueJobs[0].clientName} · ${selectedOverdueJobs[0].title}.`] : []),
+    ...(selectedOverdueCases.length ? [`${selectedOverdueCases.length} follow-up kasus melewati tanggal rencana.`] : []),
+    ...(selectedReadyForReview.length ? [`${selectedReadyForReview.length} pekerjaan menunggu review SPV.`] : []),
   ];
-
-  const riskRows: RiskExportRow[] = riskClients.map((client) => ({
-    clientId: client.id,
-    clientName: client.name,
-    overallRisk: riskLabel[client.overallRisk],
-    accountingRisk: client.accountingRisk,
-    accountingReason: client.accountingRiskReason || 'Belum ada alasan asesmen yang dicatat.',
-    accountingAction: client.accountingRiskRecommendation || 'Belum ada tindakan mitigasi yang dicatat.',
-    accountingSpv: client.accountingSpvName || 'Belum ditentukan',
-    accountingReview: formatDate(client.accountingRiskReviewDate),
-    taxRisk: client.taxRisk,
-    taxReason: client.taxRiskReason || 'Belum ada alasan asesmen yang dicatat.',
-    taxAction: client.taxRiskRecommendation || 'Belum ada tindakan mitigasi yang dicatat.',
-    taxSpv: client.taxSpvName || 'Belum ditentukan',
-    taxReview: formatDate(client.taxRiskReviewDate),
-  }));
-
-  const agendaRows: AgendaExportRow[] = agendaEntries.filter((entry) => entry.date >= periodStart && entry.status !== 'Dibatalkan').sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`)).map((entry) => ({
+  if (!selectedHighlights.length) selectedHighlights.push('Tidak ada pekerjaan terlambat atau risiko High pada cakupan yang dipilih.');
+  const typeLabel = exportClientTypes.length === 2 ? 'Badan & Orang Pribadi' : exportClientTypes.length === 0 ? 'Pilih jenis klien' : exportClientTypes[0] === 'OP' ? 'Orang Pribadi' : 'Badan';
+  const divisionLabel = exportDivision === 'Both' ? 'Accounting & Tax' : exportDivision;
+  const scopeLabel = `${typeLabel} · ${divisionLabel}`;
+  const agendaRows: AgendaExportRow[] = selectedAgenda.map((entry) => ({
     date: formatDate(entry.date),
     time: `${entry.startTime || '—'}${entry.endTime ? `–${entry.endTime}` : ''}`,
     title: entry.title,
@@ -199,26 +230,50 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
     location: entry.location || '—',
     status: entry.status,
   }));
-
+  const exportMetrics: SummaryMetric[] = [
+    { metric: 'Klien aktif', value: selectedExportClients.length, note: `Kategori klien: ${typeLabel}.` },
+    { metric: 'High Risk', value: selectedRiskCounts.High, note: 'Sesuai divisi yang dipilih.' },
+    { metric: 'Medium Risk', value: selectedRiskCounts.Medium, note: 'Sesuai divisi yang dipilih.' },
+    { metric: 'Low Risk', value: selectedRiskCounts.Low, note: 'Sesuai divisi yang dipilih.' },
+    { metric: 'Belum dinilai', value: selectedRiskCounts['Not Assessed'], note: 'Pada divisi yang dipilih.' },
+    { metric: 'Pekerjaan aktif', value: selectedOpenJobs.length, note: 'Pekerjaan yang belum selesai.' },
+    { metric: 'Pekerjaan terlambat', value: selectedOverdueJobs.length, note: 'Tenggat sebelum hari ini.' },
+    { metric: 'Menunggu review SPV', value: selectedReadyForReview.length, note: 'Status Siap Direview.' },
+    { metric: 'Kasus terbuka', value: selectedOpenCases.length, note: 'Kasus selain Resolved dan Closed.' },
+    { metric: 'Aktivitas periode', value: selectedActivityCount, note: `Log aktivitas pada ${periodLabel}.` },
+    { metric: 'Pekerjaan selesai periode', value: selectedCompletedCount, note: `Penyelesaian pada ${periodLabel}.` },
+    { metric: 'Agenda periode', value: agendaRows.length, note: `Jadwal yang tidak dibatalkan pada ${periodLabel}.` },
+  ];
   const exportData: ExecutiveSummaryExportData = {
     period: periodLabel,
     generatedAt: new Intl.DateTimeFormat('id-ID', { dateStyle: 'long', timeStyle: 'short' }).format(new Date()),
     sourceUpdatedAt: lastUpdated ? new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(lastUpdated)) : 'Belum tersedia',
-    scopeNote: 'Cakupan laporan memakai seluruh klien dan data operasional yang tersedia di workspace. Saat ini belum ada pemetaan keanggotaan tim yang terpisah di model data.',
-    overallStatus,
-    metrics,
-    risks: riskRows,
-    operations,
+    scopeLabel,
+    scopeNote: `Cakupan: ${typeLabel} untuk divisi ${divisionLabel}. Rincian risiko hanya memuat kolom divisi yang dipilih.`,
+    divisionScope: exportDivision,
+    overallStatus: selectedOverallStatus,
+    metrics: exportMetrics,
+    risks: selectedRiskRows,
+    operations: selectedOperations,
     agenda: agendaRows,
-    highlights,
+    highlights: selectedHighlights,
+  };
+
+  const toggleExportClientType = (type: Client['type']) => {
+    setExportClientTypes((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type]);
   };
 
   const runExport = async (format: 'pdf' | 'excel') => {
+    if (!exportClientTypes.length) {
+      error('Pilih jenis klien', 'Pilih Badan, Orang Pribadi, atau keduanya sebelum mengekspor.');
+      return;
+    }
     setExporting(format);
     try {
       if (format === 'pdf') printExecutiveSummaryPdf(exportData);
       else await exportExecutiveSummaryExcel(exportData);
-      success(format === 'pdf' ? 'Ringkasan siap dicetak' : 'Ringkasan berhasil diekspor', format === 'pdf' ? 'Pilih “Save as PDF” pada dialog cetak.' : 'Workbook berisi ringkasan, risiko, operasional, dan agenda.');
+      setExportDialogOpen(false);
+      success(format === 'pdf' ? 'Ringkasan siap dicetak' : 'Ringkasan berhasil diekspor', format === 'pdf' ? 'Pilih “Save as PDF” pada dialog cetak.' : `Workbook dibuat untuk cakupan ${scopeLabel}.`);
     } catch (err) {
       error('Ekspor belum berhasil', err instanceof Error ? err.message : 'Silakan coba kembali.');
     } finally {
@@ -231,16 +286,15 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
       <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0a1128] via-[#111d39] to-[#1b2a48] px-5 py-6 text-white shadow-lg sm:px-7 sm:py-7">
         <div className="pointer-events-none absolute -right-12 -top-24 size-72 rounded-full border border-amber-300/10" />
         <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-2xl"><div className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-300"><span className="size-1.5 rounded-full bg-amber-300" />Management Office</div><h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Executive Summary</h1><p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">Gambaran portofolio risiko, progres pekerjaan, hambatan, dan keputusan yang perlu perhatian manager.</p></div>
+          <div className="max-w-2xl"><div className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-300"><span className="size-1.5 rounded-full bg-amber-300" />Management Office</div><h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Executive Summary</h1><p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">Gambaran portofolio risiko, progres pekerjaan, hambatan, dan keputusan yang perlu perhatian manajemen.</p></div>
           <div className="flex flex-wrap items-center gap-2">
             <label className="sr-only" htmlFor="executive-period">Periode ringkasan</label><input id="executive-period" type="month" value={period} onChange={(event) => setPeriod(event.target.value || new Date().toISOString().slice(0, 7))} className="min-h-10 rounded-xl border border-white/15 bg-white/[0.08] px-3 py-2 text-xs font-medium text-white outline-none [color-scheme:dark] focus:border-amber-400" />
-            <button type="button" onClick={() => runExport('pdf')} disabled={Boolean(exporting)} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/[0.07] px-3.5 py-2.5 text-xs font-semibold text-white transition hover:bg-white/[0.13] disabled:opacity-50"><FileText className="size-4" />{exporting === 'pdf' ? 'Menyiapkan…' : 'Ekspor PDF'}</button>
-            <button type="button" onClick={() => runExport('excel')} disabled={Boolean(exporting)} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-amber-500 px-3.5 py-2.5 text-xs font-semibold text-slate-950 transition hover:bg-amber-400 disabled:opacity-50"><Download className="size-4" />{exporting === 'excel' ? 'Menyiapkan…' : 'Ekspor Excel'}</button>
+            <button type="button" onClick={() => setExportDialogOpen(true)} disabled={Boolean(exporting)} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-amber-500 px-3.5 py-2.5 text-xs font-semibold text-slate-950 transition hover:bg-amber-400 disabled:opacity-50"><Download className="size-4" />Ekspor ringkasan</button>
           </div>
         </div>
       </section>
 
-      <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-xs leading-5 text-amber-950 sm:flex-row sm:items-center sm:justify-between"><div><span className="font-semibold">Cakupan data:</span> seluruh klien dan operasional yang tersedia di workspace. Model saat ini belum memiliki penanda keanggotaan tim terpisah; level risiko adalah snapshot manual Accounting/Tax.</div><span className={`inline-flex shrink-0 items-center gap-2 self-start rounded-full border px-3 py-1.5 text-[11px] font-semibold sm:self-auto ${overallTone}`}><span className="size-1.5 rounded-full bg-current" />{overallStatus}</span></div>
+      <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-xs leading-5 text-amber-950 sm:flex-row sm:items-center sm:justify-between"><div><span className="font-semibold">Ringkasan portofolio:</span> risiko klien, progres pekerjaan, kasus terbuka, dan agenda dalam satu tampilan. Saat ekspor, SPV dapat memilih Badan atau Orang Pribadi serta Accounting, Tax, atau keduanya.</div><span className={`inline-flex shrink-0 items-center gap-2 self-start rounded-full border px-3 py-1.5 text-[11px] font-semibold sm:self-auto ${overallTone}`}><span className="size-1.5 rounded-full bg-current" />{overallStatus}</span></div>
 
       <section aria-label="Indikator utama" className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Klien High Risk" value={riskCounts.High} note="Kategori tertinggi per klien" icon={<ShieldAlert />} tone="rose" onClick={() => setSelectedRisk('High')} />
@@ -251,7 +305,7 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-          <div className="flex items-start justify-between gap-3"><div><h2 className="text-sm font-semibold text-slate-900">Sorotan & keputusan manager</h2><p className="mt-1 text-[11px] text-slate-500">Indikator yang memerlukan peninjauan atau tindak lanjut.</p></div><AlertTriangle className="size-4 shrink-0 text-amber-600" /></div>
+          <div className="flex items-start justify-between gap-3"><div><h2 className="text-sm font-semibold text-slate-900">Sorotan & keputusan prioritas</h2><p className="mt-1 text-[11px] text-slate-500">Indikator yang memerlukan peninjauan atau tindak lanjut.</p></div><AlertTriangle className="size-4 shrink-0 text-amber-600" /></div>
           <ul className="mt-4 space-y-2.5">{highlights.map((highlight, index) => <li key={`${highlight}-${index}`} className="flex gap-2.5 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs leading-5 text-slate-700"><span className={`mt-1 size-1.5 shrink-0 rounded-full ${highlight.includes('High Risk') || highlight.includes('terlambat') ? 'bg-rose-500' : 'bg-amber-500'}`} />{highlight}</li>)}</ul>
           <div className="mt-4 border-t border-slate-100 pt-4"><div className="flex items-center justify-between gap-3"><h3 className="text-xs font-semibold text-slate-800">Beban pekerjaan per PIC</h3><span className="text-[10px] text-slate-400">Aktif · terlambat · review</span></div>
             {teamWorkload.length ? <div className="mt-2 overflow-x-auto"><table className="w-full min-w-[440px] text-left text-[11px]"><thead><tr className="border-b border-slate-200 text-slate-500"><th className="py-2 pr-3 font-medium">PIC</th><th className="px-2 py-2 text-center font-medium">Aktif</th><th className="px-2 py-2 text-center font-medium">Terlambat</th><th className="px-2 py-2 text-center font-medium">Review</th></tr></thead><tbody className="divide-y divide-slate-100">{teamWorkload.slice(0, 7).map((person) => <tr key={person.name}><td className="py-2.5 pr-3 font-medium text-slate-800">{person.name}</td><td className="px-2 py-2.5 text-center tabular-nums text-slate-700">{person.active}</td><td className={`px-2 py-2.5 text-center tabular-nums ${person.overdue ? 'font-semibold text-rose-600' : 'text-slate-500'}`}>{person.overdue}</td><td className="px-2 py-2.5 text-center tabular-nums text-slate-700">{person.review}</td></tr>)}</tbody></table></div> : <p className="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-500">Belum ada pekerjaan aktif yang memiliki PIC.</p>}
@@ -296,6 +350,12 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
       </section>
 
       <div className="flex flex-col gap-1 text-[10px] text-slate-400 sm:flex-row sm:items-center sm:justify-between"><span>Risiko = level tertinggi dari asesmen Accounting dan Tax per klien; alasan, rekomendasi, SPV, dan tanggal review mengikuti catatan yang tersimpan.</span><span>Data sumber terakhir tersimpan {lastUpdated ? new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(lastUpdated)) : 'belum tersedia'}</span></div>
+
+      {exportDialogOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setExportDialogOpen(false); }} onKeyDown={(event) => { if (event.key === 'Escape') setExportDialogOpen(false); }}><section role="dialog" aria-modal="true" aria-labelledby="export-dialog-title" className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">Laporan terarah</p><h2 id="export-dialog-title" className="mt-1 text-lg font-semibold text-slate-900">Pilih cakupan ekspor</h2><p className="mt-1 text-xs leading-5 text-slate-500">Pilih jenis klien dan divisi yang ingin dimasukkan ke dalam laporan.</p></div><button type="button" autoFocus onClick={() => setExportDialogOpen(false)} aria-label="Tutup pilihan ekspor" className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"><X className="size-4" /></button></div>
+          <fieldset className="mt-5"><legend className="text-xs font-semibold text-slate-800">Jenis klien</legend><div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">{([{ type: 'Badan' as const, label: 'Badan usaha', detail: 'PT, CV, Firma, dan lainnya', icon: Building2 }, { type: 'OP' as const, label: 'Orang Pribadi', detail: 'Klien individu / OP', icon: UserRound }]).map(({ type, label, detail, icon: Icon }) => <label key={type} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition ${exportClientTypes.includes(type) ? 'border-amber-300 bg-amber-50/70' : 'border-slate-200 hover:bg-slate-50'}`}><input type="checkbox" checked={exportClientTypes.includes(type)} onChange={() => toggleExportClientType(type)} className="size-4 accent-amber-600" /><span className="rounded-lg bg-white p-2 text-slate-600"><Icon className="size-4" /></span><span><span className="block text-xs font-semibold text-slate-800">{label}</span><span className="mt-0.5 block text-[10px] text-slate-500">{detail}</span></span></label>)}</div></fieldset>
+          <fieldset className="mt-5"><legend className="text-xs font-semibold text-slate-800">Cakupan divisi</legend><div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">{([{ value: 'Accounting' as const, label: 'Accounting' }, { value: 'Tax' as const, label: 'Tax' }, { value: 'Both' as const, label: 'Keduanya' }]).map(({ value, label }) => <label key={value} className={`flex min-h-11 cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2 text-xs font-medium transition ${exportDivision === value ? 'border-slate-800 bg-slate-900 text-white' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}><input type="radio" name="executive-export-division" value={value} checked={exportDivision === value} onChange={() => setExportDivision(value)} className="accent-amber-500" />{label}</label>)}</div></fieldset>
+          <div className="mt-5 flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-[10px] text-slate-500">Cakupan: <span className="font-semibold text-slate-700">{scopeLabel}</span></p><div className="flex gap-2"><button type="button" onClick={() => setExportDialogOpen(false)} className="min-h-10 rounded-xl border border-slate-200 px-3.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">Batal</button><button type="button" onClick={() => runExport('pdf')} disabled={Boolean(exporting) || !exportClientTypes.length} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 px-3.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"><FileText className="size-4" />{exporting === 'pdf' ? 'Menyiapkan…' : 'PDF'}</button><button type="button" onClick={() => runExport('excel')} disabled={Boolean(exporting) || !exportClientTypes.length} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-amber-500 px-3.5 text-xs font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50"><Download className="size-4" />{exporting === 'excel' ? 'Menyiapkan…' : 'Excel'}</button></div></div>
+        </section></div>}
     </div>
   );
 }

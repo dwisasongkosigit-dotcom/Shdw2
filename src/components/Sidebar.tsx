@@ -61,6 +61,7 @@ export function Sidebar({
   const isOwnerOrManager = currentUser.role === 'Owner' || currentUser.role === 'Manager';
   const [failedLogoUrl, setFailedLogoUrl] = useState<string | null>(null);
   const canViewAudit = isAdmin || isOwnerOrManager;
+  const canViewExecutiveSummary = canViewAudit || currentUser.role.startsWith('SPV');
 
   const navItems: Array<{
     id: NavTab;
@@ -151,7 +152,7 @@ export function Sidebar({
           {navItems.map((item) => {
             if (item.adminOnly && !isAdmin) return null;
             if (item.auditOnly && !canViewAudit) return null;
-            if (item.managementOnly && !canViewAudit) return null;
+            if (item.managementOnly && !canViewExecutiveSummary) return null;
             const Icon = item.icon;
             const isActive = currentTab === item.id;
 

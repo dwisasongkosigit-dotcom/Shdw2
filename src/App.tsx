@@ -229,6 +229,7 @@ function MainApp() {
           {currentTab === 'dashboard' && (
             <DashboardView
               stats={stats}
+              agendaEntries={agendaEntries}
               currentUser={currentUser}
               onNavigateTab={(tab) => setCurrentTab(tab)}
               onRefresh={(division) => loadAllBusinessData(division)}
@@ -318,6 +319,7 @@ function MainApp() {
               cases={cases}
               activities={activities}
               agendaEntries={agendaEntries}
+              currentUser={currentUser}
               lastUpdated={dbHealth?.lastSaved}
               onNavigateTab={(tab) => setCurrentTab(tab)}
             />
