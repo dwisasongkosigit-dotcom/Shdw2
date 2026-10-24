@@ -47,13 +47,15 @@ export function JobsView({
   const { success, error, warning } = useToast();
   const currentDivision = currentUser.role.includes('Accounting') ? 'Accounting' : 'Tax';
   const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>('All');
-  const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [statusFilter, setStatusFilter] = useState<string>(currentUser.role.startsWith('SPV') ? 'Siap Direview' : 'All');
   const [priorityFilter, setPriorityFilter] = useState<string>('All');
   const [searchTerm, setSearchTerm] = useState('');
 
   // Selected job for detail / update
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isEditingDetails, setIsEditingDetails] = useState(false);
+  const [jobEditData, setJobEditData] = useState<Partial<Job>>({});
   const [saving, setSaving] = useState(false);
 
   // Review / update inputs
@@ -94,6 +96,17 @@ export function JobsView({
       currentUser.role === 'SPV Accounting' ||
       currentUser.role === 'SPV Tax');
   const isStaff = !isReadOnly && currentUser.role.startsWith('Staff');
+  const isAssignedReviewer = (job: Job) => currentUser.role === 'Admin' ||
+    (currentUser.role === 'SPV Accounting' && job.division === 'Accounting' && job.spvId === currentUser.id) ||
+    (currentUser.role === 'SPV Tax' && job.division === 'Tax' && job.spvId === currentUser.id);
+  const availableClients = useMemo(() => {
+    if (currentUser.role === 'Admin') return clients;
+    if (currentUser.role === 'SPV Accounting') return clients.filter((client) => client.accountingSpvId === currentUser.id);
+    if (currentUser.role === 'SPV Tax') return clients.filter((client) => client.taxSpvId === currentUser.id);
+    return [];
+  }, [clients, currentUser.id, currentUser.role]);
+
+  const pendingReviewCount = jobs.filter((job) => job.status === 'Siap Direview' && isAssignedReviewer(job)).length;
 
   // Filtered jobs
   const filteredJobs = useMemo(() => {
@@ -126,6 +139,15 @@ export function JobsView({
     setProgressPercent(job.progressPercent || 0);
     setActionNotes('');
     setReviewNotes(job.reviewNotes || '');
+    setJobEditData({
+      title: job.title,
+      startDate: job.startDate,
+      deadline: job.deadline,
+      priority: job.priority,
+      description: job.description,
+      spvId: job.spvId,
+    });
+    setIsEditingDetails(false);
     setAutoSaveStatus('idle');
   };
 
@@ -161,7 +183,7 @@ export function JobsView({
   };
 
   const handleOpenAddModal = () => {
-    const initialClient = clients[0];
+    const initialClient = availableClients[0];
     const initialDiv: JobDivisionSelection = currentUser.role.includes('Tax') ? 'Tax' : 'Accounting';
     const picAssignments = {
       Accounting: getClientPicAssignment(initialClient, 'Accounting'),
@@ -226,12 +248,13 @@ export function JobsView({
     setAutoSaveStatus('saving');
     autoSaveTimeoutRef.current = setTimeout(async () => {
       try {
-        await api.updateJob(selectedJob.id, {
+        const response = await api.updateJob(selectedJob.id, {
           progressPercent: newPercent,
           notes: noteText,
           expectedVersion: selectedJob.version,
           historyNote: `Pembaruan progres otomatis ke ${newPercent}%`,
         });
+        setSelectedJob(response.job);
         setAutoSaveStatus('saved');
         setTimeout(() => setAutoSaveStatus('idle'), 3000);
       } catch (err) {
@@ -242,7 +265,7 @@ export function JobsView({
 
   // Staff Submitting Job for Review
   const handleSubmitForReview = async () => {
-    if (!selectedJob || isReadOnly) return;
+    if (!selectedJob || !isStaff || selectedJob.picId !== currentUser.id) return;
     setSaving(true);
     try {
       await api.updateJob(selectedJob.id, {
@@ -263,7 +286,7 @@ export function JobsView({
 
   // SPV Approving Job as 'Selesai'
   const handleApproveJob = async () => {
-    if (!selectedJob || isReadOnly) return;
+    if (!selectedJob || !isAssignedReviewer(selectedJob) || (selectedJob.status !== 'Siap Direview' && currentUser.role !== 'Admin')) return;
     setSaving(true);
     try {
       await api.updateJob(selectedJob.id, {
@@ -273,7 +296,7 @@ export function JobsView({
         reviewNotes: actionNotes || 'Disetujui oleh SPV. Pekerjaan dinyatakan Selesai.',
         historyNote: actionNotes || 'Persetujuan resmi dari SPV.',
       });
-      success('Pekerjaan Disetujui', 'Pekerjaan selesai; perubahan hanya tersimpan sementara selama server berjalan.');
+      success('Pekerjaan Disetujui', 'Pekerjaan selesai dan persetujuan SPV yang ditugaskan tersimpan.');
       setSelectedJob(null);
       onRefresh();
     } catch (err: any) {
@@ -285,7 +308,7 @@ export function JobsView({
 
   // SPV Requesting Revision
   const handleRequestRevision = async () => {
-    if (!selectedJob || isReadOnly) return;
+    if (!selectedJob || !isAssignedReviewer(selectedJob) || (selectedJob.status !== 'Siap Direview' && currentUser.role !== 'Admin')) return;
     if (!actionNotes.trim() && !reviewNotes.trim()) {
       warning('Catatan Wajib', 'Harap masukkan catatan detail bagian yang perlu direvisi oleh staf.');
       return;
@@ -330,11 +353,41 @@ export function JobsView({
         expectedVersion: selectedJob.version,
         historyNote: actionNotes || `Update status ke ${updateStatus} (Progres: ${progressPercent}%)`,
       });
-      success('Berhasil Disimpan', 'Pembaruan pekerjaan hanya tersimpan sementara selama server berjalan.');
+      success('Berhasil Disimpan', 'Pembaruan pekerjaan dan riwayat audit berhasil disimpan.');
       setSelectedJob(null);
       onRefresh();
     } catch (err: any) {
       error('Gagal Memperbarui', err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveTaskDetails = async () => {
+    if (!selectedJob || !isAssignedReviewer(selectedJob)) return;
+    if (!jobEditData.title?.trim() || !jobEditData.deadline) {
+      error('Validasi Gagal', 'Judul dan deadline pekerjaan wajib diisi.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await api.updateJob(selectedJob.id, {
+        title: jobEditData.title.trim(),
+        startDate: jobEditData.startDate,
+        deadline: jobEditData.deadline,
+        priority: jobEditData.priority,
+        description: jobEditData.description || '',
+        ...(currentUser.role === 'Admin' ? { spvId: jobEditData.spvId } : {}),
+        expectedVersion: selectedJob.version,
+        historyNote: 'Detail tugas diperbarui melalui fitur Edit Tugas.',
+      });
+      setSelectedJob(response.job);
+      setIsEditingDetails(false);
+      success('Tugas Diperbarui', 'Perubahan detail tugas dan jejak audit berhasil disimpan.');
+      onRefresh();
+    } catch (err: any) {
+      error('Gagal Memperbarui Tugas', err.message);
     } finally {
       setSaving(false);
     }
@@ -388,7 +441,20 @@ export function JobsView({
     : [newJobData.division || 'Accounting'];
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-4 sm:gap-6">
+      {currentUser.role.startsWith('SPV') && (
+        <button
+          type="button"
+          onClick={() => setStatusFilter('Siap Direview')}
+          className="flex w-full items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left transition-colors hover:bg-amber-100 sm:w-auto"
+        >
+          <span className="min-w-0">
+            <span className="block text-xs font-bold text-amber-950">Antrean review Anda</span>
+            <span className="mt-0.5 block text-[11px] text-amber-800">Pekerjaan dari klien yang Anda tangani</span>
+          </span>
+          <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-amber-600 text-sm font-bold text-white">{pendingReviewCount}</span>
+        </button>
+      )}
       {/* Top Action Bar & Filter Row */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pb-2">
         <div className="relative flex-1 max-w-md">
@@ -402,7 +468,7 @@ export function JobsView({
           />
         </div>
 
-        <div className="flex items-center gap-2 self-end sm:self-auto">
+        <div className="flex flex-wrap items-center justify-end gap-2 self-stretch sm:self-auto">
           {/* Refresh Button */}
           <button
             onClick={onRefresh}
@@ -506,7 +572,7 @@ export function JobsView({
       </div>
 
       {/* Jobs Table */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+      <div className="hidden xl:block bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider text-[10px]">
@@ -633,9 +699,7 @@ export function JobsView({
                           >
                             Detail <ChevronRight className="w-3.5 h-3.5" />
                           </button>
-                          {(currentUser.role === 'Admin' ||
-                            (currentUser.role === 'SPV Accounting' && job.division === 'Accounting') ||
-                            (currentUser.role === 'SPV Tax' && job.division === 'Tax')) && (
+                          {isAssignedReviewer(job) && (
                             <button
                               onClick={() => setJobToDelete(job)}
                               className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
@@ -655,13 +719,52 @@ export function JobsView({
         </div>
       </div>
 
+      <div className="grid gap-3 xl:hidden">
+        {filteredJobs.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Tidak ada pekerjaan yang cocok dengan filter.</div>
+        ) : filteredJobs.map((job) => {
+          const isOverdue = job.status !== 'Selesai' && job.deadline < today;
+          const needsReview = job.status === 'Siap Direview' && isAssignedReviewer(job);
+          return (
+            <article key={job.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <button type="button" onClick={() => handleOpenDetail(job)} className="w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-slate-900">{job.title}</h3>
+                    <p className="mt-1 text-[11px] font-mono text-slate-500">{job.id} · {job.division}</p>
+                  </div>
+                  <ChevronRight className="size-4 shrink-0 text-slate-400" />
+                </div>
+                <p className="mt-3 truncate text-xs font-medium text-slate-700">{job.clientName}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${job.status === 'Selesai' ? 'bg-emerald-50 text-emerald-700' : job.status === 'Siap Direview' ? 'bg-amber-100 text-amber-900' : job.status === 'Perlu Revisi' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>{job.status}</span>
+                  {needsReview && <span className="rounded-full bg-amber-600 px-2.5 py-1 text-[10px] font-bold text-white">Perlu review Anda</span>}
+                  <span className={`ml-auto text-[10px] font-medium ${isOverdue ? 'text-rose-700' : 'text-slate-500'}`}>Deadline {job.deadline}</span>
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-amber-600" style={{ width: `${job.progressPercent}%` }} /></div>
+                  <span className="text-[10px] font-mono font-semibold text-slate-600">{job.progressPercent}%</span>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]">
+                  <div><span className="text-slate-400">PIC</span><p className="mt-0.5 truncate font-medium text-slate-700">{job.picName}</p></div>
+                  <div><span className="text-slate-400">Reviewer</span><p className="mt-0.5 truncate font-medium text-slate-700">{job.spvName}</p></div>
+                </div>
+              </button>
+              <button type="button" onClick={() => handleOpenDetail(job)} className={`mt-3 min-h-11 w-full rounded-lg px-4 text-xs font-semibold ${needsReview ? 'bg-amber-600 text-white hover:bg-amber-700' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}>
+                {needsReview ? 'Buka antrean review' : 'Buka detail tugas'}
+              </button>
+            </article>
+          );
+        })}
+      </div>
+
       {/* Detail / Approval Drawer */}
       {selectedJob && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex justify-end">
-          <div className="w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200">
+          <div className="w-full max-w-2xl bg-white h-dvh sm:h-full shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200">
             {/* Header */}
-            <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
-              <div>
+            <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/50 p-3 sm:p-5">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-mono font-bold text-slate-500">{selectedJob.id}</span>
                   <span className="text-slate-300">·</span>
@@ -673,21 +776,32 @@ export function JobsView({
                   {selectedJob.title}
                 </h3>
               </div>
-              <div className="flex items-center gap-2">
-                {(currentUser.role === 'Admin' ||
-                  (currentUser.role === 'SPV Accounting' && selectedJob.division === 'Accounting') ||
-                  (currentUser.role === 'SPV Tax' && selectedJob.division === 'Tax')) && (
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                {isAssignedReviewer(selectedJob) && (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingDetails(true)}
+                    className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 sm:px-3"
+                    aria-label="Edit tugas"
+                  >
+                    <Edit className="size-4" />
+                    <span>Edit Tugas</span>
+                  </button>
+                )}
+                {isAssignedReviewer(selectedJob) && (
                   <button
                     onClick={() => setJobToDelete(selectedJob)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 rounded-md text-xs font-medium transition-colors"
                   >
                     <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                    <span>Hapus Pekerjaan</span>
+                    <span className="hidden sm:inline">Hapus</span>
                   </button>
                 )}
                 <button
-                  onClick={() => setSelectedJob(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md"
+                  type="button"
+                  onClick={() => { setSelectedJob(null); setIsEditingDetails(false); }}
+                  aria-label="Tutup detail tugas"
+                  className="min-h-10 min-w-10 p-1.5 text-slate-400 hover:text-slate-700 rounded-md"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -695,46 +809,69 @@ export function JobsView({
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 text-xs">
+            <div className="flex-1 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6 sm:pb-6 space-y-5 sm:space-y-6 text-xs">
               {/* Meta details */}
-              <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 border border-slate-200 rounded-xl">
-                <div>
-                  <span className="text-slate-500 font-medium">Klien:</span>
-                  <p className="font-bold text-slate-900 mt-0.5">{selectedJob.clientName}</p>
+              {isEditingDetails ? (
+                <div className="grid grid-cols-1 gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700 sm:col-span-2">
+                    Judul pekerjaan
+                    <input value={jobEditData.title || ''} onChange={(event) => setJobEditData({ ...jobEditData, title: event.target.value })} className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs font-normal text-slate-900" />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
+                    Tanggal mulai
+                    <input type="date" value={jobEditData.startDate || ''} onChange={(event) => setJobEditData({ ...jobEditData, startDate: event.target.value })} className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs font-normal text-slate-900" />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
+                    Deadline
+                    <input type="date" value={jobEditData.deadline || ''} onChange={(event) => setJobEditData({ ...jobEditData, deadline: event.target.value })} className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs font-normal text-slate-900" />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
+                    Prioritas
+                    <select value={jobEditData.priority || 'Sedang'} onChange={(event) => setJobEditData({ ...jobEditData, priority: event.target.value as Job['priority'] })} className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs font-normal text-slate-900">
+                      <option value="Rendah">Rendah</option><option value="Sedang">Sedang</option><option value="Tinggi">Tinggi</option><option value="Mendesak">Mendesak</option>
+                    </select>
+                  </label>
+                  {currentUser.role === 'Admin' && (
+                    <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
+                      SPV reviewer
+                      <select value={jobEditData.spvId || ''} onChange={(event) => setJobEditData({ ...jobEditData, spvId: event.target.value })} className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs font-normal text-slate-900">
+                        <option value="">Pilih SPV</option>
+                        {users.filter((user) => user.active && user.role === (selectedJob.division === 'Accounting' ? 'SPV Accounting' : 'SPV Tax')).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+                      </select>
+                    </label>
+                  )}
                 </div>
-                <div>
-                  <span className="text-slate-500 font-medium">Status Pekerjaan:</span>
-                  <p className="font-bold text-amber-700 mt-0.5">{selectedJob.status}</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
+                  <div><span className="text-slate-500 font-medium">Klien:</span><p className="mt-0.5 font-bold text-slate-900">{selectedJob.clientName}</p></div>
+                  <div><span className="text-slate-500 font-medium">Status:</span><p className="mt-0.5 font-bold text-amber-700">{selectedJob.status}</p></div>
+                  <div><span className="text-slate-500 font-medium">PIC pelaksana:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.picName}</p></div>
+                  <div><span className="text-slate-500 font-medium">SPV reviewer:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.spvName}</p></div>
+                  <div><span className="text-slate-500 font-medium">Mulai / deadline:</span><p className="mt-0.5 font-mono tabular-nums text-slate-800">{selectedJob.startDate} s/d {selectedJob.deadline}</p></div>
+                  <div><span className="text-slate-500 font-medium">Prioritas:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.priority}</p></div>
                 </div>
-                <div>
-                  <span className="text-slate-500 font-medium">PIC Pelaksana (Divisi):</span>
-                  <p className="font-semibold text-slate-800 mt-0.5">{selectedJob.picName}</p>
-                </div>
-                <div>
-                  <span className="text-slate-500 font-medium">SPV Reviewer (Divisi):</span>
-                  <p className="font-semibold text-slate-800 mt-0.5">{selectedJob.spvName}</p>
-                </div>
-                <div>
-                  <span className="text-slate-500 font-medium">Mulai / Deadline:</span>
-                  <p className="font-mono tabular-nums text-slate-800 mt-0.5">
-                    {selectedJob.startDate} s/d {selectedJob.deadline}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-slate-500 font-medium">Prioritas:</span>
-                  <p className="font-semibold text-slate-800 mt-0.5">{selectedJob.priority}</p>
-                </div>
-              </div>
+              )}
 
               {/* Description & Review Notes */}
               <div>
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-1">
                   Deskripsi & Ruang Lingkup
                 </h4>
-                <p className="p-3 bg-white border border-slate-200 rounded-lg text-slate-700 leading-relaxed">
-                  {selectedJob.description || 'Tidak ada uraian spesifik.'}
-                </p>
+                {isEditingDetails ? (
+                  <textarea rows={4} value={jobEditData.description || ''} onChange={(event) => setJobEditData({ ...jobEditData, description: event.target.value })} className="w-full rounded-lg border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-700" placeholder="Deskripsi dan ruang lingkup pekerjaan" />
+                ) : (
+                  <p className="rounded-lg border border-slate-200 bg-white p-3 leading-relaxed text-slate-700">
+                    {selectedJob.description || 'Tidak ada uraian spesifik.'}
+                  </p>
+                )}
               </div>
+
+              {isEditingDetails && (
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <button type="button" onClick={() => { setIsEditingDetails(false); setJobEditData({ title: selectedJob.title, startDate: selectedJob.startDate, deadline: selectedJob.deadline, priority: selectedJob.priority, description: selectedJob.description, spvId: selectedJob.spvId }); }} className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700">Batal</button>
+                  <button type="button" onClick={handleSaveTaskDetails} disabled={saving} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-xs font-semibold text-white disabled:opacity-50"><Save className="size-4" />{saving ? 'Menyimpan...' : 'Simpan perubahan tugas'}</button>
+                </div>
+              )}
 
               {selectedJob.reviewNotes && (
                 <div>
@@ -749,8 +886,7 @@ export function JobsView({
 
               {/* Only the responsible division and assigned staff can update this job. */}
               {(!isReadOnly &&
-                (currentUser.role === 'Admin' ||
-                  (currentUser.role.startsWith('SPV') && selectedJob.division === currentDivision) ||
+                (isAssignedReviewer(selectedJob) ||
                   (isStaff && selectedJob.division === currentDivision && selectedJob.picId === currentUser.id))) ? (
                 <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-4">
                   <div className="flex items-center justify-between">
@@ -806,8 +942,8 @@ export function JobsView({
                       <option value="Dalam Proses">Dalam Proses</option>
                       <option value="Menunggu Klien">Menunggu Klien</option>
                       <option value="Siap Direview">Siap Direview (Serahkan ke SPV)</option>
-                      {isSPV && <option value="Perlu Revisi">Perlu Revisi (Khusus SPV)</option>}
-                      {isSPV && <option value="Selesai">Selesai (Persetujuan SPV)</option>}
+                      {isAssignedReviewer(selectedJob) && (selectedJob.status === 'Siap Direview' || currentUser.role === 'Admin') && <option value="Perlu Revisi">Perlu Revisi (Reviewer)</option>}
+                      {isAssignedReviewer(selectedJob) && (selectedJob.status === 'Siap Direview' || currentUser.role === 'Admin') && <option value="Selesai">Selesai (Persetujuan Reviewer)</option>}
                     </select>
                   </div>
 
@@ -829,14 +965,14 @@ export function JobsView({
                   </div>
 
                   {/* Workflow Action Buttons */}
-                  <div className="pt-2 flex flex-wrap gap-2">
+                  <div className="grid gap-2 pt-2 sm:flex sm:flex-wrap">
                     {/* Staff Action: Submit for review */}
-                    {selectedJob.status !== 'Selesai' && (
+                    {isStaff && selectedJob.status !== 'Selesai' && selectedJob.status !== 'Siap Direview' && (
                       <button
                         type="button"
                         onClick={handleSubmitForReview}
                         disabled={saving}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-sm disabled:opacity-50"
+                        className="flex min-h-11 items-center justify-center gap-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-sm disabled:opacity-50 sm:min-h-10"
                       >
                         <Send className="w-3.5 h-3.5" />
                         <span>Ajukan Siap Direview SPV</span>
@@ -844,23 +980,23 @@ export function JobsView({
                     )}
 
                     {/* SPV Actions: Approve or Request Revision */}
-                    {isSPV && (
+                    {isAssignedReviewer(selectedJob) && (selectedJob.status === 'Siap Direview' || currentUser.role === 'Admin') && (
                       <>
                         <button
                           type="button"
                           onClick={handleApproveJob}
                           disabled={saving}
-                          className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-sm disabled:opacity-50"
+                          className="flex min-h-11 items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-sm disabled:opacity-50 sm:min-h-10"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Setujui (Approval Selesai)</span>
+                          <span>{saving ? 'Menyetujui...' : 'Setujui & Tandai Selesai'}</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={handleRequestRevision}
                           disabled={saving}
-                          className="flex items-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-sm disabled:opacity-50"
+                          className="flex min-h-11 items-center justify-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-semibold text-xs transition-colors shadow-sm disabled:opacity-50 sm:min-h-10"
                         >
                           <RotateCcw className="w-3.5 h-3.5" />
                           <span>Minta Revisi Staf</span>
@@ -940,7 +1076,9 @@ export function JobsView({
                   }}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 font-medium"
                 >
-                  {clients.map((c) => (
+                  {availableClients.length === 0 ? (
+                    <option value="">Tidak ada klien yang ditugaskan kepada Anda</option>
+                  ) : availableClients.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name} ({c.id}) - PIC: {c.picAssignmentStatus}
                     </option>
@@ -996,7 +1134,7 @@ export function JobsView({
                             <option key={user.id} value={user.id}>{user.name}</option>
                           ))}
                         </select>
-                        <p className="mt-1 text-slate-600">SPV reviewer: {spvName || 'Belum ditentukan'}</p>
+                        <p className="mt-1 text-slate-600">SPV yang ditetapkan sebagai PIC dan reviewer: {spvName || 'Belum ditentukan'}</p>
                       </div>
                     );
                   })}
@@ -1064,8 +1202,8 @@ export function JobsView({
               <button
                 type="button"
                 onClick={handleCreateJob}
-                disabled={saving}
-                className="flex items-center gap-1.5 px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold disabled:opacity-50 shadow-sm"
+                disabled={saving || availableClients.length === 0}
+                className="flex min-h-11 items-center gap-1.5 px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold disabled:opacity-50 shadow-sm"
               >
                 <Save className="w-3.5 h-3.5" />
                 <span>{saving ? 'Menyimpan ke Database...' : 'Simpan Pekerjaan (Save)'}</span>

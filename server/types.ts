@@ -33,6 +33,22 @@ export interface BrandingConfig {
 
 export type ClientType = 'Badan' | 'OP';
 export type EntityType = 'PT' | 'CV' | 'Firma' | 'Lainnya' | '-';
+export type InvestmentCategory = 'PMA' | 'PMDN' | 'Belum Ditentukan';
+export type ClientDataType = 'Real' | 'Simulasi' | 'Belum Diatur';
+export type SuggestionStatus = 'Terbuka' | 'Dalam Tindak Lanjut' | 'Selesai';
+
+export interface ClientSuggestion {
+  id: string;
+  division: JobDivision;
+  content: string;
+  status: SuggestionStatus;
+  createdById: string;
+  createdByName: string;
+  createdAt: string;
+  updatedBy?: string;
+  updatedAt?: string;
+  dueDate?: string;
+}
 export type PkpStatus = 'PKP' | 'Non-PKP' | 'Belum Diisi';
 export type PphRegime =
   | 'PPh Final UMKM'
@@ -69,6 +85,9 @@ export interface Client {
   name: string;
   type: ClientType;
   entityType: EntityType;
+  investmentCategory: InvestmentCategory;
+  dataType: ClientDataType;
+  suggestions: ClientSuggestion[];
 
   // 4 PIC Assignments (Prompt 2 requirement)
   accountingStaffPicId: string;
@@ -114,6 +133,7 @@ export interface Client {
   accountingRiskReason: string;
   accountingRiskRecommendation: string;
   accountingRiskDate: string;
+  accountingRiskReviewDate: string;
   accountingRiskAssessedBy: string;
 
   // Tax Risk Assessment
@@ -121,6 +141,7 @@ export interface Client {
   taxRiskReason: string;
   taxRiskRecommendation: string;
   taxRiskDate: string;
+  taxRiskReviewDate: string;
   taxRiskAssessedBy: string;
 
   riskHistory: RiskHistoryItem[];
