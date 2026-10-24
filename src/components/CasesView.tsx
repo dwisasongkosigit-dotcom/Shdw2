@@ -69,6 +69,13 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
 
   const isReadOnly = currentUser.role === 'Owner' || currentUser.role === 'Manager';
   const currentDivision = currentUser.role.includes('Accounting') ? 'Accounting' : 'Tax';
+  const selectedCaseClient = clients.find((client) => client.id === newCaseData.clientId);
+  const caseSpvIsPic = newCaseData.division === 'Accounting'
+    ? selectedCaseClient?.accountingSpvIsPic
+    : selectedCaseClient?.taxSpvIsPic;
+  const casePicRole = caseSpvIsPic
+    ? `SPV ${newCaseData.division}`
+    : `Staff ${newCaseData.division}`;
   const canEditCase = (item: Case) =>
     !isReadOnly &&
     (currentUser.role === 'Admin' ||
@@ -290,14 +297,24 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
             <button
               onClick={() => {
                 const division = currentUser.role.includes('Tax') ? 'Tax' : 'Accounting';
+                const initialClient = clients[0];
+                const spvIsPic = division === 'Accounting'
+                  ? initialClient?.accountingSpvIsPic
+                  : initialClient?.taxSpvIsPic;
+                const defaultPicId = spvIsPic
+                  ? division === 'Accounting' ? initialClient?.accountingSpvId : initialClient?.taxSpvId
+                  : division === 'Accounting' ? initialClient?.accountingStaffPicId : initialClient?.taxStaffPicId;
+                const defaultPicName = spvIsPic
+                  ? division === 'Accounting' ? initialClient?.accountingSpvName : initialClient?.taxSpvName
+                  : division === 'Accounting' ? initialClient?.accountingStaffPicName : initialClient?.taxStaffPicName;
                 const isStaffInDivision = currentUser.role === `Staff ${division}`;
                 setNewCaseData({
                   division,
                   priority: 'Sedang',
                   status: 'Open',
-                  clientId: clients[0]?.id || '',
-                  picId: isStaffInDivision ? currentUser.id : '',
-                  picName: isStaffInDivision ? currentUser.name : '',
+                  clientId: initialClient?.id || '',
+                  picId: isStaffInDivision && !spvIsPic ? currentUser.id : defaultPicId || '',
+                  picName: isStaffInDivision && !spvIsPic ? currentUser.name : defaultPicName || '',
                   nextFollowUpDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
                 });
                 setIsAddModalOpen(true);
@@ -704,10 +721,21 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
                   value={newCaseData.clientId}
                   onChange={(e) => {
                     const cl = clients.find((c) => c.id === e.target.value);
+                    const spvIsPic = newCaseData.division === 'Accounting'
+                      ? cl?.accountingSpvIsPic
+                      : cl?.taxSpvIsPic;
+                    const assignedPicId = spvIsPic
+                      ? newCaseData.division === 'Accounting' ? cl?.accountingSpvId : cl?.taxSpvId
+                      : newCaseData.division === 'Accounting' ? cl?.accountingStaffPicId : cl?.taxStaffPicId;
+                    const assignedPicName = spvIsPic
+                      ? newCaseData.division === 'Accounting' ? cl?.accountingSpvName : cl?.taxSpvName
+                      : newCaseData.division === 'Accounting' ? cl?.accountingStaffPicName : cl?.taxStaffPicName;
                     setNewCaseData({
                       ...newCaseData,
                       clientId: e.target.value,
                       clientName: cl?.name || '',
+                      picId: assignedPicId || '',
+                      picName: assignedPicName || '',
                     });
                   }}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 font-medium"
@@ -724,7 +752,18 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
                 <label className="block text-slate-700 font-semibold mb-1">Divisi Terkait</label>
                 <select
                   value={newCaseData.division}
-                  onChange={(e) => setNewCaseData({ ...newCaseData, division: e.target.value as any, picId: '', picName: '' })}
+                  onChange={(e) => {
+                    const division = e.target.value as 'Accounting' | 'Tax';
+                    const client = clients.find((candidate) => candidate.id === newCaseData.clientId);
+                    const spvIsPic = division === 'Accounting' ? client?.accountingSpvIsPic : client?.taxSpvIsPic;
+                    const picId = spvIsPic
+                      ? division === 'Accounting' ? client?.accountingSpvId : client?.taxSpvId
+                      : division === 'Accounting' ? client?.accountingStaffPicId : client?.taxStaffPicId;
+                    const picName = spvIsPic
+                      ? division === 'Accounting' ? client?.accountingSpvName : client?.taxSpvName
+                      : division === 'Accounting' ? client?.accountingStaffPicName : client?.taxStaffPicName;
+                    setNewCaseData({ ...newCaseData, division, picId: picId || '', picName: picName || '' });
+                  }}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 font-medium"
                 >
                   <option value="Accounting">Accounting</option>
@@ -733,7 +772,7 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
               </div>
 
               <div>
-                <label htmlFor="case-pic" className="block text-slate-700 font-semibold mb-1">PIC Penanggung Jawab</label>
+                <label htmlFor="case-pic" className="block text-slate-700 font-semibold mb-1">PIC Penanggung Jawab{caseSpvIsPic ? ' (SPV)' : ''}</label>
                 <select
                   id="case-pic"
                   required
@@ -745,7 +784,11 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
                   className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-900"
                 >
                   <option value="">Pilih PIC aktif</option>
-                  {users.filter((user) => user.active && user.role === (newCaseData.division === 'Tax' ? 'Staff Tax' : 'Staff Accounting')).map((user) => (
+                  {users.filter((user) =>
+                    user.active &&
+                    user.role === casePicRole &&
+                    (!caseSpvIsPic || user.id === (newCaseData.division === 'Accounting' ? selectedCaseClient?.accountingSpvId : selectedCaseClient?.taxSpvId))
+                  ).map((user) => (
                     <option key={user.id} value={user.id}>{user.name}</option>
                   ))}
                 </select>

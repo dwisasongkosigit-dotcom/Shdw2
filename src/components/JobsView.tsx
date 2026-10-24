@@ -152,10 +152,15 @@ export function JobsView({
   };
 
   const getClientPicAssignment = (client: Client | undefined, division: JobDivision): JobPicAssignment => {
-    const requiredRole = division === 'Accounting' ? 'Staff Accounting' : 'Staff Tax';
-    const clientPicId = division === 'Accounting' ? client?.accountingStaffPicId : client?.taxStaffPicId;
+    const spvIsPic = division === 'Accounting' ? client?.accountingSpvIsPic : client?.taxSpvIsPic;
+    const requiredRole = spvIsPic
+      ? division === 'Accounting' ? 'SPV Accounting' : 'SPV Tax'
+      : division === 'Accounting' ? 'Staff Accounting' : 'Staff Tax';
+    const clientPicId = spvIsPic
+      ? division === 'Accounting' ? client?.accountingSpvId : client?.taxSpvId
+      : division === 'Accounting' ? client?.accountingStaffPicId : client?.taxStaffPicId;
     const clientPic = users.find((user) => user.active && user.id === clientPicId && user.role === requiredRole)
-      || users.find((user) => user.active && user.role === requiredRole);
+      || (!spvIsPic ? users.find((user) => user.active && user.role === requiredRole) : undefined);
     return { picId: clientPic?.id || '', picName: clientPic?.name || '' };
   };
 
@@ -419,7 +424,7 @@ export function JobsView({
       { header: 'Divisi', key: 'division', width: 12, align: 'center' },
       { header: 'Judul Pekerjaan', key: 'title', width: 35 },
       { header: 'Prioritas', key: 'priority', width: 12, align: 'center' },
-      { header: 'Staff PIC', key: 'picName', width: 22 },
+      { header: 'PIC Penanggung Jawab', key: 'picName', width: 22 },
       { header: 'SPV Reviewer', key: 'spvName', width: 22 },
       { header: 'Tgl Mulai', key: 'startDate', width: 14, align: 'center' },
       { header: 'Deadline', key: 'deadline', width: 14, align: 'center' },
@@ -1103,10 +1108,15 @@ export function JobsView({
               </div>
 
               <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 text-[11px]">
-                <p className="font-semibold mb-2">Pilih PIC dari pengguna aktif</p>
+                <p className="font-semibold mb-2">PIC utama klien akan menerima pekerjaan ini</p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {activeJobDivisions.map((division) => {
-                    const requiredRole = division === 'Accounting' ? 'Staff Accounting' : 'Staff Tax';
+                    const spvIsPic = division === 'Accounting'
+                      ? selectedClientForJob?.accountingSpvIsPic
+                      : selectedClientForJob?.taxSpvIsPic;
+                    const requiredRole = spvIsPic
+                      ? division === 'Accounting' ? 'SPV Accounting' : 'SPV Tax'
+                      : division === 'Accounting' ? 'Staff Accounting' : 'Staff Tax';
                     const assignment = newJobData.picAssignments?.[division];
                     const spvName = division === 'Accounting'
                       ? selectedClientForJob?.accountingSpvName
@@ -1130,11 +1140,15 @@ export function JobsView({
                           className="w-full px-3 py-2 bg-white border border-amber-200 rounded-lg text-slate-900"
                         >
                           <option value="">Pilih pengguna</option>
-                          {users.filter((user) => user.active && user.role === requiredRole).map((user) => (
+                          {users.filter((user) =>
+                            user.active &&
+                            user.role === requiredRole &&
+                            (!spvIsPic || user.id === (division === 'Accounting' ? selectedClientForJob?.accountingSpvId : selectedClientForJob?.taxSpvId))
+                          ).map((user) => (
                             <option key={user.id} value={user.id}>{user.name}</option>
                           ))}
                         </select>
-                        <p className="mt-1 text-slate-600">SPV yang ditetapkan sebagai PIC dan reviewer: {spvName || 'Belum ditentukan'}</p>
+                        <p className="mt-1 text-slate-600">{spvIsPic ? 'SPV ditugaskan langsung sebagai PIC utama dan reviewer:' : 'SPV reviewer:'} {spvName || 'Belum ditentukan'}</p>
                       </div>
                     );
                   })}

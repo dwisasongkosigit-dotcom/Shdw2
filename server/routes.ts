@@ -623,6 +623,17 @@ apiRouter.post(
       return;
     }
 
+    if (data.accountingSpvIsPic !== undefined && typeof data.accountingSpvIsPic !== 'boolean') {
+      res.status(400).json({ error: 'Pilihan PIC SPV Accounting tidak valid.' });
+      return;
+    }
+    if (data.taxSpvIsPic !== undefined && typeof data.taxSpvIsPic !== 'boolean') {
+      res.status(400).json({ error: 'Pilihan PIC SPV Tax tidak valid.' });
+      return;
+    }
+
+    const accountingSpvIsPic = data.accountingSpvIsPic === true;
+    const taxSpvIsPic = data.taxSpvIsPic === true;
     const db = getDb();
     const nextNumber = db.clients.length + 1;
     const newId = `CLI-${String(nextNumber).padStart(3, '0')}`;
@@ -632,8 +643,12 @@ apiRouter.post(
       const user = db.users.find((candidate) => candidate.id === userId && candidate.active && candidate.role === role);
       return user ? { id: user.id, name: user.name } : null;
     };
-    const accountingStaff = resolveAssignment(data.accountingStaffPicId, 'Staff Accounting');
-    const taxStaff = resolveAssignment(data.taxStaffPicId, 'Staff Tax');
+    const accountingStaff = accountingSpvIsPic
+      ? { id: '', name: '-' }
+      : resolveAssignment(data.accountingStaffPicId, 'Staff Accounting');
+    const taxStaff = taxSpvIsPic
+      ? { id: '', name: '-' }
+      : resolveAssignment(data.taxStaffPicId, 'Staff Tax');
     const accountingSpv = resolveAssignment(data.accountingSpvId, 'SPV Accounting');
     const taxSpv = resolveAssignment(data.taxSpvId, 'SPV Tax');
     if (!accountingStaff || !taxStaff || !accountingSpv || !taxSpv) {
@@ -650,9 +665,11 @@ apiRouter.post(
     const taxSpvId = taxSpv.id;
     const taxSpvName = taxSpv.name;
 
+    const accountingOwner = accountingSpvIsPic ? accSpvName : accStaffName;
+    const taxOwner = taxSpvIsPic ? taxSpvName : taxStaffName;
     const isComplete =
-      Boolean(accStaffName && accStaffName !== '-' && accStaffName.trim()) &&
-      Boolean(taxStaffName && taxStaffName !== '-' && taxStaffName.trim()) &&
+      Boolean(accountingOwner && accountingOwner !== '-' && accountingOwner.trim()) &&
+      Boolean(taxOwner && taxOwner !== '-' && taxOwner.trim()) &&
       Boolean(accSpvName && accSpvName !== '-' && accSpvName.trim()) &&
       Boolean(taxSpvName && taxSpvName !== '-' && taxSpvName.trim());
 
@@ -665,7 +682,9 @@ apiRouter.post(
         taxStaff: taxStaffName,
         accountingSpv: accSpvName,
         taxSpv: taxSpvName,
-        notes: isComplete ? 'Penugasan PIC awal lengkap saat pembuatan klien.' : 'Penugasan awal klien (belum lengkap).',
+        accountingSpvIsPic,
+        taxSpvIsPic,
+        notes: isComplete ? 'PIC utama dan reviewer ditetapkan saat pembuatan klien.' : 'PIC utama atau reviewer masih belum lengkap.'
       },
     ];
 
@@ -678,6 +697,8 @@ apiRouter.post(
       accountingStaffPicName: accStaffName,
       taxStaffPicId: taxStaffId,
       taxStaffPicName: taxStaffName,
+      accountingSpvIsPic,
+      taxSpvIsPic,
       accountingSpvId: accSpvId,
       accountingSpvName: accSpvName,
       taxSpvId: taxSpvId,
@@ -685,10 +706,10 @@ apiRouter.post(
       picAssignmentStatus: isComplete ? 'Lengkap' : 'Belum Lengkap',
       picHistory: initialPicHistory,
 
-      accountingPicId: accStaffId,
-      accountingPicName: accStaffName,
-      taxPicId: taxStaffId,
-      taxPicName: taxStaffName,
+      accountingPicId: accountingSpvIsPic ? accSpvId : accStaffId,
+      accountingPicName: accountingSpvIsPic ? accSpvName : accStaffName,
+      taxPicId: taxSpvIsPic ? taxSpvId : taxStaffId,
+      taxPicName: taxSpvIsPic ? taxSpvName : taxStaffName,
       spvId: accSpvId,
       spvName: accSpvName,
 
@@ -737,7 +758,7 @@ apiRouter.post(
       logAudit(
         'CLIENT_CREATED',
         'Client',
-        `Klien baru ${newClient.name} (${newClient.id}) ditambahkan dengan status PIC: ${newClient.picAssignmentStatus}.`,
+        `Klien baru ${newClient.name} (${newClient.id}) ditambahkan dengan status PIC utama: ${newClient.picAssignmentStatus}.`,
         { userId: req.user!.userId, name: req.user!.name, role: req.user!.role },
         newClient.id,
         newClient.name
@@ -776,13 +797,14 @@ apiRouter.put(
       }
       if (currentUser.role.startsWith('SPV')) {
         const crossDivisionKeys = currentUser.role === 'SPV Accounting'
-          ? ['taxRisk', 'taxRiskReason', 'taxRiskRecommendation', 'taxRiskReviewDate', 'taxRiskDate', 'taxRiskAssessedBy', 'taxSpvId', 'taxStaffPicId']
-          : ['accountingRisk', 'accountingRiskReason', 'accountingRiskRecommendation', 'accountingRiskReviewDate', 'accountingRiskDate', 'accountingRiskAssessedBy', 'accountingSpvId', 'accountingStaffPicId'];
+          ? ['taxRisk', 'taxRiskReason', 'taxRiskRecommendation', 'taxRiskReviewDate', 'taxRiskDate', 'taxRiskAssessedBy', 'taxSpvId', 'taxStaffPicId', 'taxSpvIsPic']
+          : ['accountingRisk', 'accountingRiskReason', 'accountingRiskRecommendation', 'accountingRiskReviewDate', 'accountingRiskDate', 'accountingRiskAssessedBy', 'accountingSpvId', 'accountingStaffPicId', 'accountingSpvIsPic'];
         if (crossDivisionKeys.some((key) => updates[key] !== undefined && updates[key] !== (client as any)[key])) {
           throw new Error('Akses ditolak: supervisor hanya dapat mengubah penilaian dan PIC divisinya sendiri.');
         }
         const picAssignmentFields = [
           'accountingStaffPicId', 'accountingStaffPicName', 'taxStaffPicId', 'taxStaffPicName',
+          'accountingSpvIsPic', 'taxSpvIsPic',
           'accountingSpvId', 'accountingSpvName', 'taxSpvId', 'taxSpvName',
           'accountingPicId', 'accountingPicName', 'taxPicId', 'taxPicName', 'spvId', 'spvName',
         ];
@@ -796,6 +818,15 @@ apiRouter.put(
         throw new Error(
           `Konflik Perubahan: Data klien ini telah diperbarui oleh pengguna lain (Versi ${client.version}). Muat ulang data terbaru terlebih dahulu sebelum menyimpan.`
         );
+      }
+
+      if (updates.accountingSpvIsPic === true) {
+        updates.accountingStaffPicId = '';
+        updates.accountingStaffPicName = '-';
+      }
+      if (updates.taxSpvIsPic === true) {
+        updates.taxStaffPicId = '';
+        updates.taxStaffPicName = '-';
       }
 
       const picDefinitions = [
@@ -827,21 +858,37 @@ apiRouter.put(
       }
 
       // Check for PIC Assignment Changes
+      for (const field of ['accountingSpvIsPic', 'taxSpvIsPic'] as const) {
+        if (updates[field] !== undefined && typeof updates[field] !== 'boolean') {
+          throw new Error('Pilihan PIC SPV tidak valid.');
+        }
+      }
+
       const picChanged =
+        (updates.accountingStaffPicId !== undefined && updates.accountingStaffPicId !== client.accountingStaffPicId) ||
+        (updates.taxStaffPicId !== undefined && updates.taxStaffPicId !== client.taxStaffPicId) ||
+        (updates.accountingSpvId !== undefined && updates.accountingSpvId !== client.accountingSpvId) ||
+        (updates.taxSpvId !== undefined && updates.taxSpvId !== client.taxSpvId) ||
         (updates.accountingStaffPicName !== undefined && updates.accountingStaffPicName !== client.accountingStaffPicName) ||
         (updates.taxStaffPicName !== undefined && updates.taxStaffPicName !== client.taxStaffPicName) ||
         (updates.accountingSpvName !== undefined && updates.accountingSpvName !== client.accountingSpvName) ||
-        (updates.taxSpvName !== undefined && updates.taxSpvName !== client.taxSpvName);
+        (updates.taxSpvName !== undefined && updates.taxSpvName !== client.taxSpvName) ||
+        (updates.accountingSpvIsPic !== undefined && updates.accountingSpvIsPic !== client.accountingSpvIsPic) ||
+        (updates.taxSpvIsPic !== undefined && updates.taxSpvIsPic !== client.taxSpvIsPic);
 
       if (picChanged) {
         const newAccStaff = updates.accountingStaffPicName ?? client.accountingStaffPicName;
         const newTaxStaff = updates.taxStaffPicName ?? client.taxStaffPicName;
         const newAccSpv = updates.accountingSpvName ?? client.accountingSpvName;
         const newTaxSpv = updates.taxSpvName ?? client.taxSpvName;
+        const newAccountingSpvIsPic = updates.accountingSpvIsPic ?? client.accountingSpvIsPic ?? false;
+        const newTaxSpvIsPic = updates.taxSpvIsPic ?? client.taxSpvIsPic ?? false;
+        const accountingOwner = newAccountingSpvIsPic ? newAccSpv : newAccStaff;
+        const taxOwner = newTaxSpvIsPic ? newTaxSpv : newTaxStaff;
 
         const isComplete =
-          Boolean(newAccStaff && newAccStaff !== '-' && newAccStaff.trim()) &&
-          Boolean(newTaxStaff && newTaxStaff !== '-' && newTaxStaff.trim()) &&
+          Boolean(accountingOwner && accountingOwner !== '-' && accountingOwner.trim()) &&
+          Boolean(taxOwner && taxOwner !== '-' && taxOwner.trim()) &&
           Boolean(newAccSpv && newAccSpv !== '-' && newAccSpv.trim()) &&
           Boolean(newTaxSpv && newTaxSpv !== '-' && newTaxSpv.trim());
 
@@ -855,7 +902,9 @@ apiRouter.put(
           taxStaff: newTaxStaff,
           accountingSpv: newAccSpv,
           taxSpv: newTaxSpv,
-          notes: updates.picChangeNotes || 'Perubahan susunan 4 PIC klien.',
+          accountingSpvIsPic: newAccountingSpvIsPic,
+          taxSpvIsPic: newTaxSpvIsPic,
+          notes: updates.picChangeNotes || 'Perubahan susunan PIC klien.',
         };
         client.picHistory = client.picHistory || [];
         client.picHistory.unshift(picHistoryItem);
@@ -863,7 +912,7 @@ apiRouter.put(
         logAudit(
           'PIC_ASSIGNMENT_UPDATED',
           'Client',
-          `Perubahan penugasan 4 PIC klien ${client.name}: Acc Staff (${newAccStaff}), Tax Staff (${newTaxStaff}), Acc SPV (${newAccSpv}), Tax SPV (${newTaxSpv}). Status: ${client.picAssignmentStatus}.`,
+          `Perubahan penugasan PIC klien ${client.name}: Acc (${accountingOwner}), Tax (${taxOwner}), Acc SPV (${newAccSpv}), Tax SPV (${newTaxSpv}). Status: ${client.picAssignmentStatus}.`,
           { userId: req.user!.userId, name: req.user!.name, role: req.user!.role },
           client.id,
           client.name
@@ -925,11 +974,25 @@ apiRouter.put(
         throw new Error('Tanggal akta tidak valid.');
       }
 
-      // Synchronize backward compat fields
-      if (updates.accountingStaffPicId !== undefined) updates.accountingPicId = updates.accountingStaffPicId;
-      if (updates.accountingStaffPicName !== undefined) updates.accountingPicName = updates.accountingStaffPicName;
-      if (updates.taxStaffPicId !== undefined) updates.taxPicId = updates.taxStaffPicId;
-      if (updates.taxStaffPicName !== undefined) updates.taxPicName = updates.taxStaffPicName;
+      // Synchronize backward-compatible PIC aliases with the effective owner.
+      if (['accountingStaffPicId', 'accountingStaffPicName', 'accountingSpvIsPic', 'accountingSpvId', 'accountingSpvName'].some((key) => updates[key] !== undefined)) {
+        const spvIsPic = updates.accountingSpvIsPic ?? client.accountingSpvIsPic ?? false;
+        updates.accountingPicId = spvIsPic
+          ? updates.accountingSpvId ?? client.accountingSpvId
+          : updates.accountingStaffPicId ?? client.accountingStaffPicId;
+        updates.accountingPicName = spvIsPic
+          ? updates.accountingSpvName ?? client.accountingSpvName
+          : updates.accountingStaffPicName ?? client.accountingStaffPicName;
+      }
+      if (['taxStaffPicId', 'taxStaffPicName', 'taxSpvIsPic', 'taxSpvId', 'taxSpvName'].some((key) => updates[key] !== undefined)) {
+        const spvIsPic = updates.taxSpvIsPic ?? client.taxSpvIsPic ?? false;
+        updates.taxPicId = spvIsPic
+          ? updates.taxSpvId ?? client.taxSpvId
+          : updates.taxStaffPicId ?? client.taxStaffPicId;
+        updates.taxPicName = spvIsPic
+          ? updates.taxSpvName ?? client.taxSpvName
+          : updates.taxStaffPicName ?? client.taxStaffPicName;
+      }
       if (updates.accountingSpvId !== undefined) updates.spvId = updates.accountingSpvId;
       if (updates.accountingSpvName !== undefined) updates.spvName = updates.accountingSpvName;
 
@@ -1209,14 +1272,22 @@ apiRouter.post(
     for (const [index, division] of selectedDivisions.entries()) {
       const staffRole = division === 'Accounting' ? 'Staff Accounting' : 'Staff Tax';
       const spvRole = division === 'Accounting' ? 'SPV Accounting' : 'SPV Tax';
-      const defaultPicId = division === 'Accounting' ? client.accountingStaffPicId : client.taxStaffPicId;
+      const spvIsPic = division === 'Accounting' ? client.accountingSpvIsPic : client.taxSpvIsPic;
+      const defaultStaffPicId = division === 'Accounting' ? client.accountingStaffPicId : client.taxStaffPicId;
       const defaultSpvId = division === 'Accounting' ? client.accountingSpvId : client.taxSpvId;
+      const expectedPicRole = spvIsPic ? spvRole : staffRole;
+      const defaultPicId = spvIsPic ? defaultSpvId : defaultStaffPicId;
       const requestedPicId = data.picAssignments?.[division]?.picId || defaultPicId;
-      const assignedPic = db.users.find((user) => user.id === requestedPicId && user.active && user.role === staffRole);
+      const assignedPic = db.users.find((user) =>
+        user.id === requestedPicId &&
+        user.active &&
+        user.role === expectedPicRole &&
+        (!spvIsPic || user.id === defaultSpvId)
+      );
       const assignedSpv = db.users.find((user) => user.id === defaultSpvId && user.active && user.role === spvRole);
 
       if (!assignedPic) {
-        res.status(400).json({ error: `Pilih PIC aktif dengan peran ${staffRole} untuk divisi ${division}.` });
+        res.status(400).json({ error: `Pilih PIC aktif dengan peran ${expectedPicRole} untuk divisi ${division}.` });
         return;
       }
       if (!assignedSpv) {
@@ -1535,11 +1606,24 @@ apiRouter.post(
     }
 
     const db = getDb();
+    const client = db.clients.find((candidate) => candidate.id === data.clientId);
+    if (!client) {
+      res.status(404).json({ error: 'Klien tidak ditemukan.' });
+      return;
+    }
+    const spvIsPic = data.division === 'Accounting' ? client.accountingSpvIsPic : client.taxSpvIsPic;
+    const expectedPicRole = spvIsPic ? `SPV ${data.division}` : `Staff ${data.division}`;
+    const expectedOwnerId = spvIsPic
+      ? data.division === 'Accounting' ? client.accountingSpvId : client.taxSpvId
+      : undefined;
     const assignedPic = db.users.find((user) =>
-      user.id === data.picId && user.active && user.role === `Staff ${data.division}`
+      user.id === data.picId &&
+      user.active &&
+      user.role === expectedPicRole &&
+      (!expectedOwnerId || user.id === expectedOwnerId)
     );
     if (!assignedPic) {
-      res.status(400).json({ error: 'Pilih PIC aktif dari divisi yang sesuai sebelum mencatat kasus.' });
+      res.status(400).json({ error: 'PIC harus sesuai dengan penanggung jawab utama klien dan divisinya.' });
       return;
     }
 
@@ -2566,7 +2650,7 @@ apiRouter.get(
       ['Total Klien Terdaftar', db.clients.length, `${activeClients} Klien Aktif, ${db.clients.length - activeClients} Tidak Aktif`, 'Tersinkronisasi'],
       ['Segmentasi Badan vs OP', `${badanCount} Badan / ${opCount} OP`, `${Math.round((badanCount / (db.clients.length || 1)) * 100)}% Badan Usaha`, 'Valid'],
       ['Kepatuhan Pengusaha Kena Pajak (PKP)', `${pkpCount} PKP / ${nonPkpCount} Non-PKP`, `${Math.round((pkpCount / (db.clients.length || 1)) * 100)}% Terdaftar PKP`, 'Sesuai SKT'],
-      ['Status Pembagian 4 PIC Klien', `${completePicCount} Lengkap / ${incompletePicCount} Belum`, '1 Staf Acc, 1 Staf Tax, 1 SPV Acc, 1 SPV Tax', incompletePicCount > 0 ? 'Perlu Dilengkapi' : 'Lengkap 100%'],
+      ['Status PIC Utama Klien', `${completePicCount} Lengkap / ${incompletePicCount} Belum`, 'PIC utama Accounting dan Tax beserta SPV reviewer', incompletePicCount > 0 ? 'Perlu Dilengkapi' : 'Lengkap 100%'],
       ['Total Pekerjaan (Jobs)', db.jobs.length, `${completedJobs} Selesai, ${overdueJobs} Terlambat`, overdueJobs > 0 ? 'Ada Keterlambatan' : 'Sesuai SLA'],
       ['Kasus Perpajakan & Akuntansi Terbuka', openCases, `${openCases} Case Aktif dalam Penanganan`, openCases > 0 ? 'Monitoring Aktif' : 'Nihil Kasus'],
       ['Eksposur Klien Risiko Tinggi (High Risk)', highRiskCount, `${highRiskCount} Klien Berisiko Pajak/Akuntansi Tinggi`, 'Mitigasi Berjalan'],
@@ -2722,7 +2806,7 @@ apiRouter.get(
       { header: 'Divisi', key: 'division', width: 14 },
       { header: 'Judul Pekerjaan', key: 'title', width: 35 },
       { header: 'Prioritas', key: 'priority', width: 14 },
-      { header: 'Staff PIC', key: 'picName', width: 24 },
+      { header: 'PIC Penanggung Jawab', key: 'picName', width: 24 },
       { header: 'SPV Reviewer', key: 'spvName', width: 24 },
       { header: 'Tgl Mulai', key: 'startDate', width: 14 },
       { header: 'Deadline', key: 'deadline', width: 14 },
@@ -2768,11 +2852,11 @@ apiRouter.get(
       { header: 'Rezim PPh', key: 'pphRegime', width: 24 },
       { header: 'Tahun Pajak', key: 'taxYearEffective', width: 12 },
       { header: 'Fasilitas UMKM', key: 'umkm', width: 18 },
-      { header: 'Staff Acc PIC', key: 'accountingStaffPicName', width: 22 },
-      { header: 'Staff Tax PIC', key: 'taxStaffPicName', width: 22 },
-      { header: 'SPV Acc', key: 'accountingSpvName', width: 22 },
-      { header: 'SPV Tax', key: 'taxSpvName', width: 22 },
-      { header: 'Status 4 PIC', key: 'picAssignmentStatus', width: 16 },
+      { header: 'PIC Accounting', key: 'accountingStaffPicName', width: 22 },
+      { header: 'PIC Tax', key: 'taxStaffPicName', width: 22 },
+      { header: 'SPV Reviewer Acc', key: 'accountingSpvName', width: 22 },
+      { header: 'SPV Reviewer Tax', key: 'taxSpvName', width: 22 },
+      { header: 'Status PIC', key: 'picAssignmentStatus', width: 16 },
       { header: 'Risiko Acc', key: 'accountingRisk', width: 14 },
       { header: 'Risiko Tax', key: 'taxRisk', width: 14 },
       { header: 'Alasan Risiko', key: 'riskReason', width: 35 },
@@ -2790,8 +2874,8 @@ apiRouter.get(
         pphRegime: c.pphRegime,
         taxYearEffective: c.taxYearEffective,
         umkm: c.umkmFacilityEndYear ? `s/d ${c.umkmFacilityEndYear}` : '-',
-        accountingStaffPicName: c.accountingStaffPicName || '-',
-        taxStaffPicName: c.taxStaffPicName || '-',
+        accountingStaffPicName: c.accountingSpvIsPic ? c.accountingSpvName || '-' : c.accountingStaffPicName || '-',
+        taxStaffPicName: c.taxSpvIsPic ? c.taxSpvName || '-' : c.taxStaffPicName || '-',
         accountingSpvName: c.accountingSpvName || '-',
         taxSpvName: c.taxSpvName || '-',
         picAssignmentStatus: c.picAssignmentStatus,

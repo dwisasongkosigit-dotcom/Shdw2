@@ -34,6 +34,8 @@ export interface PicHistoryItem {
   taxStaff: string;
   accountingSpv: string;
   taxSpv: string;
+  accountingSpvIsPic?: boolean;
+  taxSpvIsPic?: boolean;
   notes?: string;
 }
 
@@ -64,11 +66,13 @@ export interface Client {
   dataType: 'Real' | 'Simulasi' | 'Belum Diatur';
   suggestions: ClientSuggestion[];
 
-  // 4 PIC Assignments
+  // Per-division owner and reviewer assignments
   accountingStaffPicId: string;
   accountingStaffPicName: string;
   taxStaffPicId: string;
   taxStaffPicName: string;
+  accountingSpvIsPic: boolean;
+  taxSpvIsPic: boolean;
   accountingSpvId: string;
   accountingSpvName: string;
   taxSpvId: string;

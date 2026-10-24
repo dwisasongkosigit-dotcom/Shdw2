@@ -144,11 +144,11 @@ export function ReportsView({ clients, jobs, cases, activities }: ReportsViewPro
       { header: 'Rezim PPh', key: 'pphRegime', width: 24 },
       { header: 'Tahun Pajak', key: 'taxYearEffective', width: 12, align: 'center' },
       { header: 'Fasilitas UMKM', key: 'umkm', width: 16, align: 'center', render: (c) => (c.umkmFacilityEndYear ? `s/d ${c.umkmFacilityEndYear}` : '-') },
-      { header: 'Staff Acc PIC', key: 'accountingStaffPicName', width: 20, render: (c) => c.accountingStaffPicName || '-' },
-      { header: 'Staff Tax PIC', key: 'taxStaffPicName', width: 20, render: (c) => c.taxStaffPicName || '-' },
+      { header: 'PIC Accounting', key: 'accountingStaffPicName', width: 20, render: (c) => c.accountingSpvIsPic ? c.accountingSpvName || '-' : c.accountingStaffPicName || '-' },
+      { header: 'PIC Tax', key: 'taxStaffPicName', width: 20, render: (c) => c.taxSpvIsPic ? c.taxSpvName || '-' : c.taxStaffPicName || '-' },
       { header: 'SPV Acc', key: 'accountingSpvName', width: 20, render: (c) => c.accountingSpvName || '-' },
       { header: 'SPV Tax', key: 'taxSpvName', width: 20, render: (c) => c.taxSpvName || '-' },
-      { header: 'Status 4 PIC', key: 'picAssignmentStatus', width: 15, align: 'center' },
+      { header: 'Status PIC Utama', key: 'picAssignmentStatus', width: 15, align: 'center' },
     ],
     [clients]
   );
@@ -164,8 +164,8 @@ export function ReportsView({ clients, jobs, cases, activities }: ReportsViewPro
       { header: 'Risiko Tax', key: 'taxRisk', width: 16, align: 'center' },
       { header: 'Alasan Risiko Tax', key: 'taxRiskReason', width: 35, render: (c) => c.taxRiskReason || '-' },
       { header: 'Rekomendasi Penanganan', key: 'recommendation', width: 35, render: (c) => c.taxRiskRecommendation || c.accountingRiskRecommendation || '-' },
-      { header: 'Staff Acc PIC', key: 'accountingStaffPicName', width: 20, render: (c) => c.accountingStaffPicName || '-' },
-      { header: 'Staff Tax PIC', key: 'taxStaffPicName', width: 20, render: (c) => c.taxStaffPicName || '-' },
+      { header: 'PIC Accounting', key: 'accountingStaffPicName', width: 20, render: (c) => c.accountingSpvIsPic ? c.accountingSpvName || '-' : c.accountingStaffPicName || '-' },
+      { header: 'PIC Tax', key: 'taxStaffPicName', width: 20, render: (c) => c.taxSpvIsPic ? c.taxSpvName || '-' : c.taxStaffPicName || '-' },
     ],
     [clients]
   );
