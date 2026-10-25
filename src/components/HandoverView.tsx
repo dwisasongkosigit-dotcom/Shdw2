@@ -7,6 +7,7 @@ import {
   type JobHandoverDirection,
   type ActiveJobHandoverDirection,
   type JobHandoverRecord,
+  type JobHandoverDestination,
   type Client,
 } from '../lib/api';
 import { ExportDropdown } from './ExportDropdown';
@@ -68,6 +69,23 @@ function isSpvPicForDivision(client: Client | undefined, division: Job['division
 
 function getHandoverDirectionLabel(direction: JobHandoverDirection) {
   return HANDOVER_DIRECTION_LABELS[direction];
+}
+
+function getHandoverDestination(direction: JobHandoverDirection): JobHandoverDestination {
+  return direction.endsWith('-to-client') ? 'client' : 'internal';
+}
+
+function isHandoverDirectionVisible(
+  direction: JobHandoverDirection,
+  visibleOptions: typeof HANDOVER_OPTIONS,
+  directionFilter: 'All' | JobHandoverDirection,
+  destinationFilter: 'All' | JobHandoverDestination
+) {
+  if (ACTIVE_HANDOVER_DIRECTIONS.has(direction)) {
+    return visibleOptions.some((option) => option.direction === direction);
+  }
+  return directionFilter === 'All' &&
+    (destinationFilter === 'All' || getHandoverDestination(direction) === destinationFilter);
 }
 
 const HANDOVER_EXPORT_COLUMNS: ColumnDef<HandoverExportRow>[] = [
@@ -299,6 +317,8 @@ function HandoverChecklistCell({
 export function HandoverView({ jobs, clients, records, currentUser, onRefresh }: HandoverViewProps) {
   const { success, error } = useToast();
   const [clientFilter, setClientFilter] = useState('All');
+  const [picFilter, setPicFilter] = useState('All');
+  const [destinationFilter, setDestinationFilter] = useState<'All' | JobHandoverDestination>('All');
   const [directionFilter, setDirectionFilter] = useState<'All' | JobHandoverDirection>('All');
   const [statusFilter, setStatusFilter] = useState<'All' | 'review' | 'handover' | 'complete' | 'delivered' | 'canceled' | 'unconfigured'>('All');
   const [periodFilter, setPeriodFilter] = useState('All');
@@ -314,6 +334,11 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
   const [newlySavedRecords, setNewlySavedRecords] = useState<JobHandoverRecord[]>([]);
 
   const visibleJobs = useMemo(() => jobs.filter((job) => canViewJob(job, currentUser)), [jobs, currentUser]);
+  const availablePics = useMemo(() => {
+    const picsById = new Map<string, string>();
+    visibleJobs.forEach((job) => picsById.set(job.picId, job.picName));
+    return [...picsById.entries()].sort((a, b) => a[1].localeCompare(b[1], 'id-ID'));
+  }, [visibleJobs]);
   const clientsById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
   const visibleJobIds = useMemo(() => new Set(visibleJobs.map((job) => job.id)), [visibleJobs]);
   const visibleRecords = useMemo(() => {
@@ -355,8 +380,11 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     return [...periods].filter(Boolean).sort((a, b) => b.localeCompare(a));
   }, [visibleJobs, visibleRecords]);
   const visibleChecklistOptions = useMemo(
-    () => HANDOVER_OPTIONS.filter((option) => directionFilter === 'All' || option.direction === directionFilter),
-    [directionFilter]
+    () => HANDOVER_OPTIONS.filter((option) =>
+      (directionFilter === 'All' || option.direction === directionFilter) &&
+      (destinationFilter === 'All' || getHandoverDestination(option.direction) === destinationFilter)
+    ),
+    [directionFilter, destinationFilter]
   );
   const handoverExportColumns = useMemo(() => {
     const selectedKeys = new Set(visibleChecklistOptions.map((option) => HANDOVER_EXPORT_KEY[option.direction]));
@@ -368,13 +396,17 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
 
   const filteredJobs = useMemo(() => visibleJobs.filter((job) => {
     if (clientFilter !== 'All' && job.clientId !== clientFilter) return false;
-    const selectedDirection = HANDOVER_OPTIONS.find((option) => option.direction === directionFilter);
-    if (selectedDirection && !isDirectionApplicable(job, selectedDirection.direction, clientsById.get(job.clientId))) return false;
+    if (picFilter !== 'All' && job.picId !== picFilter) return false;
+    const client = clientsById.get(job.clientId);
+    if (directionFilter !== 'All' && !isDirectionRequired(job, directionFilter, client)) return false;
+    if (destinationFilter !== 'All' && !HANDOVER_OPTIONS.some((option) =>
+      getHandoverDestination(option.direction) === destinationFilter && isDirectionRequired(job, option.direction, client)
+    )) return false;
     const query = searchTerm.trim().toLocaleLowerCase('id-ID');
     if (query && ![job.id, job.title, job.clientName, job.picName, job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(query))) return false;
     const jobOptions = HANDOVER_OPTIONS.filter((option) =>
-      (directionFilter === 'All' || option.direction === directionFilter) &&
-      isDirectionRequired(job, option.direction, clientsById.get(job.clientId))
+      visibleChecklistOptions.some((visibleOption) => visibleOption.direction === option.direction) &&
+      isDirectionRequired(job, option.direction, client)
     );
     const jobRecords = jobOptions.map((option) => recordByKey.get(`${job.id}:${option.direction}`));
     const completedHandoverCount = jobRecords.filter(Boolean).length;
@@ -385,19 +417,19 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     if (statusFilter === 'unconfigured' && isHandoverConfigured(job)) return false;
     if (statusFilter === 'delivered' && !jobHistory.some((record) =>
       !record.canceledAt &&
-      (directionFilter === 'All' || record.direction === directionFilter) &&
+      isHandoverDirectionVisible(record.direction, visibleChecklistOptions, directionFilter, destinationFilter) &&
       (periodFilter === 'All' || record.sentAt.startsWith(periodFilter))
     )) return false;
     if (statusFilter === 'canceled' && !jobHistory.some((record) =>
       Boolean(record.canceledAt) &&
-      (directionFilter === 'All' || record.direction === directionFilter) &&
+      isHandoverDirectionVisible(record.direction, visibleChecklistOptions, directionFilter, destinationFilter) &&
       (periodFilter === 'All' || record.canceledAt?.startsWith(periodFilter))
     )) return false;
     if (periodFilter !== 'All') {
       const hasActiveRecordInPeriod = jobRecords.some((record) => record?.sentAt.startsWith(periodFilter));
-          const hasCanceledRecordInPeriod = jobHistory.some((record) =>
+      const hasCanceledRecordInPeriod = jobHistory.some((record) =>
         Boolean(record.canceledAt) &&
-        (directionFilter === 'All' || record.direction === directionFilter) &&
+        isHandoverDirectionVisible(record.direction, visibleChecklistOptions, directionFilter, destinationFilter) &&
         (record.sentAt.startsWith(periodFilter) || record.canceledAt?.startsWith(periodFilter))
       );
       if (!job.createdAt.startsWith(periodFilter) && !job.completedAt?.startsWith(periodFilter) && !hasActiveRecordInPeriod && !hasCanceledRecordInPeriod) return false;
@@ -407,7 +439,10 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     visibleJobs,
     clientsById,
     clientFilter,
+    picFilter,
+    destinationFilter,
     directionFilter,
+    visibleChecklistOptions,
     searchTerm,
     recordByKey,
     recordsByJobId,
@@ -447,25 +482,29 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
   const summaryJobs = useMemo(() => visibleJobs.filter((job) => {
     if ((job.serviceResponsibility || 'Tim 3') !== 'Tim 3') return false;
     if (clientFilter !== 'All' && job.clientId !== clientFilter) return false;
-    const selectedDirection = HANDOVER_OPTIONS.find((option) => option.direction === directionFilter);
-    if (selectedDirection && !isDirectionApplicable(job, selectedDirection.direction, clientsById.get(job.clientId))) return false;
+    if (picFilter !== 'All' && job.picId !== picFilter) return false;
+    const client = clientsById.get(job.clientId);
+    if (directionFilter !== 'All' && !isDirectionRequired(job, directionFilter, client)) return false;
+    if (destinationFilter !== 'All' && !HANDOVER_OPTIONS.some((option) =>
+      getHandoverDestination(option.direction) === destinationFilter && isDirectionRequired(job, option.direction, client)
+    )) return false;
     const query = searchTerm.trim().toLocaleLowerCase('id-ID');
     if (query && ![job.id, job.title, job.clientName, job.picName, job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(query))) return false;
     if (periodFilter !== 'All') {
       const hasPeriod = job.createdAt.startsWith(periodFilter) || job.completedAt?.startsWith(periodFilter) ||
         (recordsByJobId.get(job.id) || []).some((record) =>
-          (directionFilter === 'All' || record.direction === directionFilter) &&
+          isHandoverDirectionVisible(record.direction, visibleChecklistOptions, directionFilter, destinationFilter) &&
           (record.sentAt.startsWith(periodFilter) || record.canceledAt?.startsWith(periodFilter))
         );
       if (!hasPeriod) return false;
     }
     return true;
-  }), [visibleJobs, clientsById, clientFilter, directionFilter, searchTerm, periodFilter, recordsByJobId]);
+  }), [visibleJobs, clientsById, clientFilter, picFilter, destinationFilter, directionFilter, visibleChecklistOptions, searchTerm, periodFilter, recordsByJobId]);
   const summaryJobIds = useMemo(() => new Set(summaryJobs.map((job) => job.id)), [summaryJobs]);
   const summaryJobsById = useMemo(() => new Map(summaryJobs.map((job) => [job.id, job])), [summaryJobs]);
   const summaryRecords = useMemo(() => visibleRecords.filter((record) =>
-    summaryJobIds.has(record.jobId) && (directionFilter === 'All' || record.direction === directionFilter)
-  ), [visibleRecords, summaryJobIds, directionFilter]);
+    summaryJobIds.has(record.jobId) && isHandoverDirectionVisible(record.direction, visibleChecklistOptions, directionFilter, destinationFilter)
+  ), [visibleRecords, summaryJobIds, visibleChecklistOptions, directionFilter, destinationFilter]);
   const activeSummaryRecords = useMemo(() => summaryRecords.filter((record) => {
     const job = summaryJobsById.get(record.jobId);
     return Boolean(job && isDirectionApplicable(job, record.direction, clientsById.get(job.clientId)) &&
@@ -482,12 +521,11 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
   );
   const pendingHandoverCount = useMemo(() => summaryJobs.reduce((total, job) => {
     if (job.status !== 'Selesai') return total;
-    return total + HANDOVER_OPTIONS.filter((option) =>
-      (directionFilter === 'All' || option.direction === directionFilter) &&
+    return total + visibleChecklistOptions.filter((option) =>
       isDirectionRequired(job, option.direction, clientsById.get(job.clientId)) &&
       !recordByKey.has(`${job.id}:${option.direction}`)
     ).length;
-  }, 0), [summaryJobs, directionFilter, recordByKey, clientsById]);
+  }, 0), [summaryJobs, visibleChecklistOptions, recordByKey, clientsById]);
   const unconfiguredJobCount = useMemo(
     () => summaryJobs.filter((job) => !isHandoverConfigured(job)).length,
     [summaryJobs]
@@ -497,11 +535,10 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     activeSummaryRecords.forEach((record) => counts.set(record.direction, (counts.get(record.direction) || 0) + 1));
     return counts;
   }, [activeSummaryRecords]);
-  const directionSummary = useMemo(() => HANDOVER_OPTIONS
-    .filter((option) => directionFilter === 'All' || option.direction === directionFilter)
+  const directionSummary = useMemo(() => visibleChecklistOptions
     .filter((option) => summaryJobs.some((job) => isDirectionRequired(job, option.direction, clientsById.get(job.clientId))))
     .map((option) => ({ ...option, count: activeCountByDirection.get(option.direction) || 0 })),
-  [directionFilter, summaryJobs, activeCountByDirection, clientsById]);
+  [visibleChecklistOptions, summaryJobs, activeCountByDirection, clientsById]);
 
   const handleRecordHandover = async (job: Job, direction: ActiveJobHandoverDirection) => {
     const key = `${job.id}:${direction}`;
@@ -632,7 +669,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
       </section>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <label className="relative sm:col-span-2 xl:col-span-1">
             <span className="sr-only">Cari job, klien, PIC, atau reviewer</span>
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
@@ -643,6 +680,13 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
             <select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)} className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-medium normal-case tracking-normal text-slate-700 outline-none focus:border-amber-500">
               <option value="All">Semua Klien</option>
               {clients.slice().sort((a, b) => a.name.localeCompare(b.name)).map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            PIC
+            <select value={picFilter} onChange={(event) => setPicFilter(event.target.value)} className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-medium normal-case tracking-normal text-slate-700 outline-none focus:border-amber-500">
+              <option value="All">Semua PIC</option>
+              {availablePics.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
@@ -666,25 +710,39 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
           </label>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-          <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Tujuan</span>
-          <button type="button" aria-pressed={directionFilter === 'All'} onClick={() => setDirectionFilter('All')} className={`min-h-9 rounded-full px-3 text-[11px] font-semibold transition-colors ${directionFilter === 'All' ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>Semua</button>
-          {HANDOVER_OPTIONS.map((option) => (
-            <button key={option.direction} type="button" aria-pressed={directionFilter === option.direction} onClick={() => setDirectionFilter(option.direction)} className={`min-h-9 rounded-full px-3 text-[11px] font-semibold transition-colors ${directionFilter === option.direction ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
-              {option.label}
-            </button>
-          ))}
-          <ExportDropdown
-            filename="Rekap_Serah_Terima_TMM_BMA"
-            sheetName="Rekap Serah Terima"
-            title="REKAP SERAH TERIMA PEKERJAAN"
-            subtitle={`Filter: ${statusFilter} · Klien: ${clientFilter === 'All' ? 'Semua klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} · Periode: ${periodFilter} · Tujuan: ${directionFilter === 'All' ? 'Semua tujuan' : HANDOVER_OPTIONS.find((option) => option.direction === directionFilter)?.label || 'Tujuan'} · ${filteredJobs.length} job`}
-            columns={handoverExportColumns}
-            data={handoverExportRows}
-            label="Ekspor Rekap"
-            className="ml-auto"
-          />
-          <span className="text-[11px] tabular-nums text-slate-400">{filteredJobs.length} job</span>
+        <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-3">
+          <div className="flex flex-wrap items-center gap-2" aria-label="Filter tujuan serah terima">
+            <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Tujuan</span>
+            {([
+              ['All', 'Semua'],
+              ['client', 'Klien'],
+              ['internal', 'Antar divisi'],
+            ] as const).map(([value, label]) => (
+              <button key={value} type="button" aria-pressed={destinationFilter === value} onClick={() => setDestinationFilter(value)} className={`min-h-9 rounded-full px-3 text-[11px] font-semibold transition-colors ${destinationFilter === value ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2" aria-label="Filter arah serah terima">
+            <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Arah</span>
+            <button type="button" aria-pressed={directionFilter === 'All'} onClick={() => setDirectionFilter('All')} className={`min-h-9 rounded-full px-3 text-[11px] font-semibold transition-colors ${directionFilter === 'All' ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>Semua</button>
+            {HANDOVER_OPTIONS.map((option) => (
+              <button key={option.direction} type="button" aria-pressed={directionFilter === option.direction} onClick={() => setDirectionFilter(option.direction)} className={`min-h-9 rounded-full px-3 text-[11px] font-semibold transition-colors ${directionFilter === option.direction ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
+                {option.label}
+              </button>
+            ))}
+            <ExportDropdown
+              filename="Rekap_Serah_Terima_TMM_BMA"
+              sheetName="Rekap Serah Terima"
+              title="REKAP SERAH TERIMA PEKERJAAN"
+              subtitle={`Filter: ${statusFilter} · Klien: ${clientFilter === 'All' ? 'Semua klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} · PIC: ${picFilter === 'All' ? 'Semua PIC' : availablePics.find(([id]) => id === picFilter)?.[1] || 'PIC'} · Periode: ${periodFilter} · Tujuan: ${destinationFilter === 'All' ? 'Semua tujuan' : destinationFilter === 'client' ? 'Klien' : 'Antar divisi'} · Arah: ${directionFilter === 'All' ? 'Semua arah' : HANDOVER_OPTIONS.find((option) => option.direction === directionFilter)?.label || 'Arah'} · ${filteredJobs.length} job`}
+              columns={handoverExportColumns}
+              data={handoverExportRows}
+              label="Ekspor Rekap"
+              className="ml-auto"
+            />
+            <span className="text-[11px] tabular-nums text-slate-400">{filteredJobs.length} job</span>
+          </div>
         </div>
       </div>
 
@@ -693,7 +751,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-12 text-center">
             <ClipboardCheck className="mx-auto size-8 text-slate-300" />
             <h2 className="mt-3 text-sm font-semibold text-slate-800">Tidak ada job yang cocok</h2>
-            <p className="mt-1 text-xs text-slate-500">Ubah filter klien, tujuan, periode, atau pencarian.</p>
+            <p className="mt-1 text-xs text-slate-500">Ubah filter klien, PIC, tujuan, arah, periode, atau pencarian.</p>
           </div>
         ) : filteredJobs.map((job, index) => {
           const client = clientsById.get(job.clientId);
@@ -707,8 +765,8 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
           const doneCount = requiredOptions.filter((option) => recordByKey.has(`${job.id}:${option.direction}`)).length;
           const isReviewed = job.status === 'Selesai';
           const isTim3Assignment = (job.serviceResponsibility || 'Tim 3') === 'Tim 3';
-          const canceledRecords = jobHistory.filter((record) => Boolean(record.canceledAt) && ACTIVE_HANDOVER_DIRECTIONS.has(record.direction) && (directionFilter === 'All' || record.direction === directionFilter)).sort((a, b) => (b.canceledAt || '').localeCompare(a.canceledAt || ''));
-          const legacyRecords = jobHistory.filter((record) => !ACTIVE_HANDOVER_DIRECTIONS.has(record.direction)).sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+          const canceledRecords = jobHistory.filter((record) => Boolean(record.canceledAt) && ACTIVE_HANDOVER_DIRECTIONS.has(record.direction) && visibleChecklistOptions.some((option) => option.direction === record.direction)).sort((a, b) => (b.canceledAt || '').localeCompare(a.canceledAt || ''));
+          const legacyRecords = jobHistory.filter((record) => !ACTIVE_HANDOVER_DIRECTIONS.has(record.direction) && (destinationFilter === 'All' || getHandoverDestination(record.direction) === destinationFilter) && directionFilter === 'All').sort((a, b) => b.sentAt.localeCompare(a.sentAt));
           const configuredDestinationLabel = getConfiguredDestinationLabel(job, client);
           const destinationLabel = configuredDestinationLabel === 'Belum diatur' ? 'Tujuan belum diatur' : configuredDestinationLabel;
 

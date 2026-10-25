@@ -16,6 +16,19 @@ export interface CurrentUser {
   mustChangePassword?: boolean;
 }
 
+export interface AppNotification {
+  id: string;
+  recipientId: string;
+  kind: 'job-review';
+  title: string;
+  message: string;
+  jobId: string;
+  jobTitle: string;
+  actorName: string;
+  createdAt: string;
+  readAt?: string;
+}
+
 export interface BrandingConfig {
   appName: string;
   companyName: string;
@@ -582,6 +595,11 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
+  getNotifications: () => request<AppNotification[]>('/api/notifications'),
+  markNotificationRead: (id: string) =>
+    request<{ success: boolean; notification: AppNotification }>(`/api/notifications/${id}/read`, { method: 'PUT' }),
+  markAllNotificationsRead: () =>
+    request<{ success: boolean; updatedCount: number }>('/api/notifications/read-all', { method: 'PUT' }),
   deleteJob: (id: string) =>
     request<{ success: boolean; message: string }>(`/api/jobs/${id}`, {
       method: 'DELETE',

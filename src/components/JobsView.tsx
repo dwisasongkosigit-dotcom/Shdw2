@@ -343,8 +343,9 @@ export function JobsView({
         status: 'Selesai',
         progressPercent: 100,
         expectedVersion: selectedJob.version,
-        reviewNotes: actionNotes || 'Disetujui oleh SPV. Pekerjaan dinyatakan Selesai.',
-        historyNote: actionNotes || 'Persetujuan resmi dari SPV.',
+        reviewNotes: actionNotes.trim() || 'Disetujui oleh SPV. Pekerjaan dinyatakan Selesai.',
+        reviewNotesAreCustom: Boolean(actionNotes.trim()),
+        historyNote: actionNotes.trim() || 'Persetujuan resmi dari SPV.',
       });
       success('Pekerjaan Disetujui', 'Pekerjaan selesai dan persetujuan SPV yang ditugaskan tersimpan.');
       setSelectedJob(null);

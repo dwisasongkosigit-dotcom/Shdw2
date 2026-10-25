@@ -46,6 +46,7 @@ import type {
   TeamAgendaEntry,
   AgendaStatus,
   AgendaDivision,
+  AppNotification,
 } from './types.ts';
 
 export const apiRouter = Router();
@@ -1517,6 +1518,42 @@ apiRouter.get('/jobs', authenticateToken, (req: AuthenticatedRequest, res: Respo
   res.json(results);
 });
 
+apiRouter.get('/notifications', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const currentUser = req.user!;
+  const notifications = (getDb().notifications || [])
+    .filter((notification) => notification.recipientId === currentUser.userId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  res.json(notifications);
+});
+
+apiRouter.put('/notifications/:id/read', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const currentUser = req.user!;
+  let updatedNotification: AppNotification | undefined;
+  mutateDb((database) => {
+    updatedNotification = (database.notifications || []).find((notification) =>
+      notification.id === req.params.id && notification.recipientId === currentUser.userId
+    );
+    if (!updatedNotification) throw new Error('Notifikasi tidak ditemukan.');
+    updatedNotification.readAt ||= new Date().toISOString();
+  });
+  res.json({ success: true, notification: updatedNotification });
+});
+
+apiRouter.put('/notifications/read-all', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const currentUser = req.user!;
+  let updatedCount = 0;
+  mutateDb((database) => {
+    const readAt = new Date().toISOString();
+    (database.notifications || []).forEach((notification) => {
+      if (notification.recipientId === currentUser.userId && !notification.readAt) {
+        notification.readAt = readAt;
+        updatedCount += 1;
+      }
+    });
+  });
+  res.json({ success: true, updatedCount });
+});
+
 apiRouter.get('/handovers', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const db = getDb();
   const currentUser = req.user!;
@@ -1953,6 +1990,12 @@ apiRouter.put(
       if (updates.status !== undefined && !['Belum Dimulai', 'Dalam Proses', 'Menunggu Klien', 'Siap Direview', 'Perlu Revisi', 'Selesai'].includes(updates.status)) {
         throw new Error('Status pekerjaan tidak valid.');
       }
+      if (updates.reviewNotes !== undefined && (typeof updates.reviewNotes !== 'string' || updates.reviewNotes.length > 2000)) {
+        throw new Error('Catatan review maksimal 2.000 karakter.');
+      }
+      if (updates.reviewNotesAreCustom !== undefined && typeof updates.reviewNotesAreCustom !== 'boolean') {
+        throw new Error('Penanda catatan review tidak valid.');
+      }
 
       // Concurrency version check
       if (updates.expectedVersion !== undefined && job.version !== updates.expectedVersion) {
@@ -2055,6 +2098,23 @@ apiRouter.put(
       if (updates.progressPercent !== undefined) job.progressPercent = Number(updates.progressPercent);
       if (updates.status !== undefined) job.status = updates.status;
       if (updates.reviewNotes !== undefined) job.reviewNotes = updates.reviewNotes;
+
+      const reviewMessage = typeof updates.reviewNotes === 'string' ? updates.reviewNotes.trim() : '';
+      if (statusChanged && updates.status === 'Selesai' && updates.reviewNotesAreCustom === true && reviewMessage && job.picId !== currentUser.userId) {
+        const notification: AppNotification = {
+          id: randomUUID(),
+          recipientId: job.picId,
+          kind: 'job-review',
+          title: 'Review selesai dengan catatan',
+          message: reviewMessage,
+          jobId: job.id,
+          jobTitle: job.title,
+          actorName: currentUser.name,
+          createdAt: new Date().toISOString(),
+        };
+        database.notifications = database.notifications || [];
+        database.notifications.unshift(notification);
+      }
 
       savedJob = job;
 
