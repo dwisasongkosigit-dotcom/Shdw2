@@ -168,6 +168,7 @@ export type JobHandoverDestination = 'client' | 'internal';
 
 export type ActiveJobHandoverDirection =
   | 'staff-to-client'
+  | 'spv-pic-to-client'
   | 'accounting-to-tax'
   | 'tax-to-accounting';
 
@@ -595,7 +596,7 @@ export const api = {
     request<{ success: boolean; record: JobHandoverRecord; message: string }>(`/api/jobs/${jobId}/handovers/${recordId}/cancel`, {
       method: 'POST',
     }),
-  deleteCanceledJobHandover: (jobId: string, recordId: string) =>
+  deleteJobHandover: (jobId: string, recordId: string) =>
     request<{ success: boolean; message: string }>(`/api/jobs/${jobId}/handovers/${recordId}`, {
       method: 'DELETE',
     }),

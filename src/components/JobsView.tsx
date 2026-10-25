@@ -34,10 +34,15 @@ const SERVICE_RESPONSIBILITY_OPTIONS: ServiceResponsibility[] = [
 ];
 
 const HANDOVER_DIRECTION_OPTIONS: Array<{ direction: ActiveJobHandoverDirection; label: string }> = [
-  { direction: 'staff-to-client', label: 'PIC → Klien' },
+  { direction: 'staff-to-client', label: 'PIC staff → Klien' },
+  { direction: 'spv-pic-to-client', label: 'PIC SPV → Klien' },
   { direction: 'accounting-to-tax', label: 'Accounting → Tax' },
   { direction: 'tax-to-accounting', label: 'Tax → Accounting' },
 ];
+
+function isSpvPicForDivision(client: Client | undefined, division: JobDivision) {
+  return division === 'Accounting' ? client?.accountingSpvIsPic === true : client?.taxSpvIsPic === true;
+}
 
 interface JobsViewProps {
   jobs: Job[];
@@ -127,6 +132,10 @@ export function JobsView({
     if (currentUser.role === 'SPV Tax') return clients.filter((client) => client.taxSpvId === currentUser.id);
     return [];
   }, [clients, currentUser.id, currentUser.role]);
+  const selectedJobClient = useMemo(
+    () => selectedJob ? clients.find((client) => client.id === selectedJob.clientId) : undefined,
+    [clients, selectedJob]
+  );
 
   const pendingReviewCount = jobs.filter((job) => job.status === 'Siap Direview' && isAssignedReviewer(job)).length;
 
@@ -935,23 +944,24 @@ export function JobsView({
                             })}
                             className="size-4 accent-amber-600"
                           />
-                          {destination === 'client' ? 'Klien (PIC staff)' : `Internal (${selectedJob.division} → ${selectedJob.division === 'Accounting' ? 'Tax' : 'Accounting'})`}
+                          {destination === 'client' ? `Klien (${isSpvPicForDivision(selectedJobClient, selectedJob.division) ? 'PIC SPV' : 'PIC staff'})` : `Internal (${selectedJob.division} → ${selectedJob.division === 'Accounting' ? 'Tax' : 'Accounting'})`}
                         </label>
                       ))}
                     </div>
-                    <p className="mt-1 text-[10px] leading-4 text-slate-500">PIC staff mencatat penyerahan ke klien; checklist internal mengikuti arah divisi job. SPV hanya melihat catatan. Kosongkan jika tidak diperlukan.</p>
+                    <p className="mt-1 text-[10px] leading-4 text-slate-500">PIC yang ditugaskan mencatat penyerahan ke klien; bila klien dipegang langsung SPV, hanya SPV PIC yang ditugaskan dapat mencatat. Checklist internal mengikuti arah divisi job.</p>
                   </fieldset>
                   <fieldset className="rounded-lg border border-slate-200 bg-white p-3 sm:col-span-2">
                     <legend className="px-1 text-[11px] font-semibold text-slate-700">Checklist per item serah terima</legend>
                     <div className="grid gap-1 sm:grid-cols-2">
                       {HANDOVER_DIRECTION_OPTIONS.filter(({ direction }) => {
                         if (jobEditData.serviceResponsibility !== 'Tim 3') return false;
-                        const client = clients.find((item) => item.id === selectedJob.clientId);
+                        if (direction === 'staff-to-client') return !isSpvPicForDivision(selectedJobClient, selectedJob.division);
+                        if (direction === 'spv-pic-to-client') return isSpvPicForDivision(selectedJobClient, selectedJob.division);
                         if (direction === 'accounting-to-tax') {
-                          return selectedJob.division === 'Accounting' && (client?.taxServiceResponsibility || 'Tim 3') === 'Tim 3';
+                          return selectedJob.division === 'Accounting' && (selectedJobClient?.taxServiceResponsibility || 'Tim 3') === 'Tim 3';
                         }
                         if (direction === 'tax-to-accounting') {
-                          return selectedJob.division === 'Tax' && (client?.accountingServiceResponsibility || 'Tim 3') === 'Tim 3';
+                          return selectedJob.division === 'Tax' && (selectedJobClient?.accountingServiceResponsibility || 'Tim 3') === 'Tim 3';
                         }
                         return true;
                       }).map(({ direction, label }) => {
@@ -1005,7 +1015,7 @@ export function JobsView({
                   <div><span className="text-slate-500 font-medium">Mulai / deadline:</span><p className="mt-0.5 font-mono tabular-nums text-slate-800">{selectedJob.startDate} s/d {selectedJob.deadline}</p></div>
                   <div><span className="text-slate-500 font-medium">Prioritas:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.priority}</p></div>
                   <div><span className="text-slate-500 font-medium">Tanggung jawab layanan:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.serviceResponsibility || 'Tim 3'}</p></div>
-                  <div><span className="text-slate-500 font-medium">Tujuan bawaan job:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.handoverDestinations === undefined ? 'Belum diatur' : selectedJob.handoverDestinations.length ? selectedJob.handoverDestinations.map((destination) => destination === 'client' ? 'Klien (PIC staff)' : `Internal (${selectedJob.division} → ${selectedJob.division === 'Accounting' ? 'Tax' : 'Accounting'})`).join(' dan ') : 'Tidak diperlukan'}</p>{Object.keys(selectedJob.handoverDirectionOverrides || {}).length > 0 && <p className="mt-1 text-[10px] text-slate-500">Ada {Object.keys(selectedJob.handoverDirectionOverrides || {}).length} penyesuaian checklist per item.</p>}</div>
+                  <div><span className="text-slate-500 font-medium">Tujuan bawaan job:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.handoverDestinations === undefined ? 'Belum diatur' : selectedJob.handoverDestinations.length ? selectedJob.handoverDestinations.map((destination) => destination === 'client' ? `Klien (${isSpvPicForDivision(selectedJobClient, selectedJob.division) ? 'PIC SPV' : 'PIC staff'})` : `Internal (${selectedJob.division} → ${selectedJob.division === 'Accounting' ? 'Tax' : 'Accounting'})`).join(' dan ') : 'Tidak diperlukan'}</p>{Object.keys(selectedJob.handoverDirectionOverrides || {}).length > 0 && <p className="mt-1 text-[10px] text-slate-500">Ada {Object.keys(selectedJob.handoverDirectionOverrides || {}).length} penyesuaian checklist per item.</p>}</div>
                 </div>
               )}
 

@@ -52,6 +52,7 @@ export const apiRouter = Router();
 
 const HANDOVER_DIRECTIONS: ActiveJobHandoverDirection[] = [
   'staff-to-client',
+  'spv-pic-to-client',
   'accounting-to-tax',
   'tax-to-accounting',
 ];
@@ -64,8 +65,16 @@ const ALL_HANDOVER_DIRECTIONS: JobHandoverDirection[] = [
   'tax-to-client',
 ];
 
+const LEGACY_HANDOVER_DIRECTIONS = new Set<JobHandoverDirection>([
+  'staff-to-internal',
+  'spv-to-client',
+  'spv-to-internal',
+  'tax-to-client',
+]);
+
 const HANDOVER_DIRECTION_LABELS: Record<JobHandoverDirection, string> = {
-  'staff-to-client': 'PIC → Klien',
+  'staff-to-client': 'PIC staff → Klien',
+  'spv-pic-to-client': 'PIC SPV → Klien',
   'accounting-to-tax': 'Accounting → Tax',
   'tax-to-accounting': 'Tax → Accounting',
   'staff-to-internal': 'PIC → Internal (format lama)',
@@ -73,6 +82,10 @@ const HANDOVER_DIRECTION_LABELS: Record<JobHandoverDirection, string> = {
   'spv-to-internal': 'SPV → Internal (format lama)',
   'tax-to-client': 'Tim Tax → Klien (format lama)',
 };
+
+function isSpvPicForDivision(client: Client | undefined, division: Job['division']) {
+  return division === 'Accounting' ? client?.accountingSpvIsPic === true : client?.taxSpvIsPic === true;
+}
 
 function hasDivisionAccess(role: string, division: string) {
   return role === 'Admin' ||
@@ -1510,7 +1523,7 @@ apiRouter.get('/handovers', authenticateToken, (req: AuthenticatedRequest, res: 
   const visibleJobIds = new Set(db.jobs.filter((job) => {
     if (currentUser.role === 'Admin' || currentUser.role === 'Owner' || currentUser.role === 'Manager') return true;
     if (currentUser.role === `Staff ${job.division}`) return job.picId === currentUser.userId;
-    if (currentUser.role === `SPV ${job.division}`) return job.spvId === currentUser.userId;
+    if (currentUser.role === `SPV ${job.division}`) return job.spvId === currentUser.userId || job.picId === currentUser.userId;
     return false;
   }).map((job) => job.id));
 
@@ -1536,8 +1549,6 @@ apiRouter.post(
       return;
     }
 
-    const isAssignedStaff = currentUser.role === `Staff ${job.division}` && job.picId === currentUser.userId;
-    const canRecord = currentUser.role === 'Admin' || isAssignedStaff;
     const handoverDestination = direction.endsWith('-to-client') ? 'client' : 'internal';
     const selectedForHandover = job.handoverDirectionOverrides?.[direction] ??
       (Array.isArray(job.handoverDestinations) && job.handoverDestinations.includes(handoverDestination));
@@ -1549,7 +1560,18 @@ apiRouter.post(
     const client = db.clients.find((candidate) => candidate.id === job.clientId);
     const accountingResponsibility = client?.accountingServiceResponsibility || 'Tim 3';
     const taxResponsibility = client?.taxServiceResponsibility || 'Tim 3';
+    const isSpvPic = isSpvPicForDivision(client, job.division);
+    const assignedPicRole = isSpvPic ? `SPV ${job.division}` : `Staff ${job.division}`;
+    const matchesDirectionRole = direction === 'spv-pic-to-client'
+      ? isSpvPic && currentUser.role === `SPV ${job.division}`
+      : direction === 'staff-to-client'
+        ? !isSpvPic && currentUser.role === `Staff ${job.division}`
+        : currentUser.role === assignedPicRole;
+    const canRecord = currentUser.role === 'Admin' ||
+      (matchesDirectionRole && job.picId === currentUser.userId);
     const isApplicable = (job.serviceResponsibility || 'Tim 3') === 'Tim 3' &&
+      (direction !== 'staff-to-client' || !isSpvPic) &&
+      (direction !== 'spv-pic-to-client' || isSpvPic) &&
       (direction !== 'accounting-to-tax' || (job.division === 'Accounting' && taxResponsibility === 'Tim 3')) &&
       (direction !== 'tax-to-accounting' || (job.division === 'Tax' && accountingResponsibility === 'Tim 3'));
 
@@ -1558,7 +1580,7 @@ apiRouter.post(
       return;
     }
     if (!canRecord) {
-      res.status(403).json({ error: 'Akses ditolak: hanya Admin atau PIC staff yang ditugaskan dapat mencatat serah terima.' });
+      res.status(403).json({ error: 'Akses ditolak: hanya Admin atau PIC yang ditugaskan dapat mencatat serah terima.' });
       return;
     }
     if (job.status !== 'Selesai') {
@@ -1618,7 +1640,10 @@ apiRouter.post(
       return;
     }
 
-    if (currentUser.role !== 'Admin' && (currentUser.role.startsWith('SPV') || record.sentById !== currentUser.userId)) {
+    const isAssignedSpvPic = currentUser.role === `SPV ${job.division}` && job.picId === currentUser.userId;
+    const cannotCancelOwnRecord = record.sentById !== currentUser.userId ||
+      (currentUser.role.startsWith('SPV') && !isAssignedSpvPic);
+    if (currentUser.role !== 'Admin' && cannotCancelOwnRecord) {
       res.status(403).json({ error: 'Akses ditolak: hanya pencatat awal atau Admin yang dapat membatalkan catatan ini.' });
       return;
     }
@@ -1669,7 +1694,10 @@ apiRouter.delete(
       );
       if (!job || recordIndex < 0) throw new Error('Catatan serah terima tidak ditemukan.');
       const record = database.handoverRecords![recordIndex];
-      if (!record.canceledAt) throw new Error('Hanya catatan yang sudah dibatalkan yang dapat dihapus.');
+      const isLegacyRecord = LEGACY_HANDOVER_DIRECTIONS.has(record.direction);
+      if (!record.canceledAt && !isLegacyRecord) {
+        throw new Error('Hanya catatan yang dibatalkan atau catatan dari format serah terima sebelumnya yang dapat dihapus.');
+      }
       database.handoverRecords!.splice(recordIndex, 1);
       deletedRecord = record;
       logAudit(
