@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Ban, ClipboardCheck, Search, Trash2, Undo2, X } from 'lucide-react';
 import {
   api,
@@ -38,6 +38,7 @@ type HandoverExportRow = {
   spvPicToClient: string;
   accountingToTax: string;
   taxToAccounting: string;
+  staffToInternal: string;
 };
 
 const HANDOVER_OPTIONS: Array<{
@@ -49,6 +50,7 @@ const HANDOVER_OPTIONS: Array<{
   { direction: 'spv-pic-to-client', label: 'PIC SPV → Klien', helper: 'SPV yang ditugaskan sebagai PIC mencatat laporan yang sudah disampaikan ke klien.' },
   { direction: 'accounting-to-tax', label: 'Accounting → Tax', helper: 'PIC Accounting mencatat penyerahan pekerjaan ke tim Tax.' },
   { direction: 'tax-to-accounting', label: 'Tax → Accounting', helper: 'PIC Tax mencatat penyerahan pekerjaan ke tim Accounting.' },
+  { direction: 'staff-to-internal', label: 'PIC → Tim Internal Lain', helper: 'PIC yang ditugaskan mencatat penyerahan sesuai pilihan tanggung jawab layanan.' },
 ];
 
 const HANDOVER_DIRECTION_LABELS: Record<JobHandoverDirection, string> = {
@@ -56,7 +58,7 @@ const HANDOVER_DIRECTION_LABELS: Record<JobHandoverDirection, string> = {
   'spv-pic-to-client': 'PIC SPV → Klien',
   'accounting-to-tax': 'Accounting → Tax',
   'tax-to-accounting': 'Tax → Accounting',
-  'staff-to-internal': 'PIC → Internal (format lama)',
+  'staff-to-internal': 'PIC → Tim Internal Lain',
   'spv-to-client': 'SPV → Klien (format lama)',
   'spv-to-internal': 'SPV → Internal (format lama)',
   'tax-to-client': 'Tim Tax → Klien (format lama)',
@@ -104,6 +106,7 @@ const HANDOVER_EXPORT_COLUMNS: ColumnDef<HandoverExportRow>[] = [
   { header: 'PIC SPV → Klien', key: 'spvPicToClient', width: 42 },
   { header: 'Accounting → Tax', key: 'accountingToTax', width: 42 },
   { header: 'Tax → Accounting', key: 'taxToAccounting', width: 42 },
+  { header: 'PIC → Tim Internal Lain', key: 'staffToInternal', width: 42 },
 ];
 
 const HANDOVER_EXPORT_KEY: Record<ActiveJobHandoverDirection, keyof HandoverExportRow> = {
@@ -111,6 +114,7 @@ const HANDOVER_EXPORT_KEY: Record<ActiveJobHandoverDirection, keyof HandoverExpo
   'spv-pic-to-client': 'spvPicToClient',
   'accounting-to-tax': 'accountingToTax',
   'tax-to-accounting': 'taxToAccounting',
+  'staff-to-internal': 'staffToInternal',
 };
 
 function canViewJob(job: Job, currentUser: CurrentUser) {
@@ -121,6 +125,7 @@ function canViewJob(job: Job, currentUser: CurrentUser) {
 }
 
 function isDirectionApplicable(job: Job, direction: JobHandoverDirection, client?: Client) {
+  if (direction === 'staff-to-internal') return job.serviceResponsibility === 'Tim Internal Lain';
   if ((job.serviceResponsibility || 'Tim 3') !== 'Tim 3') return false;
   if (direction === 'staff-to-client') return !isSpvPicForDivision(client, job.division);
   if (direction === 'spv-pic-to-client') return isSpvPicForDivision(client, job.division);
@@ -141,6 +146,7 @@ function isHandoverConfigured(job: Job) {
 
 function isDirectionRequired(job: Job, direction: JobHandoverDirection, client?: Client) {
   if (!isDirectionApplicable(job, direction, client)) return false;
+  if (direction === 'staff-to-internal') return true;
   const override = job.handoverDirectionOverrides?.[direction];
   if (override !== undefined) return override;
   if (!Array.isArray(job.handoverDestinations)) return false;
@@ -156,7 +162,9 @@ function getConfiguredDestinationLabel(job: Job, client?: Client) {
       ? 'Klien (PIC staff)'
       : option.direction === 'spv-pic-to-client'
         ? 'Klien (PIC SPV)'
-        : `${job.division} → ${job.division === 'Accounting' ? 'Tax' : 'Accounting'}`));
+        : option.direction === 'staff-to-internal'
+          ? 'Tim Internal Lain'
+          : `${job.division} → ${job.division === 'Accounting' ? 'Tax' : 'Accounting'}`));
   return destinations.size ? [...destinations].join(' + ') : 'Tidak diperlukan';
 }
 
@@ -246,7 +254,7 @@ function HandoverChecklistCell({
     return (
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
         <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-500">Tidak berlaku</span>
-        <p className="mt-1 text-[10px] leading-4 text-slate-400">Bukan tanggung jawab Tim 3 untuk job ini.</p>
+        <p className="mt-1 text-[10px] leading-4 text-slate-400">Tujuan ini tidak sesuai tanggung jawab layanan job.</p>
       </div>
     );
   }
@@ -327,6 +335,8 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
   const hasPeriodFilter = Boolean(periodFrom || periodTo);
   const periodLabel = hasPeriodFilter ? `${periodFrom || 'awal'}–${periodTo || 'terbaru'}` : 'Semua periode';
   const [searchTerm, setSearchTerm] = useState('');
+  const deferredSearchTerm = useDeferredValue(searchTerm);
+  const normalizedSearchTerm = deferredSearchTerm.trim().toLocaleLowerCase('id-ID');
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<{ job: Job; record: JobHandoverRecord } | null>(null);
   const [cancelingRecordId, setCancelingRecordId] = useState<string | null>(null);
@@ -394,8 +404,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     if (destinationFilter !== 'All' && !HANDOVER_OPTIONS.some((option) =>
       getHandoverDestination(option.direction) === destinationFilter && isDirectionRequired(job, option.direction, client)
     )) return false;
-    const query = searchTerm.trim().toLocaleLowerCase('id-ID');
-    if (query && ![job.id, job.title, job.clientName, job.picName, job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(query))) return false;
+    if (normalizedSearchTerm && ![job.id, job.title, job.clientName, job.picName, job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(normalizedSearchTerm))) return false;
     const jobOptions = HANDOVER_OPTIONS.filter((option) =>
       visibleChecklistOptions.some((visibleOption) => visibleOption.direction === option.direction) &&
       isDirectionRequired(job, option.direction, client)
@@ -403,7 +412,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     const jobRecords = jobOptions.map((option) => recordByKey.get(`${job.id}:${option.direction}`));
     const completedHandoverCount = jobRecords.filter(Boolean).length;
     const jobHistory = recordsByJobId.get(job.id) || [];
-    if (statusFilter === 'review' && (job.status === 'Selesai' || (job.serviceResponsibility || 'Tim 3') !== 'Tim 3')) return false;
+    if (statusFilter === 'review' && (job.status === 'Selesai' || !['Tim 3', 'Tim Internal Lain'].includes(job.serviceResponsibility || 'Tim 3'))) return false;
     if (statusFilter === 'handover' && (job.status !== 'Selesai' || jobOptions.length === 0 || completedHandoverCount === jobOptions.length)) return false;
     if (statusFilter === 'complete' && (job.status !== 'Selesai' || jobOptions.length === 0 || completedHandoverCount !== jobOptions.length)) return false;
     if (statusFilter === 'unconfigured' && isHandoverConfigured(job)) return false;
@@ -434,7 +443,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     destinationFilter,
     directionFilter,
     visibleChecklistOptions,
-    searchTerm,
+    normalizedSearchTerm,
     recordByKey,
     recordsByJobId,
     canceledRecordByKey,
@@ -469,11 +478,13 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
       spvPicToClient: exportValue('spv-pic-to-client'),
       accountingToTax: exportValue('accounting-to-tax'),
       taxToAccounting: exportValue('tax-to-accounting'),
+      staffToInternal: exportValue('staff-to-internal'),
     };
   }), [filteredJobs, clientsById, recordByKey, canceledRecordByKey]);
 
   const summaryJobs = useMemo(() => visibleJobs.filter((job) => {
-    if ((job.serviceResponsibility || 'Tim 3') !== 'Tim 3') return false;
+    const responsibility = job.serviceResponsibility || 'Tim 3';
+    if (responsibility !== 'Tim 3' && responsibility !== 'Tim Internal Lain') return false;
     if (clientFilter !== 'All' && job.clientId !== clientFilter) return false;
     if (picFilter !== 'All' && job.picId !== picFilter) return false;
     const client = clientsById.get(job.clientId);
@@ -481,8 +492,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     if (destinationFilter !== 'All' && !HANDOVER_OPTIONS.some((option) =>
       getHandoverDestination(option.direction) === destinationFilter && isDirectionRequired(job, option.direction, client)
     )) return false;
-    const query = searchTerm.trim().toLocaleLowerCase('id-ID');
-    if (query && ![job.id, job.title, job.clientName, job.picName, job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(query))) return false;
+    if (normalizedSearchTerm && ![job.id, job.title, job.clientName, job.picName, job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(normalizedSearchTerm))) return false;
     if (hasPeriodFilter) {
       const hasPeriod = matchesMonthRange(job.createdAt, periodFrom, periodTo) || matchesMonthRange(job.completedAt, periodFrom, periodTo) ||
         (recordsByJobId.get(job.id) || []).some((record) =>
@@ -492,7 +502,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
       if (!hasPeriod) return false;
     }
     return true;
-  }), [visibleJobs, clientsById, clientFilter, picFilter, destinationFilter, directionFilter, visibleChecklistOptions, searchTerm, periodFrom, periodTo, hasPeriodFilter, recordsByJobId]);
+  }), [visibleJobs, clientsById, clientFilter, picFilter, destinationFilter, directionFilter, visibleChecklistOptions, normalizedSearchTerm, periodFrom, periodTo, hasPeriodFilter, recordsByJobId]);
   const summaryJobIds = useMemo(() => new Set(summaryJobs.map((job) => job.id)), [summaryJobs]);
   const summaryJobsById = useMemo(() => new Map(summaryJobs.map((job) => [job.id, job])), [summaryJobs]);
   const summaryRecords = useMemo(() => visibleRecords.filter((record) =>
@@ -611,7 +621,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
         </div>
         <div>
           <h1 id="handover-page-title" className="text-lg font-bold tracking-tight text-slate-900">Rekap Serah Terima</h1>
-          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-600">PIC yang ditugaskan mencatat serah ke klien atau perpindahan Accounting ↔ Tax setelah review selesai; bila SPV menjadi PIC klien, SPV PIC tersebut juga dapat mencatat. Catatan lama dan pembatalan tetap tersimpan; penghapusan permanen tersedia untuk Admin.</p>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-600">PIC yang ditugaskan mencatat serah ke klien, antar divisi Accounting ↔ Tax, atau Tim Internal Lain sesuai tanggung jawab layanan setelah review selesai. Catatan lama dan pembatalan tetap tersimpan; penghapusan permanen tersedia untuk Admin.</p>
         </div>
       </div>
 
@@ -651,7 +661,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
             </button>
           ))}
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 xl:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 xl:grid-cols-5">
           {directionSummary.map((item) => (
             <div key={item.direction} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2">
               <span className="truncate text-[11px] font-medium text-slate-600">{item.label}</span>
@@ -710,7 +720,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
             {([
               ['All', 'Semua'],
               ['client', 'Klien'],
-              ['internal', 'Antar divisi'],
+              ['internal', 'Internal'],
             ] as const).map(([value, label]) => (
               <button key={value} type="button" aria-pressed={destinationFilter === value} onClick={() => setDestinationFilter(value)} className={`min-h-9 rounded-full px-3 text-[11px] font-semibold transition-colors ${destinationFilter === value ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
                 {label}
@@ -729,7 +739,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
               filename="Rekap_Serah_Terima_TMM_BMA"
               sheetName="Rekap Serah Terima"
               title="REKAP SERAH TERIMA PEKERJAAN"
-              subtitle={`Filter: ${statusFilter} · Klien: ${clientFilter === 'All' ? 'Semua klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} · PIC: ${picFilter === 'All' ? 'Semua PIC' : availablePics.find(([id]) => id === picFilter)?.[1] || 'PIC'} · Periode: ${periodLabel} · Tujuan: ${destinationFilter === 'All' ? 'Semua tujuan' : destinationFilter === 'client' ? 'Klien' : 'Antar divisi'} · Arah: ${directionFilter === 'All' ? 'Semua arah' : HANDOVER_OPTIONS.find((option) => option.direction === directionFilter)?.label || 'Arah'} · ${filteredJobs.length} job`}
+              subtitle={`Filter: ${statusFilter} · Klien: ${clientFilter === 'All' ? 'Semua klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} · PIC: ${picFilter === 'All' ? 'Semua PIC' : availablePics.find(([id]) => id === picFilter)?.[1] || 'PIC'} · Periode: ${periodLabel} · Tujuan: ${destinationFilter === 'All' ? 'Semua tujuan' : destinationFilter === 'client' ? 'Klien' : 'Internal'} · Arah: ${directionFilter === 'All' ? 'Semua arah' : HANDOVER_OPTIONS.find((option) => option.direction === directionFilter)?.label || 'Arah'} · ${filteredJobs.length} job`}
               columns={handoverExportColumns}
               data={handoverExportRows}
               label="Ekspor Rekap"
@@ -758,7 +768,8 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
           const requiredOptions = visibleChecklistOptions.filter((option) => isDirectionRequired(job, option.direction, client));
           const doneCount = requiredOptions.filter((option) => recordByKey.has(`${job.id}:${option.direction}`)).length;
           const isReviewed = job.status === 'Selesai';
-          const isTim3Assignment = (job.serviceResponsibility || 'Tim 3') === 'Tim 3';
+          const responsibility = job.serviceResponsibility || 'Tim 3';
+          const isTrackedAssignment = responsibility === 'Tim 3' || responsibility === 'Tim Internal Lain';
           const canceledRecords = jobHistory.filter((record) => Boolean(record.canceledAt) && ACTIVE_HANDOVER_DIRECTIONS.has(record.direction) && visibleChecklistOptions.some((option) => option.direction === record.direction)).sort((a, b) => (b.canceledAt || '').localeCompare(a.canceledAt || ''));
           const legacyRecords = jobHistory.filter((record) => !ACTIVE_HANDOVER_DIRECTIONS.has(record.direction) && (destinationFilter === 'All' || getHandoverDestination(record.direction) === destinationFilter) && directionFilter === 'All').sort((a, b) => b.sentAt.localeCompare(a.sentAt));
           const configuredDestinationLabel = getConfiguredDestinationLabel(job, client);
@@ -778,8 +789,8 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
                     <p className="mt-1 text-[11px] text-slate-500">PIC {job.picName} <span className="px-1 text-slate-300">·</span> SPV {job.spvName}</p>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
-                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${!isTim3Assignment ? 'bg-slate-100 text-slate-500' : isReviewed ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
-                      {!isTim3Assignment ? 'Di luar Tim 3' : isReviewed ? 'Review selesai' : 'Menunggu SPV'}
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${!isTrackedAssignment ? 'bg-slate-100 text-slate-500' : isReviewed ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+                      {!isTrackedAssignment ? 'Di luar cakupan serah terima' : isReviewed ? 'Review selesai' : 'Menunggu SPV'}
                     </span>
                     {!isHandoverConfigured(job) ? (
                       <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-800">Atur tujuan</span>
