@@ -20,7 +20,7 @@ function databaseContext(_req: Request, res: Response, next: NextFunction): void
       return res;
     };
 
-    loadDatabase()
+    loadDatabase(_req.method === 'GET' && _req.path !== '/cron/monthly-jobs')
       .then(() => next())
       .catch((err) => {
         console.error('[DB] Gagal memuat database:', err);

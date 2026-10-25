@@ -25,6 +25,8 @@ interface DbContext {
 }
 
 const storage = new AsyncLocalStorage<DbContext>();
+const READ_CACHE_TTL_MS = 1_500;
+let readCache: { data: DatabaseSchema; version: number; loadedAt: number } | null = null;
 
 function ctx(): DbContext {
   const context = storage.getStore();
@@ -160,9 +162,19 @@ function buildInitialData(): DatabaseSchema {
   return upgradeSchema(getInitialSeedData());
 }
 
-// Load the shared dataset from Neon, creating the initial record once if needed.
-export async function loadDatabase(): Promise<DatabaseSchema> {
+// GET requests may reuse a recent snapshot; mutations always load the current database version.
+export async function loadDatabase(allowRecentRead = false): Promise<DatabaseSchema> {
   const context = ctx();
+  const now = Date.now();
+
+  if (allowRecentRead && readCache && now - readCache.loadedAt < READ_CACHE_TTL_MS) {
+    context.data = structuredClone(readCache.data);
+    context.loadedVersion = readCache.version;
+    context.dirty = false;
+    context.poisoned = false;
+    return context.data;
+  }
+
   let [record] = await postgres
     .select({ data: appState.data, version: appState.version })
     .from(appState)
@@ -188,6 +200,11 @@ export async function loadDatabase(): Promise<DatabaseSchema> {
   context.loadedVersion = record.version;
   context.dirty = false;
   context.poisoned = false;
+  readCache = {
+    data: structuredClone(context.data),
+    version: context.loadedVersion,
+    loadedAt: Date.now(),
+  };
   return context.data;
 }
 
@@ -240,6 +257,11 @@ export async function persistDatabase(): Promise<void> {
 
   context.loadedVersion = saved.version;
   context.dirty = false;
+  readCache = {
+    data: structuredClone(context.data),
+    version: saved.version,
+    loadedAt: Date.now(),
+  };
 }
 
 // Log audit trail
