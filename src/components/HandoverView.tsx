@@ -72,7 +72,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
   const { success, error } = useToast();
   const [clientFilter, setClientFilter] = useState('All');
   const [directionFilter, setDirectionFilter] = useState<'All' | JobHandoverDirection>('All');
-  const [statusFilter, setStatusFilter] = useState<'All' | 'review' | 'handover' | 'complete'>('All');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'review' | 'handover' | 'complete' | 'delivered' | 'canceled'>('All');
   const [periodFilter, setPeriodFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [savingKey, setSavingKey] = useState<string | null>(null);
@@ -90,6 +90,15 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     });
     return [...byId.values()];
   }, [records, newlySavedRecords, visibleJobIds]);
+  const recordsByJobId = useMemo(() => {
+    const byJobId = new Map<string, JobHandoverRecord[]>();
+    visibleRecords.forEach((record) => {
+      const jobRecords = byJobId.get(record.jobId) || [];
+      jobRecords.push(record);
+      byJobId.set(record.jobId, jobRecords);
+    });
+    return byJobId;
+  }, [visibleRecords]);
   const recordByKey = useMemo(() => {
     const activeRecords = visibleRecords.filter((record) => !record.canceledAt);
     return new Map(activeRecords.map((record) => [`${record.jobId}:${record.direction}`, record]));
@@ -122,9 +131,20 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     const jobOptions = HANDOVER_OPTIONS.filter((option) => !option.taxOnly || job.division === 'Tax');
     const jobRecords = jobOptions.map((option) => recordByKey.get(`${job.id}:${option.direction}`));
     const completedHandoverCount = jobRecords.filter(Boolean).length;
+    const jobHistory = recordsByJobId.get(job.id) || [];
     if (statusFilter === 'review' && job.status === 'Selesai') return false;
     if (statusFilter === 'handover' && (job.status !== 'Selesai' || completedHandoverCount === jobOptions.length)) return false;
     if (statusFilter === 'complete' && (job.status !== 'Selesai' || completedHandoverCount !== jobOptions.length)) return false;
+    if (statusFilter === 'delivered' && !jobHistory.some((record) =>
+      !record.canceledAt &&
+      (directionFilter === 'All' || record.direction === directionFilter) &&
+      (periodFilter === 'All' || record.sentAt.startsWith(periodFilter))
+    )) return false;
+    if (statusFilter === 'canceled' && !jobHistory.some((record) =>
+      Boolean(record.canceledAt) &&
+      (directionFilter === 'All' || record.direction === directionFilter) &&
+      (periodFilter === 'All' || record.canceledAt?.startsWith(periodFilter))
+    )) return false;
     if (periodFilter !== 'All') {
       const hasActiveRecordInPeriod = jobRecords.some((record) => record?.sentAt.startsWith(periodFilter));
       const hasCanceledRecordInPeriod = HANDOVER_OPTIONS.some((option) => {
@@ -140,6 +160,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     directionFilter,
     searchTerm,
     recordByKey,
+    recordsByJobId,
     canceledRecordByKey,
     statusFilter,
     periodFilter,
@@ -152,41 +173,46 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     const query = searchTerm.trim().toLocaleLowerCase('id-ID');
     if (query && ![job.id, job.title, job.clientName, job.picName, job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(query))) return false;
     if (periodFilter !== 'All') {
-      const hasPeriod = job.createdAt.startsWith(periodFilter) || job.completedAt?.startsWith(periodFilter) || visibleRecords.some((record) =>
-        record.jobId === job.id && (record.sentAt.startsWith(periodFilter) || record.canceledAt?.startsWith(periodFilter))
-      );
+      const hasPeriod = job.createdAt.startsWith(periodFilter) || job.completedAt?.startsWith(periodFilter) ||
+        (recordsByJobId.get(job.id) || []).some((record) =>
+          record.sentAt.startsWith(periodFilter) || record.canceledAt?.startsWith(periodFilter)
+        );
       if (!hasPeriod) return false;
     }
     return true;
-  }), [visibleJobs, clientFilter, directionFilter, searchTerm, periodFilter, visibleRecords]);
+  }), [visibleJobs, clientFilter, directionFilter, searchTerm, periodFilter, recordsByJobId]);
   const summaryJobIds = useMemo(() => new Set(summaryJobs.map((job) => job.id)), [summaryJobs]);
-  const summaryRecords = visibleRecords.filter((record) => {
-    if (!summaryJobIds.has(record.jobId)) return false;
-    if (directionFilter !== 'All' && record.direction !== directionFilter) return false;
-    return true;
-  });
-  const activeSummaryRecords = summaryRecords.filter((record) =>
+  const summaryRecords = useMemo(() => visibleRecords.filter((record) =>
+    summaryJobIds.has(record.jobId) && (directionFilter === 'All' || record.direction === directionFilter)
+  ), [visibleRecords, summaryJobIds, directionFilter]);
+  const activeSummaryRecords = useMemo(() => summaryRecords.filter((record) =>
     !record.canceledAt && (periodFilter === 'All' || record.sentAt.startsWith(periodFilter))
-  );
-  const canceledSummaryRecords = summaryRecords.filter((record) =>
+  ), [summaryRecords, periodFilter]);
+  const canceledSummaryRecords = useMemo(() => summaryRecords.filter((record) =>
     record.canceledAt && (periodFilter === 'All' || record.canceledAt.startsWith(periodFilter))
+  ), [summaryRecords, periodFilter]);
+  const pendingReviewCount = useMemo(
+    () => summaryJobs.filter((job) => job.status !== 'Selesai').length,
+    [summaryJobs]
   );
-  const pendingReviewCount = summaryJobs.filter((job) => job.status !== 'Selesai').length;
-  const pendingHandoverCount = summaryJobs.reduce((total, job) => {
+  const pendingHandoverCount = useMemo(() => summaryJobs.reduce((total, job) => {
     if (job.status !== 'Selesai') return total;
     return total + HANDOVER_OPTIONS.filter((option) =>
       (!option.taxOnly || job.division === 'Tax') &&
       (directionFilter === 'All' || option.direction === directionFilter) &&
       !recordByKey.has(`${job.id}:${option.direction}`)
     ).length;
-  }, 0);
-  const directionSummary = HANDOVER_OPTIONS
+  }, 0), [summaryJobs, directionFilter, recordByKey]);
+  const activeCountByDirection = useMemo(() => {
+    const counts = new Map<JobHandoverDirection, number>();
+    activeSummaryRecords.forEach((record) => counts.set(record.direction, (counts.get(record.direction) || 0) + 1));
+    return counts;
+  }, [activeSummaryRecords]);
+  const directionSummary = useMemo(() => HANDOVER_OPTIONS
     .filter((option) => directionFilter === 'All' || option.direction === directionFilter)
     .filter((option) => !option.taxOnly || summaryJobs.some((job) => job.division === 'Tax'))
-    .map((option) => ({
-      ...option,
-      count: activeSummaryRecords.filter((record) => record.direction === option.direction).length,
-    }));
+    .map((option) => ({ ...option, count: activeCountByDirection.get(option.direction) || 0 })),
+  [directionFilter, summaryJobs, activeCountByDirection]);
 
   const handleRecordHandover = async (job: Job, direction: JobHandoverDirection) => {
     const key = `${job.id}:${direction}`;
@@ -247,27 +273,36 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
             <h2 id="handover-summary-title" className="text-sm font-bold text-slate-900">Ringkasan Rekap</h2>
-            <p className="mt-1 text-[11px] text-slate-500">Mengikuti filter klien, periode, dan tujuan yang dipilih.</p>
+            <p className="mt-1 text-[11px] text-slate-500">Mengikuti filter klien, periode, dan tujuan. Klik angka untuk melihat job terkait di daftar bawah.</p>
           </div>
           <span className="text-[10px] font-medium text-slate-400">{summaryJobs.length} job dalam cakupan</span>
         </div>
         <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 py-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-800">Terkirim / Diserahkan</p>
-            <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{activeSummaryRecords.length}</p>
-          </div>
-          <div className="rounded-xl border border-sky-100 bg-sky-50/60 px-3 py-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-800">Checklist Terbuka</p>
-            <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{pendingHandoverCount}</p>
-          </div>
-          <div className="rounded-xl border border-amber-100 bg-amber-50/60 px-3 py-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-800">Menunggu Review</p>
-            <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{pendingReviewCount}</p>
-          </div>
-          <div className="rounded-xl border border-rose-100 bg-rose-50/60 px-3 py-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-800">Catatan Dibatalkan</p>
-            <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{canceledSummaryRecords.length}</p>
-          </div>
+          {[
+            { key: 'delivered' as const, label: 'Terkirim / Diserahkan', count: activeSummaryRecords.length, color: 'emerald' },
+            { key: 'handover' as const, label: 'Checklist Terbuka', count: pendingHandoverCount, color: 'sky' },
+            { key: 'review' as const, label: 'Menunggu Review', count: pendingReviewCount, color: 'amber' },
+            { key: 'canceled' as const, label: 'Catatan Dibatalkan', count: canceledSummaryRecords.length, color: 'rose' },
+          ].map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              aria-pressed={statusFilter === item.key}
+              aria-label={`${item.label}: ${item.count}. Tampilkan job terkait.`}
+              onClick={() => setStatusFilter((current) => current === item.key ? 'All' : item.key)}
+              className={`rounded-xl border px-3 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
+                item.color === 'emerald' ? `border-emerald-100 bg-emerald-50/60 hover:bg-emerald-100/70 ${statusFilter === item.key ? 'ring-2 ring-emerald-400' : ''}` :
+                item.color === 'sky' ? `border-sky-100 bg-sky-50/60 hover:bg-sky-100/70 ${statusFilter === item.key ? 'ring-2 ring-sky-400' : ''}` :
+                item.color === 'amber' ? `border-amber-100 bg-amber-50/60 hover:bg-amber-100/70 ${statusFilter === item.key ? 'ring-2 ring-amber-400' : ''}` :
+                `border-rose-100 bg-rose-50/60 hover:bg-rose-100/70 ${statusFilter === item.key ? 'ring-2 ring-rose-400' : ''}`
+              }`}
+            >
+              <span className={`block text-[10px] font-semibold uppercase tracking-wide ${
+                item.color === 'emerald' ? 'text-emerald-800' : item.color === 'sky' ? 'text-sky-800' : item.color === 'amber' ? 'text-amber-800' : 'text-rose-800'
+              }`}>{item.label}</span>
+              <span className="mt-1 block text-xl font-bold tabular-nums text-slate-900">{item.count}</span>
+            </button>
+          ))}
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 xl:grid-cols-4">
           {directionSummary.map((item) => (
@@ -300,6 +335,8 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
               <option value="review">Menunggu Review SPV</option>
               <option value="handover">Perlu Serah Terima</option>
               <option value="complete">Serah Terima Lengkap</option>
+              <option value="delivered">Terkirim / Diserahkan</option>
+              <option value="canceled">Catatan Dibatalkan</option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">

@@ -295,6 +295,7 @@ export interface DailyActivity {
   division: JobDivision;
   picId: string;
   picName: string;
+  picRole?: string;
   jobId?: string;
   caseId?: string;
   description: string;

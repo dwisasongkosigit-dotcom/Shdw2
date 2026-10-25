@@ -29,6 +29,15 @@ import { useToast } from './Toast';
 import { ExportDropdown } from './ExportDropdown';
 import type { ColumnDef } from '../lib/exportUtils';
 
+function getTodayDateKey() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
 interface DailyActivitiesViewProps {
   activities: DailyActivity[];
   clients: Client[];
@@ -57,7 +66,7 @@ export function DailyActivitiesView({
 
   // New activity form
   const [newActivity, setNewActivity] = useState<Partial<DailyActivity>>({
-    date: new Date().toISOString().split('T')[0],
+    date: getTodayDateKey(),
     division: currentUser.role.includes('Tax') ? 'Tax' : 'Accounting',
     status: 'Selesai',
     durationMinutes: 60,
@@ -85,6 +94,22 @@ export function DailyActivitiesView({
       error('Gagal Menyinkronkan', err.message);
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const canExportManagementReport = ['Admin', 'Owner', 'Manager'].includes(currentUser.role);
+  const managementReportDate = filterDate || getTodayDateKey();
+  const [exportingManagementReport, setExportingManagementReport] = useState(false);
+
+  const handleExportManagementReport = async () => {
+    setExportingManagementReport(true);
+    try {
+      await api.downloadDailyActivityReport(managementReportDate);
+      success('Laporan Berhasil Diunduh', `Aktivitas staff, SPV, dan jejak operasional tanggal ${managementReportDate} sudah diekspor.`);
+    } catch (err: any) {
+      error('Gagal Mengekspor Laporan', err.message || 'Silakan coba kembali.');
+    } finally {
+      setExportingManagementReport(false);
     }
   };
 
@@ -149,7 +174,8 @@ export function DailyActivitiesView({
       { header: 'Tanggal', key: 'date', width: 14, align: 'center' },
       { header: 'Nama Klien', key: 'clientName', width: 28 },
       { header: 'Divisi', key: 'division', width: 12, align: 'center' },
-      { header: 'Staff PIC', key: 'picName', width: 22 },
+      { header: 'Pelaksana', key: 'picName', width: 22 },
+      { header: 'Peran', key: 'picRole', width: 18, render: (a) => a.picRole || 'Tidak diketahui' },
       { header: 'Ref Job/Case', key: 'ref', width: 16, align: 'center', render: (a) => a.jobId || a.caseId || '-' },
       { header: 'Deskripsi Kegiatan Nyata', key: 'description', width: 42 },
       { header: 'Hasil & Progres', key: 'resultProgress', width: 28, render: (a) => a.resultProgress || '-' },
@@ -176,7 +202,7 @@ export function DailyActivitiesView({
           />
         </div>
 
-        <div className="flex items-center gap-2 self-end sm:self-auto">
+        <div className="flex flex-wrap items-center justify-end gap-2 self-end sm:justify-start sm:self-auto">
           {lastRefreshed && (
             <span className="text-[11px] text-slate-400 font-mono hidden md:inline-block">
               Diperbarui: {lastRefreshed} WIB
@@ -202,6 +228,20 @@ export function DailyActivitiesView({
             label="Ekspor & Copas"
           />
 
+          {canExportManagementReport && (
+            <button
+              type="button"
+              onClick={handleExportManagementReport}
+              disabled={exportingManagementReport}
+              aria-label={`Ekspor laporan aktivitas management tanggal ${managementReportDate}`}
+              title={`Mencakup catatan aktivitas dan jejak operasional ${managementReportDate}`}
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
+            >
+              <Download className={`size-3.5 ${exportingManagementReport ? 'animate-bounce' : ''}`} />
+              <span>{exportingManagementReport ? 'Menyiapkan…' : 'Laporan Harian'}</span>
+            </button>
+          )}
+
           {isReadOnly ? (
             <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 border border-slate-200 text-slate-600 text-xs font-semibold rounded-lg">
               <Shield className="w-3.5 h-3.5 text-slate-500" />
@@ -211,7 +251,7 @@ export function DailyActivitiesView({
             <button
               onClick={() => {
                 setNewActivity({
-                  date: new Date().toISOString().split('T')[0],
+                  date: getTodayDateKey(),
                   division: currentUser.role.includes('Tax') ? 'Tax' : 'Accounting',
                   status: 'Selesai',
                   durationMinutes: 60,
