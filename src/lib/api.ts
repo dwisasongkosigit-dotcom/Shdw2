@@ -52,6 +52,8 @@ export interface ClientSuggestion {
   dueDate?: string;
 }
 
+export type ServiceResponsibility = 'Tim 3' | 'Tim Internal Lain' | 'Partner Eksternal' | 'Tidak Berlaku';
+
 export interface Client {
   id: string;
   name: string;
@@ -66,6 +68,8 @@ export interface Client {
   dataType: 'Real' | 'Simulasi' | 'Belum Diatur';
   suggestions: ClientSuggestion[];
   monthlyJobTemplateIds?: string[];
+  accountingServiceResponsibility?: ServiceResponsibility;
+  taxServiceResponsibility?: ServiceResponsibility;
 
   // Per-division owner and reviewer assignments
   accountingStaffPicId: string;
@@ -160,7 +164,13 @@ export interface MonthlyJobTemplate {
   updatedAt: string;
 }
 
-export type JobHandoverDirection = 'staff-to-client' | 'spv-to-client' | 'tax-to-accounting' | 'tax-to-client';
+export type JobHandoverDirection =
+  | 'staff-to-client'
+  | 'staff-to-internal'
+  | 'spv-to-client'
+  | 'spv-to-internal'
+  | 'tax-to-accounting'
+  | 'tax-to-client';
 
 export interface JobHandoverRecord {
   id: string;
@@ -181,6 +191,7 @@ export interface Job {
   clientId: string;
   clientName: string;
   division: JobDivision;
+  serviceResponsibility?: ServiceResponsibility;
   title: string;
   picId: string;
   picName: string;
@@ -549,6 +560,7 @@ export const api = {
   createJob: (data: Omit<Partial<Job>, 'division'> & {
     division?: JobDivision | 'Both';
     picAssignments?: Partial<Record<JobDivision, { picId: string; picName: string }>>;
+    serviceResponsibilityByDivision?: Partial<Record<JobDivision, ServiceResponsibility>>;
   }) =>
     request<{ success: boolean; job: Job; jobs?: Job[]; message: string }>('/api/jobs', {
       method: 'POST',

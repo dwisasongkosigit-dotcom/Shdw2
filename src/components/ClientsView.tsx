@@ -138,12 +138,12 @@ export function ClientsView({
     : [], [cases, selectedClient?.id]);
   const accountingPicOwnerName = formData.accountingSpvIsPic ? formData.accountingSpvName : formData.accountingStaffPicName;
   const taxPicOwnerName = formData.taxSpvIsPic ? formData.taxSpvName : formData.taxStaffPicName;
-  const isPicAssignmentComplete = [
-    accountingPicOwnerName,
-    formData.accountingSpvName,
-    taxPicOwnerName,
-    formData.taxSpvName,
-  ].every((name) => Boolean(name?.trim() && name !== '-'));
+  const accountingIsTim3 = (formData.accountingServiceResponsibility || 'Tim 3') === 'Tim 3';
+  const taxIsTim3 = (formData.taxServiceResponsibility || 'Tim 3') === 'Tim 3';
+  const hasAssignedName = (name?: string) => Boolean(name?.trim() && name !== '-');
+  const isPicAssignmentComplete =
+    (!accountingIsTim3 || (hasAssignedName(accountingPicOwnerName) && hasAssignedName(formData.accountingSpvName))) &&
+    (!taxIsTim3 || (hasAssignedName(taxPicOwnerName) && hasAssignedName(formData.taxSpvName)));
   const picFilterOptions = useMemo(() => {
     const options = new Map<string, { key: string; name: string; roles: Set<string> }>();
     clients.forEach((client) => {
@@ -282,6 +282,8 @@ export function ClientsView({
       type: 'Badan',
       entityType: 'PT',
       investmentCategory: 'Belum Ditentukan',
+      accountingServiceResponsibility: 'Tim 3',
+      taxServiceResponsibility: 'Tim 3',
       dataType: 'Real',
       status: 'Aktif',
       pkpStatus: 'PKP',
@@ -412,11 +414,13 @@ export function ClientsView({
       { header: 'Rezim PPh', key: 'pphRegime', width: 22, render: (c) => c.pphRegime || '-' },
       { header: 'Tahun Pajak', key: 'taxYearEffective', width: 14, align: 'center', render: (c) => c.taxYearEffective || '-' },
       { header: 'Fasilitas UMKM s/d', key: 'umkmEnd', width: 18, align: 'center', render: (c) => c.umkmFacilityEndYear ? `s/d ${c.umkmFacilityEndYear}` : '-' },
-      { header: 'PIC Accounting', key: 'accountingStaffPicName', width: 20, render: (c) => c.accountingSpvIsPic ? c.accountingSpvName || '-' : c.accountingStaffPicName || '-' },
-      { header: 'PIC Tax', key: 'taxStaffPicName', width: 20, render: (c) => c.taxSpvIsPic ? c.taxSpvName || '-' : c.taxStaffPicName || '-' },
+      { header: 'Tanggung Jawab Accounting', key: 'accountingServiceResponsibility', width: 24, render: (c) => c.accountingServiceResponsibility || 'Tim 3' },
+      { header: 'Tanggung Jawab Tax', key: 'taxServiceResponsibility', width: 24, render: (c) => c.taxServiceResponsibility || 'Tim 3' },
+      { header: 'PIC Accounting', key: 'accountingStaffPicName', width: 20, render: (c) => (c.accountingServiceResponsibility || 'Tim 3') !== 'Tim 3' ? c.accountingServiceResponsibility || 'Tim 3' : c.accountingSpvIsPic ? c.accountingSpvName || '-' : c.accountingStaffPicName || '-' },
+      { header: 'PIC Tax', key: 'taxStaffPicName', width: 20, render: (c) => (c.taxServiceResponsibility || 'Tim 3') !== 'Tim 3' ? c.taxServiceResponsibility || 'Tim 3' : c.taxSpvIsPic ? c.taxSpvName || '-' : c.taxStaffPicName || '-' },
       { header: 'SPV Reviewer Acc', key: 'accountingSpvName', width: 20, render: (c) => c.accountingSpvName || '-' },
       { header: 'SPV Reviewer Tax', key: 'taxSpvName', width: 20, render: (c) => c.taxSpvName || '-' },
-      { header: 'Status PIC', key: 'picAssignmentStatus', width: 16, align: 'center', render: (c) => c.picAssignmentStatus },
+      { header: 'Status PIC Tim 3', key: 'picAssignmentStatus', width: 18, align: 'center', render: (c) => c.picAssignmentStatus },
       { header: 'Risiko Acc', key: 'accountingRisk', width: 14, align: 'center', render: (c) => c.accountingRisk || '-' },
       { header: 'Risiko Tax', key: 'taxRisk', width: 14, align: 'center', render: (c) => c.taxRisk || '-' },
       { header: 'NPWP', key: 'npwp', width: 22, render: (c) => c.npwp || '-' },
@@ -631,7 +635,7 @@ export function ClientsView({
                 <th className="py-3 px-3">Status PKP</th>
                 <th className="py-3 px-3">Rezim PPh</th>
                 <th className="py-3 px-3">PIC Utama & Reviewer</th>
-                <th className="py-3 px-3 text-center">Status PIC</th>
+                <th className="py-3 px-3 text-center">Status PIC Tim 3</th>
                 <th className="py-3 px-3 text-center">Risiko Acc / Tax</th>
                 <th className="py-3 px-4 text-right">Aksi</th>
               </tr>
@@ -700,16 +704,16 @@ export function ClientsView({
                         )}
                       </td>
 
-                      {/* 4 PIC Assignments Detail */}
+                      {/* Per-division responsibility and active team assignments */}
                       <td className="py-3 px-3 text-[11px] space-y-0.5 max-w-[210px]">
                         <div className="truncate text-slate-800">
-                          <span className="font-semibold text-slate-500">PIC Acc:</span> {client.accountingSpvIsPic ? `${client.accountingSpvName} (SPV)` : client.accountingStaffPicName || '-'}
+                          <span className="font-semibold text-slate-500">Accounting:</span> {(client.accountingServiceResponsibility || 'Tim 3') === 'Tim 3' ? client.accountingSpvIsPic ? `${client.accountingSpvName} (SPV)` : client.accountingStaffPicName || '-' : client.accountingServiceResponsibility}
                         </div>
                         <div className="truncate text-slate-800">
-                          <span className="font-semibold text-slate-500">PIC Tax:</span> {client.taxSpvIsPic ? `${client.taxSpvName} (SPV)` : client.taxStaffPicName || '-'}
+                          <span className="font-semibold text-slate-500">Tax:</span> {(client.taxServiceResponsibility || 'Tim 3') === 'Tim 3' ? client.taxSpvIsPic ? `${client.taxSpvName} (SPV)` : client.taxStaffPicName || '-' : client.taxServiceResponsibility}
                         </div>
                         <div className="truncate text-slate-500 text-[10px]">
-                          <span>SPV Reviewer: {client.accountingSpvName?.split(',')[0]} (Acc) · {client.taxSpvName?.split(',')[0]} (Tax)</span>
+                          <span>SPV Tim 3: {(client.accountingServiceResponsibility || 'Tim 3') === 'Tim 3' ? client.accountingSpvName?.split(',')[0] : '—'} (Acc) · {(client.taxServiceResponsibility || 'Tim 3') === 'Tim 3' ? client.taxSpvName?.split(',')[0] : '—'} (Tax)</span>
                         </div>
                       </td>
 
@@ -722,7 +726,7 @@ export function ClientsView({
                               : 'bg-amber-100 text-amber-900 border border-amber-300'
                           }`}
                         >
-                          {isPicComplete ? 'PIC Lengkap' : 'Pembagian PIC Belum Lengkap'}
+                          {isPicComplete ? 'Tim 3 Lengkap' : 'PIC Tim 3 Belum Lengkap'}
                         </span>
                       </td>
 
@@ -809,8 +813,8 @@ export function ClientsView({
                   <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-semibold text-rose-700">Risiko {client.accountingRisk === 'High' || client.taxRisk === 'High' ? 'High' : client.accountingRisk === 'Medium' || client.taxRisk === 'Medium' ? 'Medium' : client.accountingRisk === 'Low' || client.taxRisk === 'Low' ? 'Low' : 'Belum Dinilai'}</span>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]">
-                  <div><span className="text-slate-400">PIC Accounting</span><p className="mt-0.5 truncate font-medium text-slate-700">{client.accountingSpvIsPic ? `${client.accountingSpvName} (SPV)` : client.accountingStaffPicName || '-'}</p></div>
-                  <div><span className="text-slate-400">PIC Tax</span><p className="mt-0.5 truncate font-medium text-slate-700">{client.taxSpvIsPic ? `${client.taxSpvName} (SPV)` : client.taxStaffPicName || '-'}</p></div>
+                  <div><span className="text-slate-400">Accounting</span><p className="mt-0.5 truncate font-medium text-slate-700">{(client.accountingServiceResponsibility || 'Tim 3') !== 'Tim 3' ? client.accountingServiceResponsibility : client.accountingSpvIsPic ? `${client.accountingSpvName} (SPV)` : client.accountingStaffPicName || '-'}</p></div>
+                  <div><span className="text-slate-400">Tax</span><p className="mt-0.5 truncate font-medium text-slate-700">{(client.taxServiceResponsibility || 'Tim 3') !== 'Tim 3' ? client.taxServiceResponsibility : client.taxSpvIsPic ? `${client.taxSpvName} (SPV)` : client.taxStaffPicName || '-'}</p></div>
                 </div>
               </button>
               <div className="mt-3 flex items-center justify-end border-t border-slate-100 pt-3">
@@ -1069,6 +1073,30 @@ export function ClientsView({
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {([
+                    { division: 'Accounting' as const, field: 'accountingServiceResponsibility' as const, label: 'Tanggung jawab Accounting', value: formData.accountingServiceResponsibility || 'Tim 3' },
+                    { division: 'Tax' as const, field: 'taxServiceResponsibility' as const, label: 'Tanggung jawab Tax', value: formData.taxServiceResponsibility || 'Tim 3' },
+                  ]).map(({ division, field, label, value }) => (
+                    <label key={field} htmlFor={`client-${field}`} className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
+                      {label}
+                      <select
+                        id={`client-${field}`}
+                        value={value}
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
+                        onChange={(event) => setFormData({ ...formData, [field]: event.target.value as Client[typeof field] })}
+                        className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-xs font-normal text-slate-900 disabled:bg-slate-100"
+                      >
+                        <option value="Tim 3">Tim 3</option>
+                        <option value="Tim Internal Lain">Tim internal lain</option>
+                        <option value="Partner Eksternal">Partner eksternal</option>
+                        <option value="Tidak Berlaku">Tidak berlaku</option>
+                      </select>
+                      <span className="font-normal text-slate-500">{value === 'Tim 3' ? `PIC dan reviewer ${division} wajib ditetapkan.` : 'Tidak memicu peringatan PIC Tim 3 yang belum lengkap.'}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label className="block text-slate-700 font-semibold mb-1">
                       PIC Utama Accounting
@@ -1077,7 +1105,7 @@ export function ClientsView({
                       <input
                         type="checkbox"
                         checked={Boolean(formData.accountingSpvIsPic)}
-                        disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen) || !accountingIsTim3}
                         onChange={(event) => setFormData({
                           ...formData,
                           accountingSpvIsPic: event.target.checked,
@@ -1089,7 +1117,7 @@ export function ClientsView({
                       <span>SPV Accounting menjadi PIC utama dan yang menangani klien ini; bukan staff.</span>
                     </label>
                     <select
-                      disabled={Boolean(formData.accountingSpvIsPic) || (!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
+                      disabled={Boolean(formData.accountingSpvIsPic) || (!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen) || !accountingIsTim3}
                       value={formData.accountingStaffPicId || ''}
                       onChange={(e) => {
                         const user = users.find((candidate) => candidate.id === e.target.value);
@@ -1119,7 +1147,7 @@ export function ClientsView({
                       <input
                         type="checkbox"
                         checked={Boolean(formData.taxSpvIsPic)}
-                        disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
+                        disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen) || !taxIsTim3}
                         onChange={(event) => setFormData({
                           ...formData,
                           taxSpvIsPic: event.target.checked,
@@ -1131,7 +1159,7 @@ export function ClientsView({
                       <span>SPV Tax menjadi PIC utama dan yang menangani klien ini; bukan staff.</span>
                     </label>
                     <select
-                      disabled={Boolean(formData.taxSpvIsPic) || (!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
+                      disabled={Boolean(formData.taxSpvIsPic) || (!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen) || !taxIsTim3}
                       value={formData.taxStaffPicId || ''}
                       onChange={(e) => {
                         const user = users.find((candidate) => candidate.id === e.target.value);
@@ -1158,7 +1186,7 @@ export function ClientsView({
                       SPV Accounting (Reviewer dan PIC jika dipilih)
                     </label>
                     <select
-                      disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
+                      disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen) || !accountingIsTim3}
                       value={formData.accountingSpvId || ''}
                       onChange={(e) => {
                         const user = users.find((candidate) => candidate.id === e.target.value);
@@ -1185,7 +1213,7 @@ export function ClientsView({
                       SPV Tax (Reviewer dan PIC jika dipilih)
                     </label>
                     <select
-                      disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen)}
+                      disabled={(!isEditMode && !isAddModalOpen) || (!isAdmin && !isAddModalOpen) || !taxIsTim3}
                       value={formData.taxSpvId || ''}
                       onChange={(e) => {
                         const user = users.find((candidate) => candidate.id === e.target.value);

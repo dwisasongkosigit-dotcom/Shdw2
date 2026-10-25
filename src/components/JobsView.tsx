@@ -20,11 +20,18 @@ import {
   Download,
   AlertOctagon,
 } from 'lucide-react';
-import { api, type Job, type JobDivision, type Client, type CurrentUser, type JobStatus, type UserAccount, type MonthlyJobTemplate } from '../lib/api';
+import { api, type Job, type JobDivision, type Client, type CurrentUser, type JobStatus, type UserAccount, type MonthlyJobTemplate, type ServiceResponsibility } from '../lib/api';
 import { MonthlyJobTemplatesPanel } from './MonthlyJobTemplatesPanel';
 import { useToast } from './Toast';
 import { ExportDropdown } from './ExportDropdown';
 import type { ColumnDef } from '../lib/exportUtils';
+
+const SERVICE_RESPONSIBILITY_OPTIONS: ServiceResponsibility[] = [
+  'Tim 3',
+  'Tim Internal Lain',
+  'Partner Eksternal',
+  'Tidak Berlaku',
+];
 
 interface JobsViewProps {
   jobs: Job[];
@@ -84,6 +91,7 @@ export function JobsView({
   type NewJobData = Omit<Partial<Job>, 'division'> & {
     division?: JobDivisionSelection;
     picAssignments?: Partial<Record<JobDivision, JobPicAssignment>>;
+    serviceResponsibilityByDivision?: Partial<Record<JobDivision, ServiceResponsibility>>;
   };
 
   const [newJobData, setNewJobData] = useState<NewJobData>({
@@ -155,6 +163,7 @@ export function JobsView({
       priority: job.priority,
       description: job.description,
       spvId: job.spvId,
+      serviceResponsibility: job.serviceResponsibility || 'Tim 3',
     });
     setIsEditingDetails(false);
     setAutoSaveStatus('idle');
@@ -189,6 +198,10 @@ export function JobsView({
       clientName: client.name,
       division,
       picAssignments,
+      serviceResponsibilityByDivision: {
+        Accounting: client.accountingServiceResponsibility || 'Tim 3',
+        Tax: client.taxServiceResponsibility || 'Tim 3',
+      },
       picId: division === 'Both' ? undefined : picAssignments[defaultDivision].picId,
       picName: division === 'Both' ? undefined : picAssignments[defaultDivision].picName,
       spvId: defaultDivision === 'Accounting' ? client.accountingSpvId : client.taxSpvId,
@@ -213,6 +226,10 @@ export function JobsView({
       clientId: initialClient?.id || '',
       clientName: initialClient?.name || '',
       picAssignments,
+      serviceResponsibilityByDivision: {
+        Accounting: initialClient?.accountingServiceResponsibility || 'Tim 3',
+        Tax: initialClient?.taxServiceResponsibility || 'Tim 3',
+      },
       picId: picAssignments[defaultDivision].picId,
       picName: picAssignments[defaultDivision].picName,
       spvId: defaultDivision === 'Accounting' ? initialClient?.accountingSpvId : initialClient?.taxSpvId,
@@ -392,6 +409,7 @@ export function JobsView({
         deadline: jobEditData.deadline,
         priority: jobEditData.priority,
         description: jobEditData.description || '',
+        serviceResponsibility: jobEditData.serviceResponsibility || 'Tim 3',
         ...(currentUser.role === 'Admin' ? { spvId: jobEditData.spvId } : {}),
         expectedVersion: selectedJob.version,
         historyNote: 'Detail tugas diperbarui melalui fitur Edit Tugas.',
@@ -883,6 +901,12 @@ export function JobsView({
                       <option value="Rendah">Rendah</option><option value="Sedang">Sedang</option><option value="Tinggi">Tinggi</option><option value="Mendesak">Mendesak</option>
                     </select>
                   </label>
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
+                    Tanggung jawab layanan
+                    <select value={jobEditData.serviceResponsibility || 'Tim 3'} onChange={(event) => setJobEditData({ ...jobEditData, serviceResponsibility: event.target.value as ServiceResponsibility })} className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs font-normal text-slate-900">
+                      {SERVICE_RESPONSIBILITY_OPTIONS.map((responsibility) => <option key={responsibility} value={responsibility}>{responsibility}</option>)}
+                    </select>
+                  </label>
                   {currentUser.role === 'Admin' && (
                     <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
                       SPV reviewer
@@ -901,6 +925,7 @@ export function JobsView({
                   <div><span className="text-slate-500 font-medium">SPV reviewer:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.spvName}</p></div>
                   <div><span className="text-slate-500 font-medium">Mulai / deadline:</span><p className="mt-0.5 font-mono tabular-nums text-slate-800">{selectedJob.startDate} s/d {selectedJob.deadline}</p></div>
                   <div><span className="text-slate-500 font-medium">Prioritas:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.priority}</p></div>
+                  <div><span className="text-slate-500 font-medium">Tanggung jawab layanan:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.serviceResponsibility || 'Tim 3'}</p></div>
                 </div>
               )}
 
@@ -920,7 +945,7 @@ export function JobsView({
 
               {isEditingDetails && (
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                  <button type="button" onClick={() => { setIsEditingDetails(false); setJobEditData({ title: selectedJob.title, startDate: selectedJob.startDate, deadline: selectedJob.deadline, priority: selectedJob.priority, description: selectedJob.description, spvId: selectedJob.spvId }); }} className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700">Batal</button>
+                  <button type="button" onClick={() => { setIsEditingDetails(false); setJobEditData({ title: selectedJob.title, startDate: selectedJob.startDate, deadline: selectedJob.deadline, priority: selectedJob.priority, description: selectedJob.description, spvId: selectedJob.spvId, serviceResponsibility: selectedJob.serviceResponsibility || 'Tim 3' }); }} className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700">Batal</button>
                   <button type="button" onClick={handleSaveTaskDetails} disabled={saving} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-xs font-semibold text-white disabled:opacity-50"><Save className="size-4" />{saving ? 'Menyimpan...' : 'Simpan perubahan tugas'}</button>
                 </div>
               )}
@@ -1156,6 +1181,27 @@ export function JobsView({
 
               <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 text-[11px]">
                 <p className="font-semibold mb-2">PIC utama klien akan menerima pekerjaan ini</p>
+                <p className="mb-2 text-[10px] text-amber-800">Penanggung jawab mengikuti master klien, tetapi dapat disesuaikan untuk job ini.</p>
+                <div className="mb-3 grid gap-3 sm:grid-cols-2">
+                  {activeJobDivisions.map((division) => (
+                    <label key={`responsibility-${division}`} className="flex flex-col gap-1 font-semibold text-slate-700">
+                      Tanggung jawab {division}
+                      <select
+                        value={newJobData.serviceResponsibilityByDivision?.[division] || (division === 'Accounting' ? selectedClientForJob?.accountingServiceResponsibility : selectedClientForJob?.taxServiceResponsibility) || 'Tim 3'}
+                        onChange={(event) => setNewJobData((previous) => ({
+                          ...previous,
+                          serviceResponsibilityByDivision: {
+                            ...previous.serviceResponsibilityByDivision,
+                            [division]: event.target.value as ServiceResponsibility,
+                          },
+                        }))}
+                        className="min-h-10 rounded-lg border border-amber-200 bg-white px-3 text-xs font-normal text-slate-900"
+                      >
+                        {SERVICE_RESPONSIBILITY_OPTIONS.map((responsibility) => <option key={responsibility} value={responsibility}>{responsibility}</option>)}
+                      </select>
+                    </label>
+                  ))}
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {activeJobDivisions.map((division) => {
                     const spvIsPic = division === 'Accounting'

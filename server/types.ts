@@ -82,6 +82,8 @@ export interface PicHistoryItem {
   notes?: string;
 }
 
+export type ServiceResponsibility = 'Tim 3' | 'Tim Internal Lain' | 'Partner Eksternal' | 'Tidak Berlaku';
+
 export interface Client {
   id: string; // e.g. CLI-001
   name: string;
@@ -96,6 +98,8 @@ export interface Client {
   dataType: ClientDataType;
   suggestions: ClientSuggestion[];
   monthlyJobTemplateIds?: string[];
+  accountingServiceResponsibility?: ServiceResponsibility;
+  taxServiceResponsibility?: ServiceResponsibility;
 
   // Per-division owner and reviewer assignments
   accountingStaffPicId: string;
@@ -161,6 +165,38 @@ export interface Client {
   updatedBy?: string;
 }
 
+export const SERVICE_RESPONSIBILITY_OPTIONS: ServiceResponsibility[] = [
+  'Tim 3',
+  'Tim Internal Lain',
+  'Partner Eksternal',
+  'Tidak Berlaku',
+];
+
+export function calculateClientPicAssignmentStatus(
+  client: Pick<Client,
+    | 'accountingServiceResponsibility'
+    | 'taxServiceResponsibility'
+    | 'accountingStaffPicName'
+    | 'taxStaffPicName'
+    | 'accountingSpvIsPic'
+    | 'taxSpvIsPic'
+    | 'accountingSpvName'
+    | 'taxSpvName'
+  >
+): Client['picAssignmentStatus'] {
+  const hasOwner = (name?: string) => Boolean(name && name !== '-' && name.trim());
+  const accountingComplete = (client.accountingServiceResponsibility || 'Tim 3') !== 'Tim 3' || (
+    hasOwner(client.accountingSpvIsPic ? client.accountingSpvName : client.accountingStaffPicName) &&
+    hasOwner(client.accountingSpvName)
+  );
+  const taxComplete = (client.taxServiceResponsibility || 'Tim 3') !== 'Tim 3' || (
+    hasOwner(client.taxSpvIsPic ? client.taxSpvName : client.taxStaffPicName) &&
+    hasOwner(client.taxSpvName)
+  );
+
+  return accountingComplete && taxComplete ? 'Lengkap' : 'Belum Lengkap';
+}
+
 export type JobDivision = 'Accounting' | 'Tax';
 export type JobPriority = 'Rendah' | 'Sedang' | 'Tinggi' | 'Mendesak';
 export type JobStatus =
@@ -171,7 +207,13 @@ export type JobStatus =
   | 'Perlu Revisi'
   | 'Selesai';
 
-export type JobHandoverDirection = 'staff-to-client' | 'spv-to-client' | 'tax-to-accounting' | 'tax-to-client';
+export type JobHandoverDirection =
+  | 'staff-to-client'
+  | 'staff-to-internal'
+  | 'spv-to-client'
+  | 'spv-to-internal'
+  | 'tax-to-accounting'
+  | 'tax-to-client';
 
 export interface JobHandoverRecord {
   id: string;
@@ -215,6 +257,7 @@ export interface Job {
   clientId: string;
   clientName: string;
   division: JobDivision;
+  serviceResponsibility?: ServiceResponsibility;
   title: string;
   picId: string;
   picName: string;
