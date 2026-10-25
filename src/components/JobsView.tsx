@@ -20,7 +20,7 @@ import {
   Download,
   AlertOctagon,
 } from 'lucide-react';
-import { api, type Job, type JobDivision, type Client, type CurrentUser, type JobStatus, type UserAccount, type MonthlyJobTemplate, type ServiceResponsibility, type JobHandoverDestination, type JobHandoverDirection } from '../lib/api';
+import { api, type Job, type JobDivision, type Client, type CurrentUser, type JobStatus, type UserAccount, type MonthlyJobTemplate, type ServiceResponsibility, type JobHandoverDestination, type ActiveJobHandoverDirection } from '../lib/api';
 import { MonthlyJobTemplatesPanel } from './MonthlyJobTemplatesPanel';
 import { useToast } from './Toast';
 import { ExportDropdown } from './ExportDropdown';
@@ -33,13 +33,10 @@ const SERVICE_RESPONSIBILITY_OPTIONS: ServiceResponsibility[] = [
   'Tidak Berlaku',
 ];
 
-const HANDOVER_DIRECTION_OPTIONS: Array<{ direction: JobHandoverDirection; label: string; taxOnly?: boolean }> = [
-  { direction: 'staff-to-client', label: 'Staff → Klien' },
-  { direction: 'staff-to-internal', label: 'Staff → Internal' },
-  { direction: 'spv-to-client', label: 'SPV → Klien' },
-  { direction: 'spv-to-internal', label: 'SPV → Internal' },
-  { direction: 'tax-to-accounting', label: 'Tim Tax → Accounting', taxOnly: true },
-  { direction: 'tax-to-client', label: 'Tim Tax → Klien', taxOnly: true },
+const HANDOVER_DIRECTION_OPTIONS: Array<{ direction: ActiveJobHandoverDirection; label: string }> = [
+  { direction: 'staff-to-client', label: 'PIC → Klien' },
+  { direction: 'accounting-to-tax', label: 'Accounting → Tax' },
+  { direction: 'tax-to-accounting', label: 'Tax → Accounting' },
 ];
 
 interface JobsViewProps {
@@ -938,21 +935,23 @@ export function JobsView({
                             })}
                             className="size-4 accent-amber-600"
                           />
-                          {destination === 'client' ? 'Klien' : 'Internal / Accounting'}
+                          {destination === 'client' ? 'Klien (PIC staff)' : `Internal (${selectedJob.division} → ${selectedJob.division === 'Accounting' ? 'Tax' : 'Accounting'})`}
                         </label>
                       ))}
                     </div>
-                    <p className="mt-1 text-[10px] leading-4 text-slate-500">Jenis serah terima mengikuti tujuan bawaan ini. Kosongkan keduanya jika job tidak memerlukan serah terima.</p>
+                    <p className="mt-1 text-[10px] leading-4 text-slate-500">PIC staff mencatat penyerahan ke klien; checklist internal mengikuti arah divisi job. SPV hanya melihat catatan. Kosongkan jika tidak diperlukan.</p>
                   </fieldset>
                   <fieldset className="rounded-lg border border-slate-200 bg-white p-3 sm:col-span-2">
                     <legend className="px-1 text-[11px] font-semibold text-slate-700">Checklist per item serah terima</legend>
                     <div className="grid gap-1 sm:grid-cols-2">
-                      {HANDOVER_DIRECTION_OPTIONS.filter(({ direction, taxOnly }) => {
-                        if (taxOnly && selectedJob.division !== 'Tax') return false;
+                      {HANDOVER_DIRECTION_OPTIONS.filter(({ direction }) => {
                         if (jobEditData.serviceResponsibility !== 'Tim 3') return false;
+                        const client = clients.find((item) => item.id === selectedJob.clientId);
+                        if (direction === 'accounting-to-tax') {
+                          return selectedJob.division === 'Accounting' && (client?.taxServiceResponsibility || 'Tim 3') === 'Tim 3';
+                        }
                         if (direction === 'tax-to-accounting') {
-                          const client = clients.find((item) => item.id === selectedJob.clientId);
-                          return (client?.accountingServiceResponsibility || 'Tim 3') === 'Tim 3';
+                          return selectedJob.division === 'Tax' && (client?.accountingServiceResponsibility || 'Tim 3') === 'Tim 3';
                         }
                         return true;
                       }).map(({ direction, label }) => {
@@ -1006,7 +1005,7 @@ export function JobsView({
                   <div><span className="text-slate-500 font-medium">Mulai / deadline:</span><p className="mt-0.5 font-mono tabular-nums text-slate-800">{selectedJob.startDate} s/d {selectedJob.deadline}</p></div>
                   <div><span className="text-slate-500 font-medium">Prioritas:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.priority}</p></div>
                   <div><span className="text-slate-500 font-medium">Tanggung jawab layanan:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.serviceResponsibility || 'Tim 3'}</p></div>
-                  <div><span className="text-slate-500 font-medium">Tujuan bawaan job:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.handoverDestinations === undefined ? 'Belum diatur' : selectedJob.handoverDestinations.length ? selectedJob.handoverDestinations.map((destination) => destination === 'client' ? 'Klien' : 'Internal').join(' dan ') : 'Tidak diperlukan'}</p>{Object.keys(selectedJob.handoverDirectionOverrides || {}).length > 0 && <p className="mt-1 text-[10px] text-slate-500">Ada {Object.keys(selectedJob.handoverDirectionOverrides || {}).length} penyesuaian checklist per item.</p>}</div>
+                  <div><span className="text-slate-500 font-medium">Tujuan bawaan job:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.handoverDestinations === undefined ? 'Belum diatur' : selectedJob.handoverDestinations.length ? selectedJob.handoverDestinations.map((destination) => destination === 'client' ? 'Klien (PIC staff)' : `Internal (${selectedJob.division} → ${selectedJob.division === 'Accounting' ? 'Tax' : 'Accounting'})`).join(' dan ') : 'Tidak diperlukan'}</p>{Object.keys(selectedJob.handoverDirectionOverrides || {}).length > 0 && <p className="mt-1 text-[10px] text-slate-500">Ada {Object.keys(selectedJob.handoverDirectionOverrides || {}).length} penyesuaian checklist per item.</p>}</div>
                 </div>
               )}
 

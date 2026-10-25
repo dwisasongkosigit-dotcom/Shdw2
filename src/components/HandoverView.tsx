@@ -5,6 +5,7 @@ import {
   type CurrentUser,
   type Job,
   type JobHandoverDirection,
+  type ActiveJobHandoverDirection,
   type JobHandoverRecord,
   type Client,
 } from '../lib/api';
@@ -32,26 +33,35 @@ type HandoverExportRow = {
   handoverDestinations: string;
   jobStatus: string;
   staffToClient: string;
-  staffToInternal: string;
-  spvToClient: string;
-  spvToInternal: string;
+  accountingToTax: string;
   taxToAccounting: string;
-  taxToClient: string;
 };
 
 const HANDOVER_OPTIONS: Array<{
-  direction: JobHandoverDirection;
+  direction: ActiveJobHandoverDirection;
   label: string;
   helper: string;
-  taxOnly?: boolean;
 }> = [
-  { direction: 'staff-to-client', label: 'Staff → Klien', helper: 'Konfirmasi laporan dari PIC telah sampai ke klien.' },
-  { direction: 'staff-to-internal', label: 'Staff → Internal', helper: 'Konfirmasi hasil kerja PIC telah diserahkan ke tim internal.' },
-  { direction: 'spv-to-client', label: 'SPV → Klien', helper: 'Konfirmasi laporan yang disetujui reviewer telah sampai ke klien.' },
-  { direction: 'spv-to-internal', label: 'SPV → Internal', helper: 'Konfirmasi hasil review telah diserahkan ke tim internal.' },
-  { direction: 'tax-to-accounting', label: 'Tim Tax → Accounting', helper: 'Konfirmasi data Tax telah diserahkan ke Accounting.', taxOnly: true },
-  { direction: 'tax-to-client', label: 'Tim Tax → Klien', helper: 'Konfirmasi data Tax telah disampaikan kepada klien.', taxOnly: true },
+  { direction: 'staff-to-client', label: 'PIC → Klien', helper: 'PIC staff mencatat laporan yang sudah disampaikan ke klien.' },
+  { direction: 'accounting-to-tax', label: 'Accounting → Tax', helper: 'PIC Accounting mencatat penyerahan pekerjaan ke tim Tax.' },
+  { direction: 'tax-to-accounting', label: 'Tax → Accounting', helper: 'PIC Tax mencatat penyerahan pekerjaan ke tim Accounting.' },
 ];
+
+const HANDOVER_DIRECTION_LABELS: Record<JobHandoverDirection, string> = {
+  'staff-to-client': 'PIC → Klien',
+  'accounting-to-tax': 'Accounting → Tax',
+  'tax-to-accounting': 'Tax → Accounting',
+  'staff-to-internal': 'PIC → Internal (format lama)',
+  'spv-to-client': 'SPV → Klien (format lama)',
+  'spv-to-internal': 'SPV → Internal (format lama)',
+  'tax-to-client': 'Tim Tax → Klien (format lama)',
+};
+
+const ACTIVE_HANDOVER_DIRECTIONS = new Set<JobHandoverDirection>(HANDOVER_OPTIONS.map((option) => option.direction));
+
+function getHandoverDirectionLabel(direction: JobHandoverDirection) {
+  return HANDOVER_DIRECTION_LABELS[direction];
+}
 
 const HANDOVER_EXPORT_COLUMNS: ColumnDef<HandoverExportRow>[] = [
   { header: 'No', key: 'number', width: 7, align: 'center' },
@@ -64,21 +74,15 @@ const HANDOVER_EXPORT_COLUMNS: ColumnDef<HandoverExportRow>[] = [
   { header: 'Tanggung Jawab', key: 'serviceResponsibility', width: 24 },
   { header: 'Tujuan Serah Terima', key: 'handoverDestinations', width: 24 },
   { header: 'Status Job', key: 'jobStatus', width: 18 },
-  { header: 'Staff → Klien', key: 'staffToClient', width: 42 },
-  { header: 'Staff → Internal', key: 'staffToInternal', width: 42 },
-  { header: 'SPV → Klien', key: 'spvToClient', width: 42 },
-  { header: 'SPV → Internal', key: 'spvToInternal', width: 42 },
-  { header: 'Tim Tax → Accounting', key: 'taxToAccounting', width: 42 },
-  { header: 'Tim Tax → Klien', key: 'taxToClient', width: 42 },
+  { header: 'PIC → Klien', key: 'staffToClient', width: 42 },
+  { header: 'Accounting → Tax', key: 'accountingToTax', width: 42 },
+  { header: 'Tax → Accounting', key: 'taxToAccounting', width: 42 },
 ];
 
-const HANDOVER_EXPORT_KEY: Record<JobHandoverDirection, keyof HandoverExportRow> = {
+const HANDOVER_EXPORT_KEY: Record<ActiveJobHandoverDirection, keyof HandoverExportRow> = {
   'staff-to-client': 'staffToClient',
-  'staff-to-internal': 'staffToInternal',
-  'spv-to-client': 'spvToClient',
-  'spv-to-internal': 'spvToInternal',
+  'accounting-to-tax': 'accountingToTax',
   'tax-to-accounting': 'taxToAccounting',
-  'tax-to-client': 'taxToClient',
 };
 
 function canViewJob(job: Job, currentUser: CurrentUser) {
@@ -90,8 +94,13 @@ function canViewJob(job: Job, currentUser: CurrentUser) {
 
 function isDirectionApplicable(job: Job, direction: JobHandoverDirection, client?: Client) {
   if ((job.serviceResponsibility || 'Tim 3') !== 'Tim 3') return false;
-  if ((direction === 'tax-to-accounting' || direction === 'tax-to-client') && job.division !== 'Tax') return false;
-  if (direction === 'tax-to-accounting' && (client?.accountingServiceResponsibility || 'Tim 3') !== 'Tim 3') return false;
+  if (direction === 'accounting-to-tax') {
+    return job.division === 'Accounting' && (client?.taxServiceResponsibility || 'Tim 3') === 'Tim 3';
+  }
+  if (direction === 'tax-to-accounting') {
+    return job.division === 'Tax' && (client?.accountingServiceResponsibility || 'Tim 3') === 'Tim 3';
+  }
+  if (direction === 'tax-to-client') return job.division === 'Tax';
   return true;
 }
 
@@ -113,30 +122,21 @@ function getConfiguredDestinationLabel(job: Job, client?: Client) {
   if (!isHandoverConfigured(job)) return 'Belum diatur';
   const destinations = new Set(HANDOVER_OPTIONS
     .filter((option) => isDirectionRequired(job, option.direction, client))
-    .map((option) => option.direction.endsWith('-to-client') ? 'Klien' : 'Internal'));
+    .map((option) => option.direction === 'staff-to-client'
+      ? 'Klien (PIC staff)'
+      : `${job.division} → ${job.division === 'Accounting' ? 'Tax' : 'Accounting'}`));
   return destinations.size ? [...destinations].join(' + ') : 'Tidak diperlukan';
 }
 
-function canRecordDirection(job: Job, direction: JobHandoverDirection, currentUser: CurrentUser, client?: Client) {
+function canRecordDirection(job: Job, direction: ActiveJobHandoverDirection, currentUser: CurrentUser, client?: Client) {
   if (job.status !== 'Selesai' || !isDirectionRequired(job, direction, client)) return false;
   if (currentUser.role === 'Admin') return true;
-  if (direction === 'staff-to-client' || direction === 'staff-to-internal') {
-    return currentUser.role === `Staff ${job.division}` && job.picId === currentUser.id;
-  }
-  if (direction === 'spv-to-client' || direction === 'spv-to-internal') {
-    return currentUser.role === `SPV ${job.division}` && job.spvId === currentUser.id;
-  }
-  if (job.division !== 'Tax') return false;
-  return (
-    (currentUser.role === 'Staff Tax' && job.picId === currentUser.id) ||
-    (currentUser.role === 'SPV Tax' && job.spvId === currentUser.id)
-  );
+  return currentUser.role === `Staff ${job.division}` && job.picId === currentUser.id;
 }
 
-function canCancelHandover(job: Job, record: JobHandoverRecord, currentUser: CurrentUser) {
+function canCancelHandover(record: JobHandoverRecord, currentUser: CurrentUser) {
   return currentUser.role === 'Admin' ||
-    record.sentById === currentUser.id ||
-    (currentUser.role === `SPV ${job.division}` && job.spvId === currentUser.id);
+    (!currentUser.role.startsWith('SPV') && record.sentById === currentUser.id);
 }
 
 function formatDate(value: string) {
@@ -160,7 +160,7 @@ function formatJakartaDateTime(value?: string) {
 
 function getChecklistExportValue(
   job: Job,
-  direction: JobHandoverDirection,
+  direction: ActiveJobHandoverDirection,
   record: JobHandoverRecord | undefined,
   canceledRecord: JobHandoverRecord | undefined,
   applicable: boolean
@@ -197,7 +197,7 @@ function HandoverChecklistCell({
   saving: boolean;
   busy: boolean;
   canCancel: boolean;
-  onRecord: (job: Job, direction: JobHandoverDirection) => void;
+  onRecord: (job: Job, direction: ActiveJobHandoverDirection) => void;
   onCancel: (job: Job, record: JobHandoverRecord) => void;
 }) {
   if (!applicable && !record && !canceledRecord) {
@@ -221,7 +221,7 @@ function HandoverChecklistCell({
           ? 'Menunggu review SPV'
           : canRecord
             ? 'Belum dicatat'
-            : 'Menunggu pengirim yang ditugaskan';
+            : 'Menunggu PIC staff yang ditugaskan';
   const checkboxId = `handover-${job.id}-${option.direction}`;
 
   return (
@@ -256,7 +256,7 @@ function HandoverChecklistCell({
           </p>
         ) : (
           <p className="text-[10px] leading-4 text-slate-500">
-            {saving ? 'Menyimpan catatan serah terima…' : !isReviewed ? 'Checklist aktif setelah review SPV.' : canRecord ? option.helper : 'Hanya pengirim yang ditugaskan dapat mencatat.'}
+            {saving ? 'Menyimpan catatan serah terima…' : !isReviewed ? 'Checklist aktif setelah review SPV.' : canRecord ? option.helper : 'Hanya PIC staff yang ditugaskan dapat mencatat; SPV hanya melihat.'}
           </p>
         )}
         {record && canCancel && (
@@ -346,7 +346,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
   const filteredJobs = useMemo(() => visibleJobs.filter((job) => {
     if (clientFilter !== 'All' && job.clientId !== clientFilter) return false;
     const selectedDirection = HANDOVER_OPTIONS.find((option) => option.direction === directionFilter);
-    if (selectedDirection?.taxOnly && job.division !== 'Tax') return false;
+    if (selectedDirection && !isDirectionApplicable(job, selectedDirection.direction, clientsById.get(job.clientId))) return false;
     const query = searchTerm.trim().toLocaleLowerCase('id-ID');
     if (query && ![job.id, job.title, job.clientName, job.picName, job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(query))) return false;
     const jobOptions = HANDOVER_OPTIONS.filter((option) =>
@@ -395,7 +395,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
 
   const handoverExportRows = useMemo(() => filteredJobs.map((job, index) => {
     const client = clientsById.get(job.clientId);
-    const exportValue = (direction: JobHandoverDirection) => getChecklistExportValue(
+    const exportValue = (direction: ActiveJobHandoverDirection) => getChecklistExportValue(
       job,
       direction,
       recordByKey.get(`${job.id}:${direction}`),
@@ -414,11 +414,8 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
       handoverDestinations: getConfiguredDestinationLabel(job, client),
       jobStatus: job.status,
       staffToClient: exportValue('staff-to-client'),
-      staffToInternal: exportValue('staff-to-internal'),
-      spvToClient: exportValue('spv-to-client'),
-      spvToInternal: exportValue('spv-to-internal'),
+      accountingToTax: exportValue('accounting-to-tax'),
       taxToAccounting: exportValue('tax-to-accounting'),
-      taxToClient: exportValue('tax-to-client'),
     };
   }), [filteredJobs, clientsById, recordByKey, canceledRecordByKey]);
 
@@ -481,7 +478,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     .map((option) => ({ ...option, count: activeCountByDirection.get(option.direction) || 0 })),
   [directionFilter, summaryJobs, activeCountByDirection, clientsById]);
 
-  const handleRecordHandover = async (job: Job, direction: JobHandoverDirection) => {
+  const handleRecordHandover = async (job: Job, direction: ActiveJobHandoverDirection) => {
     const key = `${job.id}:${direction}`;
     if (savingKey || job.status !== 'Selesai' || recordByKey.has(key) || !canRecordDirection(job, direction, currentUser, clientsById.get(job.clientId))) return;
     setSavingKey(key);
@@ -559,7 +556,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
         </div>
         <div>
           <h1 id="handover-page-title" className="text-lg font-bold tracking-tight text-slate-900">Rekap Serah Terima</h1>
-          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-600">Pilih tujuan per job agar hanya serah terima yang memang diperlukan masuk checklist terbuka. Catatan batal tetap tersimpan sebagai riwayat; penghapusan permanen tersedia untuk Admin.</p>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-600">PIC staff mencatat serah ke klien atau perpindahan Accounting ↔ Tax setelah review selesai; SPV hanya melihat status dan riwayat. Catatan lama dan pembatalan tetap tersimpan; penghapusan permanen tersedia untuk Admin.</p>
         </div>
       </div>
 
@@ -685,7 +682,8 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
           const doneCount = requiredOptions.filter((option) => recordByKey.has(`${job.id}:${option.direction}`)).length;
           const isReviewed = job.status === 'Selesai';
           const isTim3Assignment = (job.serviceResponsibility || 'Tim 3') === 'Tim 3';
-          const canceledRecords = jobHistory.filter((record) => Boolean(record.canceledAt) && (directionFilter === 'All' || record.direction === directionFilter)).sort((a, b) => (b.canceledAt || '').localeCompare(a.canceledAt || ''));
+          const canceledRecords = jobHistory.filter((record) => Boolean(record.canceledAt) && ACTIVE_HANDOVER_DIRECTIONS.has(record.direction) && (directionFilter === 'All' || record.direction === directionFilter)).sort((a, b) => (b.canceledAt || '').localeCompare(a.canceledAt || ''));
+          const legacyRecords = jobHistory.filter((record) => !ACTIVE_HANDOVER_DIRECTIONS.has(record.direction)).sort((a, b) => b.sentAt.localeCompare(a.sentAt));
           const configuredDestinationLabel = getConfiguredDestinationLabel(job, client);
           const destinationLabel = configuredDestinationLabel === 'Belum diatur' ? 'Tujuan belum diatur' : configuredDestinationLabel;
 
@@ -755,7 +753,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
                           canRecord={canRecordDirection(job, option.direction, currentUser, client)}
                           saving={savingKey === key}
                           busy={Boolean(savingKey)}
-                          canCancel={Boolean(record && canCancelHandover(job, record, currentUser))}
+                          canCancel={Boolean(record && canCancelHandover(record, currentUser))}
                           onRecord={(targetJob, direction) => void handleRecordHandover(targetJob, direction)}
                           onCancel={(targetJob, targetRecord) => setCancelTarget({ job: targetJob, record: targetRecord })}
                         />
@@ -774,7 +772,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
                       {canceledRecords.map((record) => (
                         <div key={record.id} className="flex flex-col gap-2 rounded-lg border border-rose-100 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
                           <div className="min-w-0">
-                            <p className="text-xs font-semibold text-slate-800">{HANDOVER_OPTIONS.find((option) => option.direction === record.direction)?.label || 'Serah terima'}</p>
+                            <p className="text-xs font-semibold text-slate-800">{getHandoverDirectionLabel(record.direction)}</p>
                             <p className="mt-1 text-[10px] leading-4 text-slate-500">Dikirim {formatDate(record.sentAt)} oleh {record.sentByName} <span className="px-1 text-slate-300">·</span> Dibatalkan {formatDate(record.canceledAt || '')} oleh {record.canceledByName || 'pengguna'}</p>
                           </div>
                           {currentUser.role === 'Admin' && (
@@ -787,6 +785,25 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
                               <Trash2 className="size-3.5" /> Hapus
                             </button>
                           )}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+                {legacyRecords.length > 0 && (
+                  <details className="rounded-xl border border-slate-200 bg-slate-50/70 p-3" aria-label={`Riwayat serah terima lama untuk ${job.title}`}>
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[11px] font-semibold text-slate-700">
+                      Riwayat format serah terima sebelumnya
+                      <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700">{legacyRecords.length}</span>
+                    </summary>
+                    <div className="mt-3 flex flex-col gap-2">
+                      {legacyRecords.map((record) => (
+                        <div key={record.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                          <p className="text-xs font-semibold text-slate-800">{getHandoverDirectionLabel(record.direction)}</p>
+                          <p className="mt-1 text-[10px] leading-4 text-slate-500">
+                            Dikirim {formatDate(record.sentAt)} oleh {record.sentByName}
+                            {record.canceledAt && ` · Dibatalkan ${formatDate(record.canceledAt)} oleh ${record.canceledByName || 'pengguna'}`}
+                          </p>
                         </div>
                       ))}
                     </div>
@@ -821,7 +838,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
           </div>
           <h2 id="cancel-handover-title" className="mt-4 text-base font-bold text-slate-900">Batalkan catatan serah terima?</h2>
           <p id="cancel-handover-description" className="mt-2 text-sm leading-6 text-slate-600">
-            Catatan {HANDOVER_OPTIONS.find((option) => option.direction === cancelTarget.record.direction)?.label} untuk <span className="font-semibold text-slate-800">{cancelTarget.job.title}</span> akan ditandai dibatalkan. Riwayat pengiriman awal tetap tersimpan.
+            Catatan {getHandoverDirectionLabel(cancelTarget.record.direction)} untuk <span className="font-semibold text-slate-800">{cancelTarget.job.title}</span> akan ditandai dibatalkan. Riwayat pengiriman awal tetap tersimpan.
           </p>
           <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600">
             Dicatat oleh {cancelTarget.record.sentByName} pada {formatDate(cancelTarget.record.sentAt)}. Pembatalan akan mencatat nama dan waktu Anda.
@@ -855,7 +872,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
           </div>
           <h2 id="delete-handover-title" className="mt-4 text-base font-bold text-slate-900">Hapus catatan serah terima?</h2>
           <p id="delete-handover-description" className="mt-2 text-sm leading-6 text-slate-600">Catatan yang sudah dibatalkan untuk <span className="font-semibold text-slate-800">{deleteTarget.job.title}</span> akan dihapus permanen dari rekap. Aktivitas penghapusan tetap tercatat di audit log.</p>
-          <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600">{HANDOVER_OPTIONS.find((option) => option.direction === deleteTarget.record.direction)?.label} · dikirim {formatDate(deleteTarget.record.sentAt)} · dibatalkan {formatDate(deleteTarget.record.canceledAt || '')}</div>
+          <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600">{getHandoverDirectionLabel(deleteTarget.record.direction)} · dikirim {formatDate(deleteTarget.record.sentAt)} · dibatalkan {formatDate(deleteTarget.record.canceledAt || '')}</div>
           <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button type="button" onClick={() => setDeleteTarget(null)} disabled={Boolean(deletingRecordId)} className="min-h-10 rounded-lg border border-slate-200 px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Kembali</button>
             <button type="button" onClick={() => void handleDeleteCanceledHandover()} disabled={Boolean(deletingRecordId)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-rose-700 px-4 text-xs font-semibold text-white transition hover:bg-rose-800 disabled:cursor-wait disabled:opacity-60"><Trash2 className="size-3.5" />{deletingRecordId ? 'Menghapus...' : 'Hapus permanen'}</button>

@@ -33,6 +33,7 @@ import type {
   User,
   JobStatus,
   JobHandoverDirection,
+  ActiveJobHandoverDirection,
   JobHandoverDestination,
   JobHandoverRecord,
   RiskLevel,
@@ -49,14 +50,29 @@ import type {
 
 export const apiRouter = Router();
 
-const HANDOVER_DIRECTIONS: JobHandoverDirection[] = [
+const HANDOVER_DIRECTIONS: ActiveJobHandoverDirection[] = [
   'staff-to-client',
+  'accounting-to-tax',
+  'tax-to-accounting',
+];
+
+const ALL_HANDOVER_DIRECTIONS: JobHandoverDirection[] = [
+  ...HANDOVER_DIRECTIONS,
   'staff-to-internal',
   'spv-to-client',
   'spv-to-internal',
-  'tax-to-accounting',
   'tax-to-client',
 ];
+
+const HANDOVER_DIRECTION_LABELS: Record<JobHandoverDirection, string> = {
+  'staff-to-client': 'PIC → Klien',
+  'accounting-to-tax': 'Accounting → Tax',
+  'tax-to-accounting': 'Tax → Accounting',
+  'staff-to-internal': 'PIC → Internal (format lama)',
+  'spv-to-client': 'SPV → Klien (format lama)',
+  'spv-to-internal': 'SPV → Internal (format lama)',
+  'tax-to-client': 'Tim Tax → Klien (format lama)',
+};
 
 function hasDivisionAccess(role: string, division: string) {
   return role === 'Admin' ||
@@ -1515,27 +1531,13 @@ apiRouter.post(
     }
 
     const direction = req.body?.direction as JobHandoverDirection;
-    if (!HANDOVER_DIRECTIONS.includes(direction)) {
+    if (!HANDOVER_DIRECTIONS.includes(direction as ActiveJobHandoverDirection)) {
       res.status(400).json({ error: 'Tujuan serah terima tidak valid.' });
       return;
     }
 
     const isAssignedStaff = currentUser.role === `Staff ${job.division}` && job.picId === currentUser.userId;
-    const isAssignedReviewer = currentUser.role === `SPV ${job.division}` && job.spvId === currentUser.userId;
-    const isAssignedTaxTeamMember = job.division === 'Tax' && (
-      (currentUser.role === 'Staff Tax' && job.picId === currentUser.userId) ||
-      (currentUser.role === 'SPV Tax' && job.spvId === currentUser.userId)
-    );
-    const isTaxDirection = direction === 'tax-to-accounting' || direction === 'tax-to-client';
-    const isStaffDirection = direction === 'staff-to-client' || direction === 'staff-to-internal';
-    const isSpvDirection = direction === 'spv-to-client' || direction === 'spv-to-internal';
-    const canRecord = currentUser.role === 'Admin'
-      ? !isTaxDirection || job.division === 'Tax'
-      : isStaffDirection
-        ? isAssignedStaff
-        : isSpvDirection
-          ? isAssignedReviewer
-          : isAssignedTaxTeamMember;
+    const canRecord = currentUser.role === 'Admin' || isAssignedStaff;
     const handoverDestination = direction.endsWith('-to-client') ? 'client' : 'internal';
     const selectedForHandover = job.handoverDirectionOverrides?.[direction] ??
       (Array.isArray(job.handoverDestinations) && job.handoverDestinations.includes(handoverDestination));
@@ -1546,15 +1548,17 @@ apiRouter.post(
 
     const client = db.clients.find((candidate) => candidate.id === job.clientId);
     const accountingResponsibility = client?.accountingServiceResponsibility || 'Tim 3';
+    const taxResponsibility = client?.taxServiceResponsibility || 'Tim 3';
     const isApplicable = (job.serviceResponsibility || 'Tim 3') === 'Tim 3' &&
-      (direction !== 'tax-to-accounting' || accountingResponsibility === 'Tim 3');
+      (direction !== 'accounting-to-tax' || (job.division === 'Accounting' && taxResponsibility === 'Tim 3')) &&
+      (direction !== 'tax-to-accounting' || (job.division === 'Tax' && accountingResponsibility === 'Tim 3'));
 
     if (!isApplicable) {
       res.status(409).json({ error: 'Serah terima ini tidak berlaku untuk pembagian tanggung jawab klien saat ini.' });
       return;
     }
     if (!canRecord) {
-      res.status(403).json({ error: 'Akses ditolak: hanya PIC atau SPV yang ditugaskan sesuai tujuan serah terima yang dapat mencatat pengiriman.' });
+      res.status(403).json({ error: 'Akses ditolak: hanya Admin atau PIC staff yang ditugaskan dapat mencatat serah terima.' });
       return;
     }
     if (job.status !== 'Selesai') {
@@ -1577,14 +1581,6 @@ apiRouter.post(
       sentByName: currentUser.name,
       sentByRole: currentUser.role,
     };
-    const directionLabels: Record<JobHandoverDirection, string> = {
-      'staff-to-client': 'Staff → Klien',
-      'staff-to-internal': 'Staff → Internal',
-      'spv-to-client': 'SPV → Klien',
-      'spv-to-internal': 'SPV → Internal',
-      'tax-to-accounting': 'Tim Tax → Accounting',
-      'tax-to-client': 'Tim Tax → Klien',
-    };
 
     mutateDb((database) => {
       database.handoverRecords = database.handoverRecords || [];
@@ -1592,14 +1588,14 @@ apiRouter.post(
       logAudit(
         'JOB_HANDOVER_RECORDED',
         'Job',
-        `${directionLabels[direction]} dicatat untuk pekerjaan ${job.id} (${job.title}) setelah review SPV selesai.`,
+        `${HANDOVER_DIRECTION_LABELS[direction]} dicatat untuk pekerjaan ${job.id} (${job.title}) setelah review SPV selesai.`,
         { userId: currentUser.userId, name: currentUser.name, role: currentUser.role },
         job.id,
         job.title
       );
     });
 
-    res.status(201).json({ success: true, record, message: `${directionLabels[direction]} berhasil dicatat.` });
+    res.status(201).json({ success: true, record, message: `${HANDOVER_DIRECTION_LABELS[direction]} berhasil dicatat.` });
   }
 );
 
@@ -1622,22 +1618,13 @@ apiRouter.post(
       return;
     }
 
-    const isAssignedReviewer = currentUser.role === `SPV ${job.division}` && job.spvId === currentUser.userId;
-    if (currentUser.role !== 'Admin' && record.sentById !== currentUser.userId && !isAssignedReviewer) {
-      res.status(403).json({ error: 'Akses ditolak: hanya pencatat awal, SPV reviewer yang ditugaskan, atau Admin yang dapat membatalkan catatan ini.' });
+    if (currentUser.role !== 'Admin' && (currentUser.role.startsWith('SPV') || record.sentById !== currentUser.userId)) {
+      res.status(403).json({ error: 'Akses ditolak: hanya pencatat awal atau Admin yang dapat membatalkan catatan ini.' });
       return;
     }
 
     const canceledAt = new Date().toISOString();
     let canceledRecord: JobHandoverRecord | undefined;
-    const directionLabels: Record<JobHandoverDirection, string> = {
-      'staff-to-client': 'Staff → Klien',
-      'staff-to-internal': 'Staff → Internal',
-      'spv-to-client': 'SPV → Klien',
-      'spv-to-internal': 'SPV → Internal',
-      'tax-to-accounting': 'Tim Tax → Accounting',
-      'tax-to-client': 'Tim Tax → Klien',
-    };
 
     mutateDb((database) => {
       const storedRecord = (database.handoverRecords || []).find((candidate) => candidate.id === record.id);
@@ -1650,7 +1637,7 @@ apiRouter.post(
       logAudit(
         'JOB_HANDOVER_CANCELED',
         'Job',
-        `${directionLabels[storedRecord.direction]} untuk pekerjaan ${job.id} (${job.title}) dibatalkan. Catatan pengiriman awal tetap disimpan.`,
+        `${HANDOVER_DIRECTION_LABELS[storedRecord.direction]} untuk pekerjaan ${job.id} (${job.title}) dibatalkan. Catatan pengiriman awal tetap disimpan.`,
         { userId: currentUser.userId, name: currentUser.name, role: currentUser.role },
         job.id,
         job.title
@@ -1726,7 +1713,7 @@ apiRouter.post(
       typeof data.handoverDirectionOverrides !== 'object' ||
       Array.isArray(data.handoverDirectionOverrides) ||
       Object.entries(data.handoverDirectionOverrides).some(([direction, required]) =>
-        !HANDOVER_DIRECTIONS.includes(direction as JobHandoverDirection) || typeof required !== 'boolean'
+        !ALL_HANDOVER_DIRECTIONS.includes(direction as JobHandoverDirection) || typeof required !== 'boolean'
       )
     )) {
       res.status(400).json({ error: 'Pengecualian checklist serah terima tidak valid.' });
@@ -1925,7 +1912,7 @@ apiRouter.put(
         typeof updates.handoverDirectionOverrides !== 'object' ||
         Array.isArray(updates.handoverDirectionOverrides) ||
         Object.entries(updates.handoverDirectionOverrides).some(([direction, required]) =>
-          !HANDOVER_DIRECTIONS.includes(direction as JobHandoverDirection) || typeof required !== 'boolean'
+          !ALL_HANDOVER_DIRECTIONS.includes(direction as JobHandoverDirection) || typeof required !== 'boolean'
         )
       )) {
         throw new Error('Pengecualian checklist serah terima tidak valid.');
