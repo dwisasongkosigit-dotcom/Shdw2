@@ -703,6 +703,19 @@ export const api = {
       method: 'DELETE',
     }),
 
+  // Dashboard payload combines the data used on the home screen into one request.
+  getDashboardData: (params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return request<{
+      jobs: Job[];
+      cases: Case[];
+      agendaEntries: TeamAgendaEntry[];
+      meetingMinutes: MeetingMinute[];
+      stats: any;
+      health: any;
+    }>(`/api/dashboard${qs}`);
+  },
+
   // Stats
   getStats: (params?: Record<string, string>) => {
     const qs = params ? '?' + new URLSearchParams(params).toString() : '';

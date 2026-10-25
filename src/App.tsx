@@ -155,20 +155,15 @@ function MainApp() {
     try {
       switch (tab) {
         case 'dashboard': {
-          const [jobsData, casesData, agendaData, meetingMinutesData, statsData, healthData] = await Promise.all([
-            api.getJobs(),
-            api.getCases(),
-            api.getAgendaEntries(),
-            api.getMeetingMinutes(),
-            api.getStats(statsDivision === 'All' ? undefined : { division: statsDivision }),
-            api.getHealth(),
-          ]);
-          setJobs(jobsData);
-          setCases(casesData);
-          setAgendaEntries(agendaData);
-          setMeetingMinutes(meetingMinutesData);
-          setStats(statsData);
-          setDbHealth(healthData);
+          const dashboardData = await api.getDashboardData(
+            statsDivision === 'All' ? undefined : { division: statsDivision }
+          );
+          setJobs(dashboardData.jobs);
+          setCases(dashboardData.cases);
+          setAgendaEntries(dashboardData.agendaEntries);
+          setMeetingMinutes(dashboardData.meetingMinutes);
+          setStats(dashboardData.stats);
+          setDbHealth(dashboardData.health);
           break;
         }
         case 'clients': {

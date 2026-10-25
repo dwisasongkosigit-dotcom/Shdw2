@@ -2984,15 +2984,11 @@ apiRouter.delete(
 );
 
 // ==========================================
-// 10. DASHBOARD STATS AGGREGATOR
+// 10. DASHBOARD DATA & STATS
 // ==========================================
-apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+function buildDashboardStats(currentUser: NonNullable<AuthenticatedRequest['user']>, requestedDivision?: 'Accounting' | 'Tax') {
   const db = getDb();
-  const currentUser = req.user!;
   const today = new Date().toISOString().split('T')[0];
-  const requestedDivision = req.query.division === 'Accounting' || req.query.division === 'Tax'
-    ? req.query.division
-    : undefined;
   const roleDivision = currentUser.role.includes('Accounting')
     ? 'Accounting'
     : currentUser.role.includes('Tax')
@@ -3003,11 +2999,9 @@ apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Resp
   const isTaxStaff = currentUser.role === 'Staff Tax';
   const isStaff = isAccountingStaff || isTaxStaff;
 
-  const visibleJobs = db.jobs.filter((job) => {
-    if (division && job.division !== division) return false;
-    if (isStaff && job.picId !== currentUser.userId) return false;
-    return true;
-  });
+  const visibleJobs = db.jobs.filter((job) =>
+    (!division || job.division === division) && (!isStaff || job.picId === currentUser.userId)
+  );
   const directlyAssignedClients = db.clients.filter((client) => {
     if (isAccountingStaff) return client.accountingStaffPicId === currentUser.userId;
     if (isTaxStaff) return client.taxStaffPicId === currentUser.userId;
@@ -3025,8 +3019,7 @@ apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Resp
     (!isStaff || item.picId === currentUser.userId || item.followUpPicId === currentUser.userId)
   );
   const visibleActivities = db.activities.filter((item) =>
-    (!division || item.division === division) &&
-    (!isStaff || item.picId === currentUser.userId)
+    (!division || item.division === division) && (!isStaff || item.picId === currentUser.userId)
   );
 
   const activeClients = dashboardClients.filter((client) => client.status === 'Aktif').length;
@@ -3037,12 +3030,10 @@ apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Resp
   const unassignedPkp = dashboardClients.filter((client) => client.pkpStatus === 'Belum Diisi').length;
   const completePicCount = dashboardClients.filter((client) => client.picAssignmentStatus === 'Lengkap').length;
   const incompletePicCount = dashboardClients.filter((client) => client.picAssignmentStatus === 'Belum Lengkap').length;
-
   const pphRegimes: Record<string, number> = {};
   dashboardClients.forEach((client) => {
     pphRegimes[client.pphRegime] = (pphRegimes[client.pphRegime] || 0) + 1;
   });
-
   const accRisks = {
     High: dashboardClients.filter((client) => client.accountingRisk === 'High').length,
     Medium: dashboardClients.filter((client) => client.accountingRisk === 'Medium').length,
@@ -3055,7 +3046,6 @@ apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Resp
     Low: dashboardClients.filter((client) => client.taxRisk === 'Low').length,
     NotAssessed: dashboardClients.filter((client) => client.taxRisk === 'Not Assessed').length,
   };
-
   const completedJobs = visibleJobs.filter((job) => job.status === 'Selesai').length;
   const readyForReviewJobs = visibleJobs.filter((job) => job.status === 'Siap Direview').length;
   const needsRevisionJobs = visibleJobs.filter((job) => job.status === 'Perlu Revisi').length;
@@ -3069,7 +3059,6 @@ apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Resp
     (item.picId === currentUser.userId || item.followUpPicId === currentUser.userId) &&
     item.status !== 'Resolved' && item.status !== 'Closed'
   );
-
   const workloadByPic: Record<string, { name: string; activeJobs: number; readyReview: number; overdue: number }> = {};
   visibleJobs.forEach((job) => {
     if (job.status === 'Selesai') return;
@@ -3082,7 +3071,7 @@ apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Resp
     if (job.deadline < today) workloadByPic[picKey].overdue += 1;
   });
 
-  res.json({
+  return {
     clients: {
       total: dashboardClients.length,
       active: activeClients,
@@ -3123,7 +3112,42 @@ apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Resp
       total: visibleActivities.length,
     },
     workload: Object.values(workloadByPic),
+  };
+}
+
+apiRouter.get('/dashboard', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const db = getDb();
+  const currentUser = req.user!;
+  let jobs = [...db.jobs];
+  if (currentUser.role === 'SPV Accounting' || currentUser.role === 'SPV Tax') {
+    const assignedDivision = currentUser.role === 'SPV Accounting' ? 'Accounting' : 'Tax';
+    jobs = jobs.filter((job) =>
+      job.division === assignedDivision && (job.spvId === currentUser.userId || job.picId === currentUser.userId)
+    );
+  }
+  const requestedDivision = req.query.division === 'Accounting' || req.query.division === 'Tax'
+    ? req.query.division
+    : undefined;
+
+  res.json({
+    jobs,
+    cases: [...db.cases],
+    agendaEntries: [...(db.agendaEntries || [])].sort((a, b) =>
+      `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`)
+    ),
+    meetingMinutes: [...(db.meetingMinutes || [])].sort((a, b) =>
+      `${b.meetingDate}${b.startTime}`.localeCompare(`${a.meetingDate}${a.startTime}`)
+    ),
+    stats: buildDashboardStats(currentUser, requestedDivision),
+    health: getDbHealthInfo(),
   });
+});
+
+apiRouter.get('/stats', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const requestedDivision = req.query.division === 'Accounting' || req.query.division === 'Tax'
+    ? req.query.division
+    : undefined;
+  res.json(buildDashboardStats(req.user!, requestedDivision));
 });
 
 // ==========================================
