@@ -124,6 +124,26 @@ function canViewJob(job: Job, currentUser: CurrentUser) {
   return false;
 }
 
+interface ProfileHandoverAssignment {
+  clientId: string;
+  clientName: string;
+  division: Job['division'];
+  picId: string;
+  picName: string;
+}
+
+function canViewClientAssignment(client: Client, division: Job['division'], currentUser: CurrentUser) {
+  if (currentUser.role === 'Admin' || currentUser.role === 'Owner' || currentUser.role === 'Manager') return true;
+  const isSpvPic = isSpvPicForDivision(client, division);
+  const picId = division === 'Accounting'
+    ? isSpvPic ? client.accountingSpvId : client.accountingStaffPicId
+    : isSpvPic ? client.taxSpvId : client.taxStaffPicId;
+  const spvId = division === 'Accounting' ? client.accountingSpvId : client.taxSpvId;
+  if (currentUser.role === `Staff ${division}`) return picId === currentUser.id;
+  if (currentUser.role === `SPV ${division}`) return spvId === currentUser.id || picId === currentUser.id;
+  return false;
+}
+
 function getHandoverServiceResponsibility(job: Job, client?: Client) {
   const jobResponsibility = job.serviceResponsibility || 'Tim 3';
   const clientResponsibility = job.division === 'Accounting'
@@ -359,12 +379,39 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
   const [newlySavedRecords, setNewlySavedRecords] = useState<JobHandoverRecord[]>([]);
 
   const visibleJobs = useMemo(() => jobs.filter((job) => canViewJob(job, currentUser)), [jobs, currentUser]);
+  const clientsById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
+  const profileAssignments = useMemo(() => {
+    const clientsWithDivisionJobs = new Set(jobs.map((job) => `${job.clientId}:${job.division}`));
+    return clients.flatMap((client) => (['Accounting', 'Tax'] as const).flatMap((division) => {
+      const responsibility = division === 'Accounting'
+        ? client.accountingServiceResponsibility || 'Tim 3'
+        : client.taxServiceResponsibility || 'Tim 3';
+      if (responsibility !== 'Tim Internal Lain' || clientsWithDivisionJobs.has(`${client.id}:${division}`)) return [];
+      if (!canViewClientAssignment(client, division, currentUser)) return [];
+      const isSpvPic = isSpvPicForDivision(client, division);
+      return [{
+        clientId: client.id,
+        clientName: client.name,
+        division,
+        picId: division === 'Accounting'
+          ? isSpvPic ? client.accountingSpvId : client.accountingStaffPicId
+          : isSpvPic ? client.taxSpvId : client.taxStaffPicId,
+        picName: division === 'Accounting'
+          ? isSpvPic ? client.accountingSpvName : client.accountingStaffPicName
+          : isSpvPic ? client.taxSpvName : client.taxStaffPicName,
+      }];
+    }));
+  }, [clients, jobs, currentUser]);
   const availablePics = useMemo(() => {
     const picsById = new Map<string, string>();
     visibleJobs.forEach((job) => picsById.set(job.picId, job.picName));
+    profileAssignments.forEach((assignment) => {
+      if (assignment.picId && assignment.picName && assignment.picName !== '-') {
+        picsById.set(assignment.picId, assignment.picName);
+      }
+    });
     return [...picsById.entries()].sort((a, b) => a[1].localeCompare(b[1], 'id-ID'));
-  }, [visibleJobs]);
-  const clientsById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
+  }, [visibleJobs, profileAssignments]);
   const visibleJobIds = useMemo(() => new Set(visibleJobs.map((job) => job.id)), [visibleJobs]);
   const visibleRecords = useMemo(() => {
     const byId = new Map<string, JobHandoverRecord>();
@@ -406,6 +453,14 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
       return !isChecklistColumn || selectedKeys.has(column.key as keyof HandoverExportRow);
     });
   }, [visibleChecklistOptions]);
+  const visibleProfileAssignments = useMemo(() => profileAssignments.filter((assignment) => {
+    if (clientFilter !== 'All' && assignment.clientId !== clientFilter) return false;
+    if (picFilter !== 'All' && assignment.picId !== picFilter) return false;
+    if (directionFilter !== 'All' && directionFilter !== 'staff-to-internal') return false;
+    if (destinationFilter !== 'All' && destinationFilter !== 'internal') return false;
+    if (normalizedSearchTerm && ![assignment.clientId, assignment.clientName, assignment.picName].some((value) => value.toLocaleLowerCase('id-ID').includes(normalizedSearchTerm))) return false;
+    return true;
+  }), [profileAssignments, clientFilter, picFilter, directionFilter, destinationFilter, normalizedSearchTerm]);
 
   const filteredJobs = useMemo(() => visibleJobs.filter((job) => {
     if (clientFilter !== 'All' && job.clientId !== clientFilter) return false;
@@ -681,6 +736,31 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
           ))}
         </div>
       </section>
+
+      {visibleProfileAssignments.length > 0 && (
+        <section className="rounded-2xl border border-violet-200 bg-violet-50/40 p-4 shadow-sm sm:p-5" aria-labelledby="profile-assignment-title">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 id="profile-assignment-title" className="text-sm font-bold text-slate-900">Penugasan internal di profil klien</h2>
+              <p className="mt-1 max-w-3xl text-[11px] leading-5 text-slate-600">Assignment ini sudah diatur di profil, tetapi belum memiliki job pada divisi tersebut. Ini bukan catatan serah terima dan tidak menambah checklist; assignment mengikuti filter klien, PIC, arah, tujuan, dan pencarian, bukan periode atau status job.</p>
+            </div>
+            <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[10px] font-semibold text-violet-800">{visibleProfileAssignments.length} assignment</span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {visibleProfileAssignments.map((assignment) => (
+              <article key={`${assignment.clientId}:${assignment.division}`} className="rounded-xl border border-violet-100 bg-white p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${assignment.division === 'Tax' ? 'bg-amber-50 text-amber-800' : 'bg-sky-50 text-sky-800'}`}>{assignment.division}</span>
+                  <span className="text-xs font-semibold text-slate-800">{assignment.clientName}</span>
+                </div>
+                <p className="mt-2 text-[11px] text-slate-600">Tanggung jawab: <span className="font-semibold text-violet-800">Tim Internal Lain</span></p>
+                <p className="mt-1 text-[11px] text-slate-600">PIC: <span className="font-medium text-slate-800">{assignment.picName && assignment.picName !== '-' ? assignment.picName : 'Belum ditentukan'}</span></p>
+                <p className="mt-2 rounded-lg bg-violet-50 px-2.5 py-1.5 text-[10px] font-medium text-violet-800">Belum ada job {assignment.division}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
