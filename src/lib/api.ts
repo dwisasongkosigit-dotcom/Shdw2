@@ -164,6 +164,8 @@ export interface MonthlyJobTemplate {
   updatedAt: string;
 }
 
+export type JobHandoverDestination = 'client' | 'internal';
+
 export type JobHandoverDirection =
   | 'staff-to-client'
   | 'staff-to-internal'
@@ -171,6 +173,8 @@ export type JobHandoverDirection =
   | 'spv-to-internal'
   | 'tax-to-accounting'
   | 'tax-to-client';
+
+export type JobHandoverDirectionOverrides = Partial<Record<JobHandoverDirection, boolean>>;
 
 export interface JobHandoverRecord {
   id: string;
@@ -192,6 +196,8 @@ export interface Job {
   clientName: string;
   division: JobDivision;
   serviceResponsibility?: ServiceResponsibility;
+  handoverDestinations?: JobHandoverDestination[];
+  handoverDirectionOverrides?: JobHandoverDirectionOverrides;
   title: string;
   picId: string;
   picName: string;
@@ -584,6 +590,10 @@ export const api = {
   cancelJobHandover: (jobId: string, recordId: string) =>
     request<{ success: boolean; record: JobHandoverRecord; message: string }>(`/api/jobs/${jobId}/handovers/${recordId}/cancel`, {
       method: 'POST',
+    }),
+  deleteCanceledJobHandover: (jobId: string, recordId: string) =>
+    request<{ success: boolean; message: string }>(`/api/jobs/${jobId}/handovers/${recordId}`, {
+      method: 'DELETE',
     }),
 
   // Cases

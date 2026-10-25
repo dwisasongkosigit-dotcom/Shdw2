@@ -20,7 +20,7 @@ import {
   Download,
   AlertOctagon,
 } from 'lucide-react';
-import { api, type Job, type JobDivision, type Client, type CurrentUser, type JobStatus, type UserAccount, type MonthlyJobTemplate, type ServiceResponsibility } from '../lib/api';
+import { api, type Job, type JobDivision, type Client, type CurrentUser, type JobStatus, type UserAccount, type MonthlyJobTemplate, type ServiceResponsibility, type JobHandoverDestination, type JobHandoverDirection } from '../lib/api';
 import { MonthlyJobTemplatesPanel } from './MonthlyJobTemplatesPanel';
 import { useToast } from './Toast';
 import { ExportDropdown } from './ExportDropdown';
@@ -31,6 +31,15 @@ const SERVICE_RESPONSIBILITY_OPTIONS: ServiceResponsibility[] = [
   'Tim Internal Lain',
   'Partner Eksternal',
   'Tidak Berlaku',
+];
+
+const HANDOVER_DIRECTION_OPTIONS: Array<{ direction: JobHandoverDirection; label: string; taxOnly?: boolean }> = [
+  { direction: 'staff-to-client', label: 'Staff → Klien' },
+  { direction: 'staff-to-internal', label: 'Staff → Internal' },
+  { direction: 'spv-to-client', label: 'SPV → Klien' },
+  { direction: 'spv-to-internal', label: 'SPV → Internal' },
+  { direction: 'tax-to-accounting', label: 'Tim Tax → Accounting', taxOnly: true },
+  { direction: 'tax-to-client', label: 'Tim Tax → Klien', taxOnly: true },
 ];
 
 interface JobsViewProps {
@@ -96,6 +105,7 @@ export function JobsView({
 
   const [newJobData, setNewJobData] = useState<NewJobData>({
     division: currentUser.role.includes('Tax') ? 'Tax' : 'Accounting',
+    handoverDestinations: ['client'],
     priority: 'Sedang',
     startDate: new Date().toISOString().split('T')[0],
     deadline: new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
@@ -164,6 +174,8 @@ export function JobsView({
       description: job.description,
       spvId: job.spvId,
       serviceResponsibility: job.serviceResponsibility || 'Tim 3',
+      handoverDestinations: job.handoverDestinations || [],
+      handoverDirectionOverrides: job.handoverDirectionOverrides || {},
     });
     setIsEditingDetails(false);
     setAutoSaveStatus('idle');
@@ -220,6 +232,7 @@ export function JobsView({
 
     setNewJobData({
       division: initialDiv,
+      handoverDestinations: ['client'],
       priority: 'Sedang',
       startDate: new Date().toISOString().split('T')[0],
       deadline: new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
@@ -410,6 +423,8 @@ export function JobsView({
         priority: jobEditData.priority,
         description: jobEditData.description || '',
         serviceResponsibility: jobEditData.serviceResponsibility || 'Tim 3',
+        handoverDestinations: jobEditData.handoverDestinations || [],
+        handoverDirectionOverrides: jobEditData.handoverDirectionOverrides || {},
         ...(currentUser.role === 'Admin' ? { spvId: jobEditData.spvId } : {}),
         expectedVersion: selectedJob.version,
         historyNote: 'Detail tugas diperbarui melalui fitur Edit Tugas.',
@@ -907,6 +922,71 @@ export function JobsView({
                       {SERVICE_RESPONSIBILITY_OPTIONS.map((responsibility) => <option key={responsibility} value={responsibility}>{responsibility}</option>)}
                     </select>
                   </label>
+                  <fieldset className="rounded-lg border border-slate-200 bg-white p-3 sm:col-span-2">
+                    <legend className="px-1 text-[11px] font-semibold text-slate-700">Tujuan bawaan job</legend>
+                    <div className="flex flex-wrap gap-4">
+                      {(['client', 'internal'] as JobHandoverDestination[]).map((destination) => (
+                        <label key={destination} className="inline-flex min-h-9 items-center gap-2 text-xs font-medium text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={jobEditData.handoverDestinations?.includes(destination) || false}
+                            onChange={(event) => setJobEditData((previous) => {
+                              const selected = new Set(previous.handoverDestinations || []);
+                              if (event.target.checked) selected.add(destination);
+                              else selected.delete(destination);
+                              return { ...previous, handoverDestinations: [...selected] };
+                            })}
+                            className="size-4 accent-amber-600"
+                          />
+                          {destination === 'client' ? 'Klien' : 'Internal / Accounting'}
+                        </label>
+                      ))}
+                    </div>
+                    <p className="mt-1 text-[10px] leading-4 text-slate-500">Jenis serah terima mengikuti tujuan bawaan ini. Kosongkan keduanya jika job tidak memerlukan serah terima.</p>
+                  </fieldset>
+                  <fieldset className="rounded-lg border border-slate-200 bg-white p-3 sm:col-span-2">
+                    <legend className="px-1 text-[11px] font-semibold text-slate-700">Checklist per item serah terima</legend>
+                    <div className="grid gap-1 sm:grid-cols-2">
+                      {HANDOVER_DIRECTION_OPTIONS.filter(({ direction, taxOnly }) => {
+                        if (taxOnly && selectedJob.division !== 'Tax') return false;
+                        if (jobEditData.serviceResponsibility !== 'Tim 3') return false;
+                        if (direction === 'tax-to-accounting') {
+                          const client = clients.find((item) => item.id === selectedJob.clientId);
+                          return (client?.accountingServiceResponsibility || 'Tim 3') === 'Tim 3';
+                        }
+                        return true;
+                      }).map(({ direction, label }) => {
+                        const destination = direction.endsWith('-to-client') ? 'client' : 'internal';
+                        const defaultRequired = jobEditData.handoverDestinations?.includes(destination as JobHandoverDestination) || false;
+                        const required = jobEditData.handoverDirectionOverrides?.[direction] ?? defaultRequired;
+                        return (
+                          <label key={direction} className="inline-flex min-h-9 items-center gap-2 rounded-lg px-2 text-xs font-medium text-slate-700 hover:bg-slate-50">
+                            <input
+                              type="checkbox"
+                              checked={required}
+                              onChange={(event) => setJobEditData((previous) => ({
+                                ...previous,
+                                handoverDirectionOverrides: {
+                                  ...previous.handoverDirectionOverrides,
+                                  [direction]: event.target.checked,
+                                },
+                              }))}
+                              className="size-4 accent-amber-600"
+                            />
+                            {label}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {jobEditData.serviceResponsibility !== 'Tim 3' ? (
+                      <p className="mt-1 text-[10px] leading-4 text-slate-500">Checklist tidak aktif karena tanggung jawab job ini bukan Tim 3.</p>
+                    ) : (
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[10px] leading-4 text-slate-500">Ubah centang untuk pengecualian per item; pilihan ini mengesampingkan default job hanya pada item tersebut.</p>
+                        <button type="button" onClick={() => setJobEditData((previous) => ({ ...previous, handoverDirectionOverrides: {} }))} className="min-h-8 rounded-lg border border-slate-200 px-2.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50">Gunakan default job</button>
+                      </div>
+                    )}
+                  </fieldset>
                   {currentUser.role === 'Admin' && (
                     <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-700">
                       SPV reviewer
@@ -926,6 +1006,7 @@ export function JobsView({
                   <div><span className="text-slate-500 font-medium">Mulai / deadline:</span><p className="mt-0.5 font-mono tabular-nums text-slate-800">{selectedJob.startDate} s/d {selectedJob.deadline}</p></div>
                   <div><span className="text-slate-500 font-medium">Prioritas:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.priority}</p></div>
                   <div><span className="text-slate-500 font-medium">Tanggung jawab layanan:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.serviceResponsibility || 'Tim 3'}</p></div>
+                  <div><span className="text-slate-500 font-medium">Tujuan bawaan job:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.handoverDestinations === undefined ? 'Belum diatur' : selectedJob.handoverDestinations.length ? selectedJob.handoverDestinations.map((destination) => destination === 'client' ? 'Klien' : 'Internal').join(' dan ') : 'Tidak diperlukan'}</p>{Object.keys(selectedJob.handoverDirectionOverrides || {}).length > 0 && <p className="mt-1 text-[10px] text-slate-500">Ada {Object.keys(selectedJob.handoverDirectionOverrides || {}).length} penyesuaian checklist per item.</p>}</div>
                 </div>
               )}
 
@@ -945,7 +1026,7 @@ export function JobsView({
 
               {isEditingDetails && (
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                  <button type="button" onClick={() => { setIsEditingDetails(false); setJobEditData({ title: selectedJob.title, startDate: selectedJob.startDate, deadline: selectedJob.deadline, priority: selectedJob.priority, description: selectedJob.description, spvId: selectedJob.spvId, serviceResponsibility: selectedJob.serviceResponsibility || 'Tim 3' }); }} className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700">Batal</button>
+                  <button type="button" onClick={() => { setIsEditingDetails(false); setJobEditData({ title: selectedJob.title, startDate: selectedJob.startDate, deadline: selectedJob.deadline, priority: selectedJob.priority, description: selectedJob.description, spvId: selectedJob.spvId, serviceResponsibility: selectedJob.serviceResponsibility || 'Tim 3', handoverDestinations: selectedJob.handoverDestinations || [], handoverDirectionOverrides: selectedJob.handoverDirectionOverrides || {} }); }} className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700">Batal</button>
                   <button type="button" onClick={handleSaveTaskDetails} disabled={saving} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-xs font-semibold text-white disabled:opacity-50"><Save className="size-4" />{saving ? 'Menyimpan...' : 'Simpan perubahan tugas'}</button>
                 </div>
               )}
@@ -1247,6 +1328,29 @@ export function JobsView({
                   })}
                 </div>
               </div>
+
+              <fieldset className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <legend className="px-1 font-semibold text-slate-800">Tujuan serah terima yang diperlukan</legend>
+                <div className="flex flex-wrap gap-4">
+                  {(['client', 'internal'] as JobHandoverDestination[]).map((destination) => (
+                    <label key={destination} className="inline-flex min-h-9 items-center gap-2 font-medium text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={newJobData.handoverDestinations?.includes(destination) || false}
+                        onChange={(event) => setNewJobData((previous) => {
+                          const selected = new Set(previous.handoverDestinations || []);
+                          if (event.target.checked) selected.add(destination);
+                          else selected.delete(destination);
+                          return { ...previous, handoverDestinations: [...selected] };
+                        })}
+                        className="size-4 accent-amber-600"
+                      />
+                      {destination === 'client' ? 'Klien' : 'Internal / Accounting'}
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-1 text-[10px] leading-4 text-slate-500">Pilih sesuai dokumen untuk job ini. Checklist yang tidak dipilih tidak akan dihitung sebagai pekerjaan tertunda.</p>
+              </fieldset>
 
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">Judul Pekerjaan</label>

@@ -33,6 +33,7 @@ import type {
   User,
   JobStatus,
   JobHandoverDirection,
+  JobHandoverDestination,
   JobHandoverRecord,
   RiskLevel,
   RiskHistoryItem,
@@ -47,6 +48,15 @@ import type {
 } from './types.ts';
 
 export const apiRouter = Router();
+
+const HANDOVER_DIRECTIONS: JobHandoverDirection[] = [
+  'staff-to-client',
+  'staff-to-internal',
+  'spv-to-client',
+  'spv-to-internal',
+  'tax-to-accounting',
+  'tax-to-client',
+];
 
 function hasDivisionAccess(role: string, division: string) {
   return role === 'Admin' ||
@@ -1504,16 +1514,8 @@ apiRouter.post(
       return;
     }
 
-    const validDirections: JobHandoverDirection[] = [
-      'staff-to-client',
-      'staff-to-internal',
-      'spv-to-client',
-      'spv-to-internal',
-      'tax-to-accounting',
-      'tax-to-client',
-    ];
     const direction = req.body?.direction as JobHandoverDirection;
-    if (!validDirections.includes(direction)) {
+    if (!HANDOVER_DIRECTIONS.includes(direction)) {
       res.status(400).json({ error: 'Tujuan serah terima tidak valid.' });
       return;
     }
@@ -1534,6 +1536,14 @@ apiRouter.post(
         : isSpvDirection
           ? isAssignedReviewer
           : isAssignedTaxTeamMember;
+    const handoverDestination = direction.endsWith('-to-client') ? 'client' : 'internal';
+    const selectedForHandover = job.handoverDirectionOverrides?.[direction] ??
+      (Array.isArray(job.handoverDestinations) && job.handoverDestinations.includes(handoverDestination));
+    if (!selectedForHandover) {
+      res.status(409).json({ error: 'Tujuan serah terima ini belum dipilih pada detail pekerjaan.' });
+      return;
+    }
+
     const client = db.clients.find((candidate) => candidate.id === job.clientId);
     const accountingResponsibility = client?.accountingServiceResponsibility || 'Tim 3';
     const isApplicable = (job.serviceResponsibility || 'Tim 3') === 'Tim 3' &&
@@ -1655,6 +1665,44 @@ apiRouter.post(
   }
 );
 
+apiRouter.delete(
+  '/jobs/:id/handovers/:recordId',
+  authenticateToken,
+  requireRole('Admin'),
+  requireWritable,
+  (req: AuthenticatedRequest, res: Response) => {
+    const currentUser = req.user!;
+    let deletedRecord: JobHandoverRecord | undefined;
+    let job: Job | undefined;
+
+    mutateDb((database) => {
+      job = database.jobs.find((candidate) => candidate.id === req.params.id);
+      const recordIndex = (database.handoverRecords || []).findIndex((record) =>
+        record.id === req.params.recordId && record.jobId === req.params.id
+      );
+      if (!job || recordIndex < 0) throw new Error('Catatan serah terima tidak ditemukan.');
+      const record = database.handoverRecords![recordIndex];
+      if (!record.canceledAt) throw new Error('Hanya catatan yang sudah dibatalkan yang dapat dihapus.');
+      database.handoverRecords!.splice(recordIndex, 1);
+      deletedRecord = record;
+      logAudit(
+        'JOB_HANDOVER_DELETED',
+        'Job',
+        `Catatan serah terima ${record.direction} untuk pekerjaan ${job.id} (${job.title}) dihapus permanen oleh Admin.`,
+        { userId: currentUser.userId, name: currentUser.name, role: currentUser.role },
+        job.id,
+        job.title
+      );
+    });
+
+    if (!deletedRecord || !job) {
+      res.status(404).json({ error: 'Catatan serah terima tidak ditemukan.' });
+      return;
+    }
+    res.json({ success: true, message: 'Catatan serah terima yang dibatalkan berhasil dihapus.' });
+  }
+);
+
 apiRouter.post(
   '/jobs',
   authenticateToken,
@@ -1666,6 +1714,25 @@ apiRouter.post(
       res.status(400).json({ error: 'Klien, judul pekerjaan, divisi, dan deadline wajib diisi.' });
       return;
     }
+    if (data.handoverDestinations !== undefined && (
+      !Array.isArray(data.handoverDestinations) ||
+      data.handoverDestinations.some((destination: unknown) => destination !== 'client' && destination !== 'internal')
+    )) {
+      res.status(400).json({ error: 'Pilihan tujuan serah terima tidak valid.' });
+      return;
+    }
+    if (data.handoverDirectionOverrides !== undefined && (
+      !data.handoverDirectionOverrides ||
+      typeof data.handoverDirectionOverrides !== 'object' ||
+      Array.isArray(data.handoverDirectionOverrides) ||
+      Object.entries(data.handoverDirectionOverrides).some(([direction, required]) =>
+        !HANDOVER_DIRECTIONS.includes(direction as JobHandoverDirection) || typeof required !== 'boolean'
+      )
+    )) {
+      res.status(400).json({ error: 'Pengecualian checklist serah terima tidak valid.' });
+      return;
+    }
+    const handoverDestinations: JobHandoverDestination[] = [...new Set<JobHandoverDestination>(data.handoverDestinations || [])];
 
     const selectedDivisions: Job['division'][] = data.division === 'Both'
       ? ['Accounting', 'Tax']
@@ -1744,6 +1811,7 @@ apiRouter.post(
         clientName: client.name,
         division,
         serviceResponsibility,
+        handoverDestinations,
         title: data.title.trim(),
         picId: assignedPic.id,
         picName: assignedPic.name,
@@ -1828,7 +1896,7 @@ apiRouter.put(
       }
       const isAssignedReviewer = currentUser.role === 'Admin' ||
         (currentUser.role.startsWith('SPV') && job.spvId === currentUser.userId);
-      const protectedFields = ['title', 'priority', 'startDate', 'deadline', 'description', 'picId', 'picName', 'spvId', 'spvName', 'serviceResponsibility'];
+      const protectedFields = ['title', 'priority', 'startDate', 'deadline', 'description', 'picId', 'picName', 'spvId', 'spvName', 'serviceResponsibility', 'handoverDestinations', 'handoverDirectionOverrides'];
       if (!isAssignedReviewer && protectedFields.some((field) => updates[field] !== undefined && updates[field] !== (job as any)[field])) {
         throw new Error('Akses ditolak: hanya Admin atau reviewer tugas yang dapat mengubah detail pekerjaan.');
       }
@@ -1845,6 +1913,22 @@ apiRouter.put(
       }
       if (updates.serviceResponsibility !== undefined && !SERVICE_RESPONSIBILITY_OPTIONS.includes(updates.serviceResponsibility)) {
         throw new Error('Penanggung jawab layanan pekerjaan tidak valid.');
+      }
+      if (updates.handoverDestinations !== undefined && (
+        !Array.isArray(updates.handoverDestinations) ||
+        updates.handoverDestinations.some((destination: unknown) => destination !== 'client' && destination !== 'internal')
+      )) {
+        throw new Error('Pilihan tujuan serah terima tidak valid.');
+      }
+      if (updates.handoverDirectionOverrides !== undefined && (
+        !updates.handoverDirectionOverrides ||
+        typeof updates.handoverDirectionOverrides !== 'object' ||
+        Array.isArray(updates.handoverDirectionOverrides) ||
+        Object.entries(updates.handoverDirectionOverrides).some(([direction, required]) =>
+          !HANDOVER_DIRECTIONS.includes(direction as JobHandoverDirection) || typeof required !== 'boolean'
+        )
+      )) {
+        throw new Error('Pengecualian checklist serah terima tidak valid.');
       }
       if (updates.startDate !== undefined && !isValidDate(updates.startDate)) throw new Error('Tanggal mulai harus berformat YYYY-MM-DD.');
       if (updates.deadline !== undefined && !isValidDate(updates.deadline)) throw new Error('Deadline harus berformat YYYY-MM-DD.');
@@ -1903,7 +1987,7 @@ apiRouter.put(
 
       // Record History item
       const statusChanged = updates.status && updates.status !== job.status;
-      const detailChanged = ['title', 'priority', 'startDate', 'deadline', 'description', 'spvId', 'serviceResponsibility']
+      const detailChanged = ['title', 'priority', 'startDate', 'deadline', 'description', 'spvId', 'serviceResponsibility', 'handoverDestinations', 'handoverDirectionOverrides']
         .some((field) => updates[field] !== undefined && updates[field] !== (job as any)[field]);
       const historyAction = statusChanged
         ? updates.status === 'Selesai'
@@ -1941,6 +2025,8 @@ apiRouter.put(
       if (updates.deadline !== undefined) job.deadline = updates.deadline;
       if (updates.description !== undefined) job.description = updates.description;
       if (updates.serviceResponsibility !== undefined) job.serviceResponsibility = updates.serviceResponsibility;
+      if (updates.handoverDestinations !== undefined) job.handoverDestinations = [...new Set<JobHandoverDestination>(updates.handoverDestinations)];
+      if (updates.handoverDirectionOverrides !== undefined) job.handoverDirectionOverrides = { ...updates.handoverDirectionOverrides };
       if (updates.spvId !== undefined) {
         const reviewerRole = job.division === 'Accounting' ? 'SPV Accounting' : 'SPV Tax';
         const reviewer = database.users.find((user) => user.id === updates.spvId && user.active && user.role === reviewerRole);
