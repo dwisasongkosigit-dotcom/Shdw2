@@ -1325,7 +1325,8 @@ function getJakartaMonth() {
   }).formatToParts(new Date());
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   const monthKey = `${values.year}-${values.month}`;
-  return { year: Number(values.year), month: Number(values.month), monthKey, firstDay: `${monthKey}-01` };
+  const dateKey = `${monthKey}-${values.day}`;
+  return { year: Number(values.year), month: Number(values.month), monthKey, dateKey, firstDay: `${monthKey}-01` };
 }
 
 function createCurrentMonthRecurringJobs() {
@@ -2342,7 +2343,7 @@ apiRouter.post(
 
     const newActivity: DailyActivity = {
       id: newId,
-      date: data.date || new Date().toISOString().split('T')[0],
+      date: data.date || getJakartaMonth().dateKey,
       clientId: data.clientId,
       clientName: data.clientName || 'Klien',
       division: data.division,

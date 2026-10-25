@@ -8,6 +8,8 @@ import {
   type JobHandoverRecord,
   type Client,
 } from '../lib/api';
+import { ExportDropdown } from './ExportDropdown';
+import type { ColumnDef } from '../lib/exportUtils';
 import { useToast } from './Toast';
 
 interface HandoverViewProps {
@@ -17,6 +19,24 @@ interface HandoverViewProps {
   currentUser: CurrentUser;
   onRefresh: () => void | Promise<void>;
 }
+
+type HandoverExportRow = {
+  number: number;
+  jobId: string;
+  clientName: string;
+  division: string;
+  title: string;
+  picName: string;
+  spvName: string;
+  jobStatus: string;
+  reviewedAt: string;
+  direction: string;
+  handoverStatus: string;
+  sentAt: string;
+  sentBy: string;
+  canceledAt: string;
+  canceledBy: string;
+};
 
 const HANDOVER_OPTIONS: Array<{
   direction: JobHandoverDirection;
@@ -66,6 +86,18 @@ function formatDate(value: string) {
   return Number.isNaN(date.getTime())
     ? value
     : new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
+function formatJakartaDateTime(value?: string) {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? '-'
+    : new Intl.DateTimeFormat('id-ID', {
+        timeZone: 'Asia/Jakarta',
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(date);
 }
 
 export function HandoverView({ jobs, clients, records, currentUser, onRefresh }: HandoverViewProps) {
@@ -128,7 +160,10 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     if (selectedDirection?.taxOnly && job.division !== 'Tax') return false;
     const query = searchTerm.trim().toLocaleLowerCase('id-ID');
     if (query && ![job.id, job.title, job.clientName, job.picName, job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(query))) return false;
-    const jobOptions = HANDOVER_OPTIONS.filter((option) => !option.taxOnly || job.division === 'Tax');
+    const jobOptions = HANDOVER_OPTIONS.filter((option) =>
+      (!option.taxOnly || job.division === 'Tax') &&
+      (directionFilter === 'All' || option.direction === directionFilter)
+    );
     const jobRecords = jobOptions.map((option) => recordByKey.get(`${job.id}:${option.direction}`));
     const completedHandoverCount = jobRecords.filter(Boolean).length;
     const jobHistory = recordsByJobId.get(job.id) || [];
@@ -147,10 +182,10 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     )) return false;
     if (periodFilter !== 'All') {
       const hasActiveRecordInPeriod = jobRecords.some((record) => record?.sentAt.startsWith(periodFilter));
-      const hasCanceledRecordInPeriod = HANDOVER_OPTIONS.some((option) => {
-        const record = canceledRecordByKey.get(`${job.id}:${option.direction}`);
-        return record && (record.sentAt.startsWith(periodFilter) || record.canceledAt?.startsWith(periodFilter));
-      });
+      const hasCanceledRecordInPeriod = jobHistory.some((record) =>
+        Boolean(record.canceledAt) &&
+        (record.sentAt.startsWith(periodFilter) || record.canceledAt?.startsWith(periodFilter))
+      );
       if (!job.createdAt.startsWith(periodFilter) && !job.completedAt?.startsWith(periodFilter) && !hasActiveRecordInPeriod && !hasCanceledRecordInPeriod) return false;
     }
     return true;
@@ -166,6 +201,63 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     periodFilter,
   ]);
 
+  const handoverExportRows = useMemo(() => {
+    const rows: HandoverExportRow[] = [];
+    filteredJobs.forEach((job) => {
+      const options = HANDOVER_OPTIONS.filter((option) =>
+        (!option.taxOnly || job.division === 'Tax') &&
+        (directionFilter === 'All' || option.direction === directionFilter)
+      );
+      options.forEach((option) => {
+        const key = `${job.id}:${option.direction}`;
+        const record = recordByKey.get(key);
+        const canceledRecord = canceledRecordByKey.get(key);
+        rows.push({
+          number: rows.length + 1,
+          jobId: job.id,
+          clientName: job.clientName,
+          division: job.division,
+          title: job.title,
+          picName: job.picName,
+          spvName: job.spvName,
+          jobStatus: job.status,
+          reviewedAt: formatJakartaDateTime(job.completedAt),
+          direction: option.label,
+          handoverStatus: record
+            ? 'Terkirim / diserahkan'
+            : canceledRecord
+              ? 'Dibatalkan · dapat dicatat ulang'
+              : job.status === 'Selesai'
+                ? 'Belum dicatat'
+                : 'Menunggu review SPV',
+          sentAt: formatJakartaDateTime((record || canceledRecord)?.sentAt),
+          sentBy: (record || canceledRecord)?.sentByName || '-',
+          canceledAt: formatJakartaDateTime(canceledRecord?.canceledAt),
+          canceledBy: canceledRecord?.canceledByName || '-',
+        });
+      });
+    });
+    return rows;
+  }, [filteredJobs, directionFilter, recordByKey, canceledRecordByKey]);
+
+  const handoverExportColumns: ColumnDef<HandoverExportRow>[] = [
+    { header: 'No', key: 'number', width: 7, align: 'center' },
+    { header: 'ID Job', key: 'jobId', width: 18, align: 'center' },
+    { header: 'Nama Klien', key: 'clientName', width: 28 },
+    { header: 'Divisi', key: 'division', width: 14, align: 'center' },
+    { header: 'Judul Pekerjaan', key: 'title', width: 38 },
+    { header: 'PIC', key: 'picName', width: 24 },
+    { header: 'SPV Reviewer', key: 'spvName', width: 24 },
+    { header: 'Status Job', key: 'jobStatus', width: 18 },
+    { header: 'Review Selesai (WIB)', key: 'reviewedAt', width: 24 },
+    { header: 'Tujuan Serah Terima', key: 'direction', width: 25 },
+    { header: 'Status Serah Terima', key: 'handoverStatus', width: 30 },
+    { header: 'Waktu Dicatat (WIB)', key: 'sentAt', width: 24 },
+    { header: 'Dicatat Oleh', key: 'sentBy', width: 24 },
+    { header: 'Waktu Pembatalan (WIB)', key: 'canceledAt', width: 24 },
+    { header: 'Dibatalkan Oleh', key: 'canceledBy', width: 24 },
+  ];
+
   const summaryJobs = useMemo(() => visibleJobs.filter((job) => {
     if (clientFilter !== 'All' && job.clientId !== clientFilter) return false;
     const selectedDirection = HANDOVER_OPTIONS.find((option) => option.direction === directionFilter);
@@ -175,7 +267,8 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     if (periodFilter !== 'All') {
       const hasPeriod = job.createdAt.startsWith(periodFilter) || job.completedAt?.startsWith(periodFilter) ||
         (recordsByJobId.get(job.id) || []).some((record) =>
-          record.sentAt.startsWith(periodFilter) || record.canceledAt?.startsWith(periodFilter)
+          (directionFilter === 'All' || record.direction === directionFilter) &&
+          (record.sentAt.startsWith(periodFilter) || record.canceledAt?.startsWith(periodFilter))
         );
       if (!hasPeriod) return false;
     }
@@ -356,7 +449,17 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
               {option.label}
             </button>
           ))}
-          <span className="ml-auto text-[11px] tabular-nums text-slate-400">{filteredJobs.length} job</span>
+          <ExportDropdown
+            filename="Rekap_Serah_Terima_TMM_BMA"
+            sheetName="Rekap Serah Terima"
+            title="REKAP SERAH TERIMA PEKERJAAN"
+            subtitle={`Filter: ${statusFilter} · Klien: ${clientFilter === 'All' ? 'Semua klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} · Periode: ${periodFilter} · Tujuan: ${directionFilter === 'All' ? 'Semua tujuan' : HANDOVER_OPTIONS.find((option) => option.direction === directionFilter)?.label || 'Tujuan'} · ${filteredJobs.length} job`}
+            columns={handoverExportColumns}
+            data={handoverExportRows}
+            label="Ekspor Rekap"
+            className="ml-auto"
+          />
+          <span className="text-[11px] tabular-nums text-slate-400">{filteredJobs.length} job</span>
         </div>
       </div>
 
