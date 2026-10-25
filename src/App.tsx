@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState, useEffect, useCallback } from 'react';
+import { Suspense, lazy, useState, useEffect, useCallback, useRef } from 'react';
 import {
   api,
   removeToken,
@@ -81,25 +81,18 @@ function MainApp() {
     window.localStorage.setItem('tmm-bma-theme', theme);
   }, [theme]);
 
-  // Fetch initial branding and check auth session
+  // Check the session first so authenticated users reuse the branding returned by /me.
   const initializeAuthAndBranding = useCallback(async () => {
     try {
-      const [brandData, healthData] = await Promise.all([
-        api.getBranding().catch(() => null),
-        api.getHealth().catch(() => null),
-      ]);
-
-      if (brandData) setBranding(brandData);
-      if (healthData) setDbHealth(healthData);
-
-      // Check current session
-      const meRes = await api.getMe();
+      const meRes = await api.getMe().catch(() => null);
       if (meRes?.user) {
         setCurrentUser(meRes.user);
         if (meRes.branding) setBranding(meRes.branding);
+      } else {
+        const brandData = await api.getBranding().catch(() => null);
+        if (brandData) setBranding(brandData);
       }
     } catch {
-      // Not logged in or session expired
       setCurrentUser(null);
     } finally {
       setLoadingInitial(false);
@@ -149,15 +142,147 @@ function MainApp() {
     }
   }, [currentUser]);
 
+  const loadSequence = useRef(0);
+  const loadTabData = useCallback(async (
+    tab: NavTab,
+    statsDivision: 'All' | 'Accounting' | 'Tax' = 'All'
+  ) => {
+    if (!currentUser) return;
+    const requestId = ++loadSequence.current;
+    setIsRefreshing(true);
+    setConnectionError(null);
+
+    try {
+      switch (tab) {
+        case 'dashboard': {
+          const [jobsData, casesData, agendaData, meetingMinutesData, statsData, healthData] = await Promise.all([
+            api.getJobs(),
+            api.getCases(),
+            api.getAgendaEntries(),
+            api.getMeetingMinutes(),
+            api.getStats(statsDivision === 'All' ? undefined : { division: statsDivision }),
+            api.getHealth(),
+          ]);
+          setJobs(jobsData);
+          setCases(casesData);
+          setAgendaEntries(agendaData);
+          setMeetingMinutes(meetingMinutesData);
+          setStats(statsData);
+          setDbHealth(healthData);
+          break;
+        }
+        case 'clients': {
+          const [clientsData, casesData, usersData, templatesData] = await Promise.all([
+            api.getClients(), api.getCases(), api.getUsers(), api.getMonthlyJobTemplates(),
+          ]);
+          setClients(clientsData);
+          setCases(casesData);
+          setUsers(usersData);
+          setMonthlyJobTemplates(templatesData);
+          break;
+        }
+        case 'jobs': {
+          const [jobsData, clientsData, usersData, templatesData] = await Promise.all([
+            api.getJobs(), api.getClients(), api.getUsers(), api.getMonthlyJobTemplates(),
+          ]);
+          setJobs(jobsData);
+          setClients(clientsData);
+          setUsers(usersData);
+          setMonthlyJobTemplates(templatesData);
+          break;
+        }
+        case 'handover': {
+          const [jobsData, clientsData, handoverData] = await Promise.all([
+            api.getJobs(), api.getClients(), api.getHandovers(),
+          ]);
+          setJobs(jobsData);
+          setClients(clientsData);
+          setHandoverRecords(handoverData);
+          break;
+        }
+        case 'cases': {
+          const [casesData, clientsData, usersData] = await Promise.all([
+            api.getCases(), api.getClients(), api.getUsers(),
+          ]);
+          setCases(casesData);
+          setClients(clientsData);
+          setUsers(usersData);
+          break;
+        }
+        case 'followup':
+          setCases(await api.getCases());
+          break;
+        case 'activities': {
+          const [activitiesData, clientsData, jobsData, casesData] = await Promise.all([
+            api.getDailyActivities(), api.getClients(), api.getJobs(), api.getCases(),
+          ]);
+          setActivities(activitiesData);
+          setClients(clientsData);
+          setJobs(jobsData);
+          setCases(casesData);
+          break;
+        }
+        case 'mom': {
+          const [meetingMinutesData, usersData] = await Promise.all([
+            api.getMeetingMinutes(), api.getUsers(),
+          ]);
+          setMeetingMinutes(meetingMinutesData);
+          setUsers(usersData);
+          break;
+        }
+        case 'agenda': {
+          const [agendaData, clientsData, jobsData, usersData] = await Promise.all([
+            api.getAgendaEntries(), api.getClients(), api.getJobs(), api.getUsers(),
+          ]);
+          setAgendaEntries(agendaData);
+          setClients(clientsData);
+          setJobs(jobsData);
+          setUsers(usersData);
+          break;
+        }
+        case 'executive-summary': {
+          const [clientsData, jobsData, casesData, activitiesData, agendaData, healthData] = await Promise.all([
+            api.getClients(), api.getJobs(), api.getCases(), api.getDailyActivities(), api.getAgendaEntries(), api.getHealth(),
+          ]);
+          setClients(clientsData);
+          setJobs(jobsData);
+          setCases(casesData);
+          setActivities(activitiesData);
+          setAgendaEntries(agendaData);
+          setDbHealth(healthData);
+          break;
+        }
+        case 'reports': {
+          const [clientsData, jobsData, casesData, activitiesData] = await Promise.all([
+            api.getClients(), api.getJobs(), api.getCases(), api.getDailyActivities(),
+          ]);
+          setClients(clientsData);
+          setJobs(jobsData);
+          setCases(casesData);
+          setActivities(activitiesData);
+          break;
+        }
+        default:
+          break;
+      }
+      if (requestId === loadSequence.current) setConnectionError(null);
+    } catch (err: any) {
+      console.error(`[App] Gagal memuat data halaman ${tab}:`, err);
+      if (requestId === loadSequence.current) {
+        setConnectionError(err.message || 'Data halaman tidak dapat dimuat dari server.');
+      }
+    } finally {
+      if (requestId === loadSequence.current) setIsRefreshing(false);
+    }
+  }, [currentUser]);
+
   useEffect(() => {
     initializeAuthAndBranding();
   }, [initializeAuthAndBranding]);
 
   useEffect(() => {
-    if (currentUser) {
-      loadAllBusinessData();
-    }
-  }, [currentUser, loadAllBusinessData]);
+    if (currentUser) void loadTabData(currentTab);
+  }, [currentUser, currentTab, loadTabData]);
 
   const handleLoginSuccess = (user: CurrentUser, brandData: BrandingConfig) => {
     setCurrentUser(user);
@@ -217,7 +342,7 @@ function MainApp() {
           mobileMenuOpen={mobileSidebarOpen}
           currentUser={currentUser}
           branding={branding}
-          onRefreshData={() => loadAllBusinessData()}
+          onRefreshData={() => currentTab === 'backup' ? loadAllBusinessData() : loadTabData(currentTab)}
           isRefreshing={isRefreshing}
           theme={theme}
           onToggleTheme={() => setTheme((current) => current === 'light' ? 'dark' : 'light')}
@@ -237,7 +362,7 @@ function MainApp() {
               </div>
             </div>
             <button
-              onClick={() => loadAllBusinessData()}
+              onClick={() => currentTab === 'backup' ? loadAllBusinessData() : loadTabData(currentTab)}
               disabled={isRefreshing}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-700 hover:bg-rose-600 text-white rounded-lg font-semibold shrink-0"
             >
@@ -259,7 +384,7 @@ function MainApp() {
               meetingMinutes={meetingMinutes}
               currentUser={currentUser}
               onNavigateTab={(tab) => setCurrentTab(tab)}
-              onRefresh={(division) => loadAllBusinessData(division)}
+              onRefresh={(division) => loadTabData('dashboard', division)}
               onDivisionChange={async (division) => {
                 try {
                   const nextStats = await api.getStats(division === 'All' ? undefined : { division });
@@ -279,7 +404,7 @@ function MainApp() {
               users={users}
               monthlyJobTemplates={monthlyJobTemplates}
               currentUser={currentUser}
-              onRefresh={() => loadAllBusinessData()}
+              onRefresh={() => loadTabData('clients')}
             />
           )}
 
@@ -290,7 +415,7 @@ function MainApp() {
               users={users}
               monthlyJobTemplates={monthlyJobTemplates}
               currentUser={currentUser}
-              onRefresh={() => loadAllBusinessData()}
+              onRefresh={() => loadTabData('jobs')}
             />
           )}
 
@@ -300,7 +425,7 @@ function MainApp() {
               clients={clients}
               records={handoverRecords}
               currentUser={currentUser}
-              onRefresh={() => loadAllBusinessData()}
+              onRefresh={() => loadTabData('handover')}
             />
           )}
 
@@ -310,7 +435,7 @@ function MainApp() {
               clients={clients}
               users={users}
               currentUser={currentUser}
-              onRefresh={() => loadAllBusinessData()}
+              onRefresh={() => loadTabData('cases')}
             />
           )}
 
@@ -318,7 +443,7 @@ function MainApp() {
             <FollowUpView
               cases={cases}
               currentUser={currentUser}
-              onRefresh={() => loadAllBusinessData()}
+              onRefresh={() => loadTabData('followup')}
               onOpenCaseDetail={() => setCurrentTab('cases')}
             />
           )}
@@ -330,7 +455,7 @@ function MainApp() {
               jobs={jobs}
               cases={cases}
               currentUser={currentUser}
-              onRefresh={() => loadAllBusinessData()}
+              onRefresh={() => loadTabData('activities')}
             />
           )}
 
@@ -340,7 +465,7 @@ function MainApp() {
               users={users}
               currentUser={currentUser}
               companyName={branding.companyName}
-              onRefresh={() => loadAllBusinessData()}
+              onRefresh={() => loadTabData('mom')}
             />
           )}
 
@@ -351,7 +476,7 @@ function MainApp() {
               jobs={jobs}
               users={users}
               currentUser={currentUser}
-              onRefresh={() => loadAllBusinessData()}
+              onRefresh={() => loadTabData('agenda')}
             />
           )}
 

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import ExcelJS from 'exceljs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   getDb,
   mutateDb,
@@ -1325,7 +1325,8 @@ function getJakartaMonth() {
   }).formatToParts(new Date());
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   const monthKey = `${values.year}-${values.month}`;
-  return { year: Number(values.year), month: Number(values.month), monthKey, firstDay: `${monthKey}-01` };
+  const dateKey = `${monthKey}-${values.day}`;
+  return { year: Number(values.year), month: Number(values.month), monthKey, dateKey, firstDay: `${monthKey}-01` };
 }
 
 function createCurrentMonthRecurringJobs() {
@@ -1409,8 +1410,26 @@ function createCurrentMonthRecurringJobs() {
   }
 }
 
-apiRouter.get('/jobs', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+apiRouter.get('/cron/monthly-jobs', (req: Request, res: Response) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) {
+    res.status(503).json({ error: 'Jadwal job bulanan belum dikonfigurasi.' });
+    return;
+  }
+
+  const provided = Buffer.from(typeof req.headers.authorization === 'string' ? req.headers.authorization : '');
+  const expected = Buffer.from(`Bearer ${secret}`);
+  const isAuthorized = provided.length === expected.length && timingSafeEqual(provided, expected);
+  if (!isAuthorized) {
+    res.status(401).json({ error: 'Akses jadwal tidak valid.' });
+    return;
+  }
+
   createCurrentMonthRecurringJobs();
+  res.json({ success: true, month: getJakartaMonth().monthKey });
+});
+
+apiRouter.get('/jobs', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const db = getDb();
   let results = [...db.jobs];
   const { division, status, picId, spvId, clientId, priority, jobType, recurringMonth } = req.query;
@@ -2324,12 +2343,13 @@ apiRouter.post(
 
     const newActivity: DailyActivity = {
       id: newId,
-      date: data.date || new Date().toISOString().split('T')[0],
+      date: data.date || getJakartaMonth().dateKey,
       clientId: data.clientId,
       clientName: data.clientName || 'Klien',
       division: data.division,
       picId: req.user?.userId || data.picId || '',
       picName: req.user?.name || data.picName || '',
+      picRole: req.user?.role || '',
       jobId: data.jobId || undefined,
       caseId: data.caseId || undefined,
       description: data.description.trim(),
@@ -2946,7 +2966,186 @@ apiRouter.get(
 );
 
 // ==========================================
-// 12. EXCEL EXPORT (TMM/BMA Management Activity Report)
+// 12. DAILY MANAGEMENT ACTIVITY EXPORT
+// ==========================================
+apiRouter.get(
+  '/reports/daily-activities',
+  authenticateToken,
+  requireRole('Admin', 'Owner', 'Manager'),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const reportDate = typeof req.query.date === 'string' ? req.query.date : '';
+    const parsedDate = Date.parse(`${reportDate}T00:00:00Z`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(reportDate) ||
+      Number.isNaN(parsedDate) ||
+      new Date(parsedDate).toISOString().slice(0, 10) !== reportDate
+    ) {
+      res.status(400).json({ error: 'Tanggal laporan harus menggunakan format YYYY-MM-DD yang valid.' });
+      return;
+    }
+
+    const db = getDb();
+    const formatJakartaDate = (value: string) => {
+      const timestamp = Date.parse(value);
+      return Number.isNaN(timestamp)
+        ? ''
+        : new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(timestamp);
+    };
+    const formatJakartaTime = (value: string) => {
+      const timestamp = Date.parse(value);
+      return Number.isNaN(timestamp)
+        ? '-'
+        : new Intl.DateTimeFormat('id-ID', {
+            timeZone: 'Asia/Jakarta',
+            dateStyle: 'short',
+            timeStyle: 'medium',
+          }).format(timestamp);
+    };
+    const userRoles = new Map(db.users.map((user) => [user.id, user.role]));
+    const activities = db.activities
+      .filter((activity) => activity.date === reportDate)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const operationalTargets = new Set(['Client', 'Job', 'Case', 'Activity', 'Meeting']);
+    const events = (db.auditLogs || [])
+      .filter((log) => operationalTargets.has(log.targetType) && formatJakartaDate(log.timestamp) === reportDate)
+      .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'TMM/BMA Client Control Center';
+    workbook.lastModifiedBy = req.user?.name || 'Management';
+    workbook.created = new Date();
+    workbook.modified = new Date();
+
+    type ReportColumn = { header: string; width: number };
+    type ReportValue = string | number;
+    const addReportSheet = (
+      name: string,
+      title: string,
+      columns: ReportColumn[],
+      rows: ReportValue[][]
+    ) => {
+      const sheet = workbook.addWorksheet(name, { views: [{ state: 'frozen', xSplit: 0, ySplit: 3 }] });
+      sheet.columns = columns.map((column) => ({ width: column.width }));
+      sheet.mergeCells(1, 1, 1, columns.length);
+      sheet.getCell(1, 1).value = title;
+      sheet.getCell(1, 1).font = { name: 'Arial', bold: true, size: 14, color: { argb: 'FF0F172A' } };
+      sheet.getCell(1, 1).alignment = { vertical: 'middle' };
+      sheet.getRow(1).height = 26;
+      sheet.mergeCells(2, 1, 2, columns.length);
+      sheet.getCell(2, 1).value = `Tanggal laporan: ${reportDate} (WIB) · Dibuat oleh ${req.user?.name} (${req.user?.role})`;
+      sheet.getCell(2, 1).font = { name: 'Arial', italic: true, size: 9, color: { argb: 'FF64748B' } };
+      sheet.getRow(2).height = 20;
+
+      const headerRow = sheet.getRow(3);
+      columns.forEach((column, index) => {
+        const cell = headerRow.getCell(index + 1);
+        cell.value = column.header;
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
+        cell.font = { name: 'Arial', bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF334155' } },
+          bottom: { style: 'medium', color: { argb: 'FFD97706' } },
+          left: { style: 'thin', color: { argb: 'FF334155' } },
+          right: { style: 'thin', color: { argb: 'FF334155' } },
+        };
+      });
+      headerRow.height = 28;
+      sheet.autoFilter = {
+        from: { row: 3, column: 1 },
+        to: { row: Math.max(3, rows.length + 3), column: columns.length },
+      };
+
+      if (rows.length === 0) {
+        const emptyRow = sheet.addRow(['Tidak ada aktivitas untuk tanggal ini.']);
+        if (columns.length > 1) sheet.mergeCells(emptyRow.number, 1, emptyRow.number, columns.length);
+        emptyRow.getCell(1).font = { name: 'Arial', italic: true, size: 10, color: { argb: 'FF64748B' } };
+      } else {
+        rows.forEach((values, index) => {
+          const row = sheet.addRow(values);
+          row.height = 24;
+          row.eachCell((cell) => {
+            cell.font = { name: 'Arial', size: 9, color: { argb: 'FF1E293B' } };
+            cell.alignment = { vertical: 'middle', wrapText: true };
+            cell.border = {
+              top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+              bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+              left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+              right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            };
+            if (index % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+          });
+        });
+      }
+    };
+
+    addReportSheet(
+      'Aktivitas Harian',
+      'CATATAN AKTIVITAS HARIAN STAFF & SPV',
+      [
+        { header: 'ID Aktivitas', width: 17 },
+        { header: 'Jam Dicatat (WIB)', width: 23 },
+        { header: 'Nama Pelaksana', width: 25 },
+        { header: 'Peran', width: 20 },
+        { header: 'Divisi', width: 14 },
+        { header: 'Klien', width: 30 },
+        { header: 'Referensi Job/Case', width: 20 },
+        { header: 'Kegiatan yang Dikerjakan', width: 46 },
+        { header: 'Hasil / Progres', width: 35 },
+        { header: 'Kendala', width: 30 },
+        { header: 'Tindak Lanjut', width: 32 },
+        { header: 'Status', width: 18 },
+        { header: 'Durasi (Menit)', width: 16 },
+      ],
+      activities.map((activity) => [
+        activity.id,
+        formatJakartaTime(activity.createdAt),
+        activity.picName,
+        activity.picRole || userRoles.get(activity.picId) || 'Tidak diketahui',
+        activity.division,
+        activity.clientName,
+        activity.jobId ? `Job ${activity.jobId}` : activity.caseId ? `Case ${activity.caseId}` : '-',
+        activity.description,
+        activity.resultProgress || '-',
+        activity.obstacles || '-',
+        activity.followUp || '-',
+        activity.status,
+        activity.durationMinutes || 60,
+      ])
+    );
+
+    addReportSheet(
+      'Jejak Operasional',
+      'JEJAK AKSI OPERASIONAL PENGGUNA',
+      [
+        { header: 'Waktu (WIB)', width: 23 },
+        { header: 'Nama Pengguna', width: 25 },
+        { header: 'Peran', width: 20 },
+        { header: 'Aksi', width: 30 },
+        { header: 'Jenis Data', width: 16 },
+        { header: 'Klien / Referensi', width: 32 },
+        { header: 'Rincian Aktivitas', width: 60 },
+      ],
+      events.map((event) => [
+        formatJakartaTime(event.timestamp),
+        event.userName,
+        event.userRole,
+        event.action,
+        event.targetType,
+        event.targetName || event.target || event.targetId || '-',
+        typeof event.details === 'string' ? event.details : JSON.stringify(event.details ?? '-'),
+      ])
+    );
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="TMM_BMA_Aktivitas_Management_${reportDate}.xlsx"`);
+    const buffer = await workbook.xlsx.writeBuffer();
+    res.send(Buffer.from(buffer));
+  })
+);
+
+// ==========================================
+// 13. EXCEL EXPORT (TMM/BMA Management Activity Report)
 // ==========================================
 apiRouter.get(
   '/reports/excel',

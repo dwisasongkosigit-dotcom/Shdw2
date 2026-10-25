@@ -268,6 +268,7 @@ export interface DailyActivity {
   division: 'Accounting' | 'Tax';
   picId: string;
   picName: string;
+  picRole?: string;
   jobId?: string;
   caseId?: string;
   description: string;
@@ -679,6 +680,34 @@ export const api = {
   getAuditLogs: (limit = 200) => request<AuditLog[]>(`/api/audit-logs?limit=${limit}`),
 
   // Excel Report Download
+  downloadDailyActivityReport: async (date: string) => {
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const response = await fetch(`/api/reports/daily-activities?date=${encodeURIComponent(date)}`, { headers });
+    if (!response.ok) {
+      let message = 'Gagal menghasilkan laporan aktivitas harian.';
+      try {
+        const errorData = await response.json();
+        message = errorData.error || message;
+      } catch {
+        // The response may not contain JSON.
+      }
+      throw new Error(message);
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `TMM_BMA_Aktivitas_Management_${date}.xlsx`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(anchor);
+  },
+
   downloadExcelReport: async () => {
     const token = getToken();
     const headers: Record<string, string> = {};
