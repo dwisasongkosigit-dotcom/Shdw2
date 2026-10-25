@@ -1602,9 +1602,18 @@ apiRouter.post(
       return;
     }
 
+    const client = db.clients.find((candidate) => candidate.id === job.clientId);
+    const clientServiceResponsibility = job.division === 'Accounting'
+      ? client?.accountingServiceResponsibility
+      : client?.taxServiceResponsibility;
+    const jobServiceResponsibility = job.serviceResponsibility || 'Tim 3';
+    const serviceResponsibility = jobServiceResponsibility === 'Tim Internal Lain' ||
+      (jobServiceResponsibility === 'Tim 3' && clientServiceResponsibility === 'Tim Internal Lain')
+      ? 'Tim Internal Lain'
+      : jobServiceResponsibility;
     const handoverDestination = direction.endsWith('-to-client') ? 'client' : 'internal';
     const selectedForHandover = direction === 'staff-to-internal'
-      ? (job.serviceResponsibility || 'Tim 3') === 'Tim Internal Lain'
+      ? serviceResponsibility === 'Tim Internal Lain'
       : job.handoverDirectionOverrides?.[direction] ??
         (Array.isArray(job.handoverDestinations) && job.handoverDestinations.includes(handoverDestination));
     if (!selectedForHandover) {
@@ -1612,7 +1621,6 @@ apiRouter.post(
       return;
     }
 
-    const client = db.clients.find((candidate) => candidate.id === job.clientId);
     const accountingResponsibility = client?.accountingServiceResponsibility || 'Tim 3';
     const taxResponsibility = client?.taxServiceResponsibility || 'Tim 3';
     const isSpvPic = isSpvPicForDivision(client, job.division);
@@ -1625,8 +1633,8 @@ apiRouter.post(
     const canRecord = currentUser.role === 'Admin' ||
       (matchesDirectionRole && job.picId === currentUser.userId);
     const isApplicable = direction === 'staff-to-internal'
-      ? (job.serviceResponsibility || 'Tim 3') === 'Tim Internal Lain'
-      : (job.serviceResponsibility || 'Tim 3') === 'Tim 3' &&
+      ? serviceResponsibility === 'Tim Internal Lain'
+      : serviceResponsibility === 'Tim 3' &&
         (direction !== 'staff-to-client' || !isSpvPic) &&
         (direction !== 'spv-pic-to-client' || isSpvPic) &&
         (direction !== 'accounting-to-tax' || (job.division === 'Accounting' && taxResponsibility === 'Tim 3')) &&
