@@ -170,6 +170,10 @@ export interface JobHandoverRecord {
   sentById: string;
   sentByName: string;
   sentByRole: string;
+  canceledAt?: string;
+  canceledById?: string;
+  canceledByName?: string;
+  canceledByRole?: string;
 }
 
 export interface Job {
@@ -563,6 +567,10 @@ export const api = {
     request<{ success: boolean; record: JobHandoverRecord; message: string }>(`/api/jobs/${jobId}/handovers`, {
       method: 'POST',
       body: JSON.stringify({ direction }),
+    }),
+  cancelJobHandover: (jobId: string, recordId: string) =>
+    request<{ success: boolean; record: JobHandoverRecord; message: string }>(`/api/jobs/${jobId}/handovers/${recordId}/cancel`, {
+      method: 'POST',
     }),
 
   // Cases
