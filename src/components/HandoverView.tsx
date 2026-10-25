@@ -20,6 +20,7 @@ interface HandoverViewProps {
   jobs: Job[];
   clients: Client[];
   records: JobHandoverRecord[];
+  hiddenHandoverJobIds: string[];
   profileAssignmentRecords: ProfileAssignmentHandoverRecord[];
   currentUser: CurrentUser;
   onRefresh: () => void | Promise<void>;
@@ -360,7 +361,7 @@ function HandoverChecklistCell({
   );
 }
 
-export function HandoverView({ jobs, clients, records, profileAssignmentRecords, currentUser, onRefresh }: HandoverViewProps) {
+export function HandoverView({ jobs, clients, records, hiddenHandoverJobIds, profileAssignmentRecords, currentUser, onRefresh }: HandoverViewProps) {
   const { success, error } = useToast();
   const [clientFilter, setClientFilter] = useState('All');
   const [picFilter, setPicFilter] = useState('All');
@@ -380,11 +381,17 @@ export function HandoverView({ jobs, clients, records, profileAssignmentRecords,
   const [deleteTarget, setDeleteTarget] = useState<{ job: Job; record: JobHandoverRecord } | null>(null);
   const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
   const [deletedRecordIds, setDeletedRecordIds] = useState<Set<string>>(() => new Set());
+  const [removeFromRecapTarget, setRemoveFromRecapTarget] = useState<Job | null>(null);
+  const [removingFromRecapJobId, setRemovingFromRecapJobId] = useState<string | null>(null);
   const cancelDialogRef = useRef<HTMLDialogElement>(null);
   const deleteDialogRef = useRef<HTMLDialogElement>(null);
+  const removeFromRecapDialogRef = useRef<HTMLDialogElement>(null);
   const [newlySavedRecords, setNewlySavedRecords] = useState<JobHandoverRecord[]>([]);
 
-  const visibleJobs = useMemo(() => jobs.filter((job) => canViewJob(job, currentUser)), [jobs, currentUser]);
+  const hiddenHandoverJobIdSet = useMemo(() => new Set(hiddenHandoverJobIds), [hiddenHandoverJobIds]);
+  const visibleJobs = useMemo(() => jobs.filter((job) =>
+    canViewJob(job, currentUser) && !hiddenHandoverJobIdSet.has(job.id)
+  ), [jobs, currentUser, hiddenHandoverJobIdSet]);
   const clientsById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
   const availablePics = useMemo(() => {
     const picsById = new Map<string, string>();
@@ -635,6 +642,22 @@ export function HandoverView({ jobs, clients, records, profileAssignmentRecords,
     }
   };
 
+  const handleRemoveUnconfiguredJobFromRecap = async () => {
+    if (!removeFromRecapTarget || removingFromRecapJobId || currentUser.role !== 'Admin') return;
+    const job = removeFromRecapTarget;
+    setRemovingFromRecapJobId(job.id);
+    try {
+      const response = await api.removeUnconfiguredJobFromHandoverRecap(job.id);
+      success('Job Dikeluarkan dari Rekap', response.message);
+      setRemoveFromRecapTarget(null);
+      await onRefresh();
+    } catch (err: any) {
+      error('Gagal Mengeluarkan Job', err.message || 'Periksa koneksi lalu coba kembali.');
+    } finally {
+      setRemovingFromRecapJobId(null);
+    }
+  };
+
   useEffect(() => {
     const dialog = cancelDialogRef.current;
     if (!cancelTarget || !dialog || dialog.open) return;
@@ -653,6 +676,15 @@ export function HandoverView({ jobs, clients, records, profileAssignmentRecords,
     };
   }, [deleteTarget]);
 
+  useEffect(() => {
+    const dialog = removeFromRecapDialogRef.current;
+    if (!removeFromRecapTarget || !dialog || dialog.open) return;
+    dialog.showModal();
+    return () => {
+      if (dialog.open) dialog.close();
+    };
+  }, [removeFromRecapTarget]);
+
   return (
     <>
     <section className="flex flex-col gap-5" aria-labelledby="handover-page-title">
@@ -662,7 +694,7 @@ export function HandoverView({ jobs, clients, records, profileAssignmentRecords,
         </div>
         <div>
           <h1 id="handover-page-title" className="text-lg font-bold tracking-tight text-slate-900">Rekap Serah Terima</h1>
-          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-600">PIC yang ditugaskan mencatat serah terima untuk tugas/job yang benar-benar ada: ke klien, antar divisi Accounting ↔ Tax, atau Tim Internal Lain. Riwayat dan pembatalan tersimpan; penghapusan catatan job tersedia untuk Admin.</p>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-600">PIC yang ditugaskan mencatat serah terima untuk tugas/job yang benar-benar ada: ke klien, antar divisi Accounting ��� Tax, atau Tim Internal Lain. Riwayat dan pembatalan tersimpan; Admin dapat menghapus catatan atau mengeluarkan job lama yang tujuan serah terimanya belum diatur dari rekap tanpa menghapus data job.</p>
         </div>
       </div>
 
@@ -859,8 +891,19 @@ export function HandoverView({ jobs, clients, records, profileAssignmentRecords,
                 </div>
 
                 {!isHandoverConfigured(job, client) && (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-[11px] leading-5 text-amber-900">
-                    Tujuan job lama ini belum diatur dan belum dihitung sebagai checklist terbuka. Minta Admin/SPV mengatur Klien/Internal lewat <span className="font-semibold">Job Management → Edit Tugas</span>.
+                  <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-[11px] leading-5 text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+                    <p>Tujuan job lama ini belum diatur dan belum dihitung sebagai checklist terbuka. Minta Admin/SPV mengatur Klien/Internal lewat <span className="font-semibold">Job Management → Edit Tugas</span>.</p>
+                    {currentUser.role === 'Admin' && (
+                      <button
+                        type="button"
+                        onClick={() => setRemoveFromRecapTarget(job)}
+                        disabled={Boolean(removingFromRecapJobId)}
+                        className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-rose-200 bg-white px-3 text-[10px] font-semibold text-rose-700 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 disabled:cursor-wait disabled:opacity-50 sm:self-auto"
+                        aria-label={`Hapus ${job.title} dari rekap serah terima`}
+                      >
+                        <Trash2 className="size-3.5" /> Hapus dari rekap
+                      </button>
+                    )}
                   </div>
                 )}
                 {isHandoverConfigured(job, client) && allRequiredOptions.length === 0 && (
@@ -1020,6 +1063,33 @@ export function HandoverView({ jobs, clients, records, profileAssignmentRecords,
           <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button type="button" onClick={() => setDeleteTarget(null)} disabled={Boolean(deletingRecordId)} className="min-h-10 rounded-lg border border-slate-200 px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Kembali</button>
             <button type="button" onClick={() => void handleDeleteHandover()} disabled={Boolean(deletingRecordId)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-rose-700 px-4 text-xs font-semibold text-white transition hover:bg-rose-800 disabled:cursor-wait disabled:opacity-60"><Trash2 className="size-3.5" />{deletingRecordId ? 'Menghapus...' : 'Hapus permanen'}</button>
+          </div>
+        </div>
+      )}
+    </dialog>
+
+    <dialog
+      ref={removeFromRecapDialogRef}
+      aria-labelledby="remove-handover-recap-title"
+      aria-describedby="remove-handover-recap-description"
+      onCancel={(event) => {
+        event.preventDefault();
+        setRemoveFromRecapTarget(null);
+      }}
+      className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl bg-transparent p-0 text-slate-900 shadow-none backdrop:bg-slate-950/60 backdrop:backdrop-blur-sm"
+    >
+      {removeFromRecapTarget && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-rose-50 text-rose-700">
+            <Trash2 className="size-5" />
+          </div>
+          <h2 id="remove-handover-recap-title" className="mt-4 text-base font-bold text-slate-900">Hapus job dari rekap serah terima?</h2>
+          <p id="remove-handover-recap-description" className="mt-2 text-sm leading-6 text-slate-600">
+            <span className="font-semibold text-slate-800">{removeFromRecapTarget.title}</span> tidak akan ditampilkan lagi di rekap serah terima. Data job tetap tersimpan di Job Management; tindakan ini tidak menghapus job atau catatan serah terima.
+          </p>
+          <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" onClick={() => setRemoveFromRecapTarget(null)} disabled={Boolean(removingFromRecapJobId)} className="min-h-10 rounded-lg border border-slate-200 px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Kembali</button>
+            <button type="button" onClick={() => void handleRemoveUnconfiguredJobFromRecap()} disabled={Boolean(removingFromRecapJobId)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-rose-700 px-4 text-xs font-semibold text-white transition hover:bg-rose-800 disabled:cursor-wait disabled:opacity-60"><Trash2 className="size-3.5" />{removingFromRecapJobId ? 'Menghapus...' : 'Ya, hapus dari rekap'}</button>
           </div>
         </div>
       )}

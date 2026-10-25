@@ -619,7 +619,9 @@ export const api = {
     request<{ success: boolean; message: string }>(`/api/jobs/${id}`, {
       method: 'DELETE',
     }),
-  getHandovers: () => request<{ jobRecords: JobHandoverRecord[]; profileAssignmentRecords: ProfileAssignmentHandoverRecord[] }>('/api/handovers'),
+  getHandovers: () => request<{ jobRecords: JobHandoverRecord[]; hiddenHandoverJobIds: string[]; profileAssignmentRecords: ProfileAssignmentHandoverRecord[] }>('/api/handovers'),
+  removeUnconfiguredJobFromHandoverRecap: (jobId: string) =>
+    request<{ success: boolean; message: string }>(`/api/jobs/${encodeURIComponent(jobId)}/handover-recap`, { method: 'DELETE' }),
   recordProfileAssignmentHandover: (clientId: string, division: JobDivision) =>
     request<{ success: boolean; record: ProfileAssignmentHandoverRecord; message: string }>(`/api/clients/${encodeURIComponent(clientId)}/profile-handovers/${division}`, {
       method: 'POST',

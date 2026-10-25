@@ -1624,11 +1624,63 @@ apiRouter.get('/handovers', authenticateToken, (req: AuthenticatedRequest, res: 
 
   res.json({
     jobRecords: (db.handoverRecords || []).filter((record) => visibleJobIds.has(record.jobId)),
+    hiddenHandoverJobIds: (db.hiddenHandoverJobIds || []).filter((jobId) => visibleJobIds.has(jobId)),
     profileAssignmentRecords: (db.profileAssignmentHandoverRecords || []).filter((record) =>
       visibleProfileAssignmentKeys.has(`${record.clientId}:${record.division}`)
     ),
   });
 });
+
+apiRouter.delete(
+  '/jobs/:id/handover-recap',
+  authenticateToken,
+  requireRole('Admin'),
+  requireWritable,
+  (req: AuthenticatedRequest, res: Response) => {
+    const db = getDb();
+    const job = db.jobs.find((candidate) => candidate.id === req.params.id);
+    if (!job) {
+      res.status(404).json({ error: 'Pekerjaan tidak ditemukan.' });
+      return;
+    }
+
+    const client = db.clients.find((candidate) => candidate.id === job.clientId);
+    const clientResponsibility = job.division === 'Accounting'
+      ? client?.accountingServiceResponsibility
+      : client?.taxServiceResponsibility;
+    const jobResponsibility = job.serviceResponsibility || 'Tim 3';
+    const effectiveResponsibility = jobResponsibility === 'Tim 3' && clientResponsibility === 'Tim Internal Lain'
+      ? 'Tim Internal Lain'
+      : jobResponsibility;
+    const isConfigured = effectiveResponsibility !== 'Tim 3' ||
+      Array.isArray(job.handoverDestinations) ||
+      Object.keys(job.handoverDirectionOverrides || {}).length > 0;
+    if (isConfigured) {
+      res.status(409).json({ error: 'Hanya pekerjaan dengan tujuan serah terima yang belum diatur yang dapat dikeluarkan dari rekap.' });
+      return;
+    }
+    if ((db.hiddenHandoverJobIds || []).includes(job.id)) {
+      res.json({ success: true, message: 'Pekerjaan ini sudah tidak ditampilkan di rekap serah terima.' });
+      return;
+    }
+
+    const currentUser = req.user!;
+    mutateDb((database) => {
+      database.hiddenHandoverJobIds = database.hiddenHandoverJobIds || [];
+      if (!database.hiddenHandoverJobIds.includes(job.id)) database.hiddenHandoverJobIds.push(job.id);
+      logAudit(
+        'JOB_HANDOVER_RECAP_REMOVED',
+        'Job',
+        `Pekerjaan ${job.id} (${job.title}) dikeluarkan dari rekap serah terima oleh Admin; data pekerjaan tidak dihapus.`,
+        { userId: currentUser.userId, name: currentUser.name, role: currentUser.role },
+        job.id,
+        job.title
+      );
+    });
+
+    res.json({ success: true, message: 'Pekerjaan dikeluarkan dari rekap serah terima. Data pekerjaan tetap tersimpan.' });
+  }
+);
 
 apiRouter.post(
   '/clients/:clientId/profile-handovers/:division',

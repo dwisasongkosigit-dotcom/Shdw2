@@ -62,6 +62,7 @@ function MainApp() {
   const [clients, setClients] = useState<Client[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [handoverRecords, setHandoverRecords] = useState<JobHandoverRecord[]>([]);
+  const [hiddenHandoverJobIds, setHiddenHandoverJobIds] = useState<string[]>([]);
   const [profileAssignmentHandoverRecords, setProfileAssignmentHandoverRecords] = useState<ProfileAssignmentHandoverRecord[]>([]);
   const [monthlyJobTemplates, setMonthlyJobTemplates] = useState<MonthlyJobTemplate[]>([]);
   const [users, setUsers] = useState<UserAccount[]>([]);
@@ -126,6 +127,7 @@ function MainApp() {
       setClients(clientsData);
       setJobs(jobsData);
       setHandoverRecords(handoverData.jobRecords);
+      setHiddenHandoverJobIds(handoverData.hiddenHandoverJobIds);
       setProfileAssignmentHandoverRecords(handoverData.profileAssignmentRecords);
       setMonthlyJobTemplates(monthlyTemplatesData);
       setUsers(usersData);
@@ -196,6 +198,7 @@ function MainApp() {
           setJobs(jobsData);
           setClients(clientsData);
           setHandoverRecords(handoverData.jobRecords);
+          setHiddenHandoverJobIds(handoverData.hiddenHandoverJobIds);
           setProfileAssignmentHandoverRecords(handoverData.profileAssignmentRecords);
           break;
         }
@@ -423,6 +426,7 @@ function MainApp() {
               jobs={jobs}
               clients={clients}
               records={handoverRecords}
+              hiddenHandoverJobIds={hiddenHandoverJobIds}
               profileAssignmentRecords={profileAssignmentHandoverRecords}
               currentUser={currentUser}
               onRefresh={() => loadTabData('handover')}
