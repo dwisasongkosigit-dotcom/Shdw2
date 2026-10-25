@@ -504,6 +504,7 @@ export interface DatabaseSchema {
   jobs: Job[];
   monthlyJobTemplates?: MonthlyJobTemplate[];
   handoverRecords?: JobHandoverRecord[];
+  hiddenHandoverJobIds?: string[];
   profileAssignmentHandoverRecords?: ProfileAssignmentHandoverRecord[];
   notifications?: AppNotification[];
   cases: Case[];

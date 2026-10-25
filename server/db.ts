@@ -44,6 +44,7 @@ function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
   if (!Array.isArray(db.backups)) db.backups = [];
   if (!Array.isArray(db.monthlyJobTemplates)) db.monthlyJobTemplates = [];
   if (!Array.isArray(db.handoverRecords)) db.handoverRecords = [];
+  if (!Array.isArray(db.hiddenHandoverJobIds)) db.hiddenHandoverJobIds = [];
   if (!Array.isArray(db.profileAssignmentHandoverRecords)) db.profileAssignmentHandoverRecords = [];
   if (!Array.isArray(db.notifications)) db.notifications = [];
   db.clients.forEach((client: any) => {
