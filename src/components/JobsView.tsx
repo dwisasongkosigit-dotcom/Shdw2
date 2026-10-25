@@ -50,6 +50,7 @@ export function JobsView({
   const { success, error, warning } = useToast();
   const currentDivision = currentUser.role.includes('Accounting') ? 'Accounting' : 'Tax';
   const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>('All');
+  const [clientFilter, setClientFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState<string>(currentUser.role.startsWith('SPV') ? 'Siap Direview' : 'All');
   const [priorityFilter, setPriorityFilter] = useState<string>('All');
   const [jobTypeFilter, setJobTypeFilter] = useState<'All' | 'Continuing' | 'Additional'>('All');
@@ -118,6 +119,7 @@ export function JobsView({
   const filteredJobs = useMemo(() => {
     return jobs.filter((j) => {
       if (divisionFilter !== 'All' && j.division !== divisionFilter) return false;
+      if (clientFilter !== 'All' && j.clientId !== clientFilter) return false;
       if (statusFilter !== 'All') {
         if (statusFilter === 'Terlambat') {
           if (j.status === 'Selesai' || j.deadline >= today) return false;
@@ -138,7 +140,7 @@ export function JobsView({
       }
       return true;
     });
-  }, [jobs, divisionFilter, statusFilter, priorityFilter, jobTypeFilter, searchTerm, today]);
+  }, [jobs, divisionFilter, clientFilter, statusFilter, priorityFilter, jobTypeFilter, searchTerm, today]);
 
   const handleOpenDetail = (job: Job) => {
     setSelectedJob(job);
@@ -517,7 +519,7 @@ export function JobsView({
             filename="Daftar_Pekerjaan_Jobs_TMM_BMA"
             sheetName="Jobs"
             title="MONITORING PENUGASAN & PROGRES PEKERJAAN (JOB MANAGEMENT)"
-            subtitle={`Filter: ${divisionFilter} | Status: ${statusFilter} | Total: ${filteredJobs.length} pekerjaan`}
+            subtitle={`Filter: ${divisionFilter} | Klien: ${clientFilter === 'All' ? 'Semua Klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} | Status: ${statusFilter} | Total: ${filteredJobs.length} pekerjaan`}
             columns={jobExportColumns}
             data={filteredJobs}
             label="Ekspor & Copas"
@@ -591,6 +593,17 @@ export function JobsView({
           <option value="All">Semua Jenis Job</option>
           <option value="Continuing">Berkelanjutan</option>
           <option value="Additional">Tambahan</option>
+        </select>
+        <select
+          value={clientFilter}
+          onChange={(event) => setClientFilter(event.target.value)}
+          aria-label="Filter klien pekerjaan"
+          className="min-h-10 max-w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none"
+        >
+          <option value="All">Semua Klien</option>
+          {clients.slice().sort((a, b) => a.name.localeCompare(b.name)).map((client) => (
+            <option key={client.id} value={client.id}>{client.name}</option>
+          ))}
         </select>
         <select
           value={priorityFilter}
@@ -799,8 +812,8 @@ export function JobsView({
 
       {/* Detail / Approval Drawer */}
       {selectedJob && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex justify-end">
-          <div className="w-full max-w-2xl bg-white h-dvh sm:h-full shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-6">
+          <div role="dialog" aria-modal="true" aria-labelledby="job-detail-title" className="flex h-[92dvh] max-h-[900px] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200">
             {/* Header */}
             <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/50 p-3 sm:p-5">
               <div className="min-w-0 flex-1">
@@ -811,7 +824,7 @@ export function JobsView({
                   <span className="text-slate-300">·</span>
                   <span className="text-[10px] font-mono text-slate-400">Versi: v{selectedJob.version}</span>
                 </div>
-                <h3 className="text-base font-bold text-slate-900 mt-0.5 line-clamp-1">
+                <h3 id="job-detail-title" className="text-base font-bold text-slate-900 mt-0.5 line-clamp-1">
                   {selectedJob.title}
                 </h3>
               </div>

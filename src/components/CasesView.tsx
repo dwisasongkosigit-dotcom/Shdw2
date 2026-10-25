@@ -38,6 +38,7 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
   const { success, error } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>('All');
+  const [clientFilter, setClientFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [priorityFilter, setPriorityFilter] = useState<string>('All');
 
@@ -108,6 +109,7 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
   const filteredCases = useMemo(() => {
     return cases.filter((c) => {
       if (divisionFilter !== 'All' && c.division !== divisionFilter) return false;
+      if (clientFilter !== 'All' && c.clientId !== clientFilter) return false;
       if (statusFilter !== 'All' && c.status !== statusFilter) return false;
       if (priorityFilter !== 'All' && c.priority !== priorityFilter) return false;
 
@@ -121,7 +123,7 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
       }
       return true;
     });
-  }, [cases, divisionFilter, statusFilter, priorityFilter, searchTerm]);
+  }, [cases, divisionFilter, clientFilter, statusFilter, priorityFilter, searchTerm]);
 
   const handleOpenDetail = (item: Case) => {
     setSelectedCase(item);
@@ -282,7 +284,7 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
             filename="Register_Kasus_Case_TMM_BMA"
             sheetName="Case Register"
             title="REGISTER KASUS & PERMASALAHAN KLIEN (CASE REGISTER)"
-            subtitle={`Filter: ${divisionFilter} | Status: ${statusFilter} | Total: ${filteredCases.length} kasus`}
+            subtitle={`Filter: ${divisionFilter} | Klien: ${clientFilter === 'All' ? 'Semua Klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} | Status: ${statusFilter} | Total: ${filteredCases.length} kasus`}
             columns={caseExportColumns}
             data={filteredCases}
             label="Ekspor & Copas"
@@ -374,6 +376,17 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
         </select>
 
         {/* Priority Dropdown */}
+        <select
+          value={clientFilter}
+          onChange={(event) => setClientFilter(event.target.value)}
+          aria-label="Filter klien kasus"
+          className="min-h-10 max-w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none"
+        >
+          <option value="All">Semua Klien</option>
+          {clients.slice().sort((a, b) => a.name.localeCompare(b.name)).map((client) => (
+            <option key={client.id} value={client.id}>{client.name}</option>
+          ))}
+        </select>
         <select
           value={priorityFilter}
           onChange={(e) => setPriorityFilter(e.target.value)}
@@ -485,8 +498,8 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
 
       {/* Case Detail / Multi-Activity Drawer Modal */}
       {selectedCase && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex justify-end">
-          <div className="w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-6">
+          <div role="dialog" aria-modal="true" aria-labelledby="case-detail-title" className="flex h-[92dvh] max-h-[900px] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200">
             {/* Header */}
             <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
               <div>
@@ -495,7 +508,7 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
                   <span className="text-slate-300">·</span>
                   <span className="text-xs font-semibold text-amber-700">{selectedCase.division}</span>
                 </div>
-                <h3 className="text-base font-bold text-slate-900 mt-0.5 line-clamp-1">
+                <h3 id="case-detail-title" className="text-base font-bold text-slate-900 mt-0.5 line-clamp-1">
                   {selectedCase.title}
                 </h3>
               </div>

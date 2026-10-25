@@ -31,6 +31,8 @@ import type {
   DailyActivity,
   User,
   JobStatus,
+  JobHandoverDirection,
+  JobHandoverRecord,
   RiskLevel,
   RiskHistoryItem,
   PicHistoryItem,
@@ -1424,6 +1426,107 @@ apiRouter.get('/jobs', authenticateToken, (req: AuthenticatedRequest, res: Respo
 
   res.json(results);
 });
+
+apiRouter.get('/handovers', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const db = getDb();
+  const currentUser = req.user!;
+  const visibleJobIds = new Set(db.jobs.filter((job) => {
+    if (currentUser.role === 'Admin' || currentUser.role === 'Owner' || currentUser.role === 'Manager') return true;
+    if (currentUser.role === `Staff ${job.division}`) return job.picId === currentUser.userId;
+    if (currentUser.role === `SPV ${job.division}`) return job.spvId === currentUser.userId;
+    return false;
+  }).map((job) => job.id));
+
+  res.json((db.handoverRecords || []).filter((record) => visibleJobIds.has(record.jobId)));
+});
+
+apiRouter.post(
+  '/jobs/:id/handovers',
+  authenticateToken,
+  requireWritable,
+  (req: AuthenticatedRequest, res: Response) => {
+    const currentUser = req.user!;
+    const db = getDb();
+    const job = db.jobs.find((candidate) => candidate.id === req.params.id);
+    if (!job) {
+      res.status(404).json({ error: 'Pekerjaan tidak ditemukan.' });
+      return;
+    }
+
+    const validDirections: JobHandoverDirection[] = [
+      'staff-to-client',
+      'spv-to-client',
+      'tax-to-accounting',
+      'tax-to-client',
+    ];
+    const direction = req.body?.direction as JobHandoverDirection;
+    if (!validDirections.includes(direction)) {
+      res.status(400).json({ error: 'Tujuan serah terima tidak valid.' });
+      return;
+    }
+
+    const isAssignedStaff = currentUser.role === `Staff ${job.division}` && job.picId === currentUser.userId;
+    const isAssignedReviewer = currentUser.role === `SPV ${job.division}` && job.spvId === currentUser.userId;
+    const isAssignedTaxTeamMember = job.division === 'Tax' && (
+      (currentUser.role === 'Staff Tax' && job.picId === currentUser.userId) ||
+      (currentUser.role === 'SPV Tax' && job.spvId === currentUser.userId)
+    );
+    const isTaxDirection = direction === 'tax-to-accounting' || direction === 'tax-to-client';
+    const canRecord = currentUser.role === 'Admin'
+      ? !isTaxDirection || job.division === 'Tax'
+      : direction === 'staff-to-client'
+        ? isAssignedStaff
+        : direction === 'spv-to-client'
+          ? isAssignedReviewer
+          : isAssignedTaxTeamMember;
+
+    if (!canRecord) {
+      res.status(403).json({ error: 'Akses ditolak: hanya PIC atau SPV yang ditugaskan sesuai tujuan serah terima yang dapat mencatat pengiriman.' });
+      return;
+    }
+    if (job.status !== 'Selesai') {
+      res.status(409).json({ error: 'Checklist baru aktif setelah review SPV disetujui dan status pekerjaan menjadi Selesai.' });
+      return;
+    }
+
+    const existingRecord = (db.handoverRecords || []).find((record) => record.jobId === job.id && record.direction === direction);
+    if (existingRecord) {
+      res.json({ success: true, record: existingRecord, message: 'Serah terima ini sudah pernah dicatat.' });
+      return;
+    }
+
+    const record: JobHandoverRecord = {
+      id: `HDO-${randomUUID()}`,
+      jobId: job.id,
+      direction,
+      sentAt: new Date().toISOString(),
+      sentById: currentUser.userId,
+      sentByName: currentUser.name,
+      sentByRole: currentUser.role,
+    };
+    const directionLabels: Record<JobHandoverDirection, string> = {
+      'staff-to-client': 'Staff → Klien',
+      'spv-to-client': 'SPV → Klien',
+      'tax-to-accounting': 'Tim Tax → Accounting',
+      'tax-to-client': 'Tim Tax → Klien',
+    };
+
+    mutateDb((database) => {
+      database.handoverRecords = database.handoverRecords || [];
+      database.handoverRecords.push(record);
+      logAudit(
+        'JOB_HANDOVER_RECORDED',
+        'Job',
+        `${directionLabels[direction]} dicatat untuk pekerjaan ${job.id} (${job.title}) setelah review SPV selesai.`,
+        { userId: currentUser.userId, name: currentUser.name, role: currentUser.role },
+        job.id,
+        job.title
+      );
+    });
+
+    res.status(201).json({ success: true, record, message: `${directionLabels[direction]} berhasil dicatat.` });
+  }
+);
 
 apiRouter.post(
   '/jobs',
