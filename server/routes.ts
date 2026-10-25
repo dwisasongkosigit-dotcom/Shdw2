@@ -56,18 +56,17 @@ const HANDOVER_DIRECTIONS: ActiveJobHandoverDirection[] = [
   'spv-pic-to-client',
   'accounting-to-tax',
   'tax-to-accounting',
+  'staff-to-internal',
 ];
 
 const ALL_HANDOVER_DIRECTIONS: JobHandoverDirection[] = [
   ...HANDOVER_DIRECTIONS,
-  'staff-to-internal',
   'spv-to-client',
   'spv-to-internal',
   'tax-to-client',
 ];
 
 const LEGACY_HANDOVER_DIRECTIONS = new Set<JobHandoverDirection>([
-  'staff-to-internal',
   'spv-to-client',
   'spv-to-internal',
   'tax-to-client',
@@ -78,7 +77,7 @@ const HANDOVER_DIRECTION_LABELS: Record<JobHandoverDirection, string> = {
   'spv-pic-to-client': 'PIC SPV → Klien',
   'accounting-to-tax': 'Accounting → Tax',
   'tax-to-accounting': 'Tax → Accounting',
-  'staff-to-internal': 'PIC → Internal (format lama)',
+  'staff-to-internal': 'PIC → Tim Internal Lain',
   'spv-to-client': 'SPV → Klien (format lama)',
   'spv-to-internal': 'SPV → Internal (format lama)',
   'tax-to-client': 'Tim Tax → Klien (format lama)',
@@ -1604,8 +1603,10 @@ apiRouter.post(
     }
 
     const handoverDestination = direction.endsWith('-to-client') ? 'client' : 'internal';
-    const selectedForHandover = job.handoverDirectionOverrides?.[direction] ??
-      (Array.isArray(job.handoverDestinations) && job.handoverDestinations.includes(handoverDestination));
+    const selectedForHandover = direction === 'staff-to-internal'
+      ? (job.serviceResponsibility || 'Tim 3') === 'Tim Internal Lain'
+      : job.handoverDirectionOverrides?.[direction] ??
+        (Array.isArray(job.handoverDestinations) && job.handoverDestinations.includes(handoverDestination));
     if (!selectedForHandover) {
       res.status(409).json({ error: 'Tujuan serah terima ini belum dipilih pada detail pekerjaan.' });
       return;
@@ -1623,11 +1624,13 @@ apiRouter.post(
         : currentUser.role === assignedPicRole;
     const canRecord = currentUser.role === 'Admin' ||
       (matchesDirectionRole && job.picId === currentUser.userId);
-    const isApplicable = (job.serviceResponsibility || 'Tim 3') === 'Tim 3' &&
-      (direction !== 'staff-to-client' || !isSpvPic) &&
-      (direction !== 'spv-pic-to-client' || isSpvPic) &&
-      (direction !== 'accounting-to-tax' || (job.division === 'Accounting' && taxResponsibility === 'Tim 3')) &&
-      (direction !== 'tax-to-accounting' || (job.division === 'Tax' && accountingResponsibility === 'Tim 3'));
+    const isApplicable = direction === 'staff-to-internal'
+      ? (job.serviceResponsibility || 'Tim 3') === 'Tim Internal Lain'
+      : (job.serviceResponsibility || 'Tim 3') === 'Tim 3' &&
+        (direction !== 'staff-to-client' || !isSpvPic) &&
+        (direction !== 'spv-pic-to-client' || isSpvPic) &&
+        (direction !== 'accounting-to-tax' || (job.division === 'Accounting' && taxResponsibility === 'Tim 3')) &&
+        (direction !== 'tax-to-accounting' || (job.division === 'Tax' && accountingResponsibility === 'Tim 3'));
 
     if (!isApplicable) {
       res.status(409).json({ error: 'Serah terima ini tidak berlaku untuk pembagian tanggung jawab klien saat ini.' });

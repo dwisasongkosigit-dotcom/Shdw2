@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useDeferredValue } from 'react';
 import {
   Briefcase,
   Search,
@@ -78,6 +78,8 @@ export function JobsView({
   const [jobTypeFilter, setJobTypeFilter] = useState<'All' | 'Continuing' | 'Additional'>('All');
   const [activePanel, setActivePanel] = useState<'jobs' | 'templates'>('jobs');
   const [searchTerm, setSearchTerm] = useState('');
+  const deferredSearchTerm = useDeferredValue(searchTerm);
+  const [titleFilter, setTitleFilter] = useState('All');
 
   // Selected job for detail / update
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -147,11 +149,17 @@ export function JobsView({
     jobs.forEach((job) => picsById.set(job.picId, job.picName));
     return [...picsById.entries()].sort((a, b) => a[1].localeCompare(b[1], 'id-ID'));
   }, [jobs]);
+  const availableJobTitles = useMemo(() =>
+    [...new Set(jobs.map((job) => job.title.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id-ID')),
+    [jobs]
+  );
 
   // Filtered jobs
   const filteredJobs = useMemo(() => {
+    const query = deferredSearchTerm.trim().toLocaleLowerCase('id-ID');
     return jobs.filter((j) => {
       if (divisionFilter !== 'All' && j.division !== divisionFilter) return false;
+      if (titleFilter !== 'All' && j.title.trim() !== titleFilter) return false;
       if (clientFilter !== 'All' && j.clientId !== clientFilter) return false;
       if (picFilter !== 'All' && j.picId !== picFilter) return false;
       if (!matchesMonthRange(j.startDate || j.createdAt, monthFrom, monthTo)) return false;
@@ -165,17 +173,14 @@ export function JobsView({
       if (priorityFilter !== 'All' && j.priority !== priorityFilter) return false;
       if (jobTypeFilter !== 'All' && (j.jobType || 'Additional') !== jobTypeFilter) return false;
 
-      if (searchTerm.trim()) {
-        const q = searchTerm.toLowerCase();
-        const mTitle = j.title.toLowerCase().includes(q);
-        const mClient = j.clientName.toLowerCase().includes(q);
-        const mId = j.id.toLowerCase().includes(q);
-        const mPic = j.picName.toLowerCase().includes(q);
-        if (!mTitle && !mClient && !mId && !mPic) return false;
+      if (query) {
+        const matchesSearch = [j.title, j.clientName, j.id, j.picName]
+          .some((value) => value.toLocaleLowerCase('id-ID').includes(query));
+        if (!matchesSearch) return false;
       }
       return true;
     });
-  }, [jobs, divisionFilter, clientFilter, picFilter, monthFrom, monthTo, statusFilter, priorityFilter, jobTypeFilter, searchTerm, today]);
+  }, [jobs, divisionFilter, titleFilter, clientFilter, picFilter, monthFrom, monthTo, statusFilter, priorityFilter, jobTypeFilter, deferredSearchTerm, today]);
 
   const handleOpenDetail = (job: Job) => {
     setSelectedJob(job);
@@ -570,7 +575,7 @@ export function JobsView({
             filename="Daftar_Pekerjaan_Jobs_TMM_BMA"
             sheetName="Jobs"
             title="MONITORING PENUGASAN & PROGRES PEKERJAAN (JOB MANAGEMENT)"
-            subtitle={`Filter: ${divisionFilter} | Klien: ${clientFilter === 'All' ? 'Semua Klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} | PIC: ${picFilter === 'All' ? 'Semua PIC' : availablePics.find(([id]) => id === picFilter)?.[1] || 'PIC'} | Bulan: ${monthFrom || 'awal'}–${monthTo || 'terbaru'} | Status: ${statusFilter} | Total: ${filteredJobs.length} pekerjaan`}
+            subtitle={`Filter: ${divisionFilter} | Judul: ${titleFilter === 'All' ? 'Semua judul' : titleFilter} | Klien: ${clientFilter === 'All' ? 'Semua Klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} | PIC: ${picFilter === 'All' ? 'Semua PIC' : availablePics.find(([id]) => id === picFilter)?.[1] || 'PIC'} | Bulan: ${monthFrom || 'awal'}–${monthTo || 'terbaru'} | Status: ${statusFilter} | Total: ${filteredJobs.length} pekerjaan`}
             columns={jobExportColumns}
             data={filteredJobs}
             label="Ekspor & Copas"
@@ -644,6 +649,15 @@ export function JobsView({
           <option value="All">Semua Jenis Job</option>
           <option value="Continuing">Berkelanjutan</option>
           <option value="Additional">Tambahan</option>
+        </select>
+        <select
+          value={titleFilter}
+          onChange={(event) => setTitleFilter(event.target.value)}
+          aria-label="Filter judul pekerjaan"
+          className="min-h-10 max-w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none"
+        >
+          <option value="All">Semua Judul Job</option>
+          {availableJobTitles.map((title) => <option key={title} value={title}>{title}</option>)}
         </select>
         <select
           value={clientFilter}
@@ -956,28 +970,35 @@ export function JobsView({
                       {SERVICE_RESPONSIBILITY_OPTIONS.map((responsibility) => <option key={responsibility} value={responsibility}>{responsibility}</option>)}
                     </select>
                   </label>
-                  <fieldset className="rounded-lg border border-slate-200 bg-white p-3 sm:col-span-2">
-                    <legend className="px-1 text-[11px] font-semibold text-slate-700">Tujuan bawaan job</legend>
-                    <div className="flex flex-wrap gap-4">
-                      {(['client', 'internal'] as JobHandoverDestination[]).map((destination) => (
-                        <label key={destination} className="inline-flex min-h-9 items-center gap-2 text-xs font-medium text-slate-700">
-                          <input
-                            type="checkbox"
-                            checked={jobEditData.handoverDestinations?.includes(destination) || false}
-                            onChange={(event) => setJobEditData((previous) => {
-                              const selected = new Set(previous.handoverDestinations || []);
-                              if (event.target.checked) selected.add(destination);
-                              else selected.delete(destination);
-                              return { ...previous, handoverDestinations: [...selected] };
-                            })}
-                            className="size-4 accent-amber-600"
-                          />
-                          {destination === 'client' ? `Klien (${isSpvPicForDivision(selectedJobClient, selectedJob.division) ? 'PIC SPV' : 'PIC staff'})` : `Internal (${selectedJob.division} → ${selectedJob.division === 'Accounting' ? 'Tax' : 'Accounting'})`}
-                        </label>
-                      ))}
-                    </div>
-                    <p className="mt-1 text-[10px] leading-4 text-slate-500">PIC yang ditugaskan mencatat penyerahan ke klien; bila klien dipegang langsung SPV, hanya SPV PIC yang ditugaskan dapat mencatat. Checklist internal mengikuti arah divisi job.</p>
-                  </fieldset>
+                  {jobEditData.serviceResponsibility === 'Tim Internal Lain' ? (
+                    <fieldset className="rounded-lg border border-slate-200 bg-white p-3 sm:col-span-2">
+                      <legend className="px-1 text-[11px] font-semibold text-slate-700">Tujuan serah terima</legend>
+                      <p className="text-[11px] leading-5 text-slate-600">PIC yang ditugaskan mencatat penyerahan ke Tim Internal Lain. Tujuan ini mengikuti pilihan tanggung jawab layanan dan tidak memerlukan nama tim penerima.</p>
+                    </fieldset>
+                  ) : jobEditData.serviceResponsibility === 'Tim 3' ? (
+                    <fieldset className="rounded-lg border border-slate-200 bg-white p-3 sm:col-span-2">
+                      <legend className="px-1 text-[11px] font-semibold text-slate-700">Tujuan bawaan job</legend>
+                      <div className="flex flex-wrap gap-4">
+                        {(['client', 'internal'] as JobHandoverDestination[]).map((destination) => (
+                          <label key={destination} className="inline-flex min-h-9 items-center gap-2 text-xs font-medium text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={jobEditData.handoverDestinations?.includes(destination) || false}
+                              onChange={(event) => setJobEditData((previous) => {
+                                const selected = new Set(previous.handoverDestinations || []);
+                                if (event.target.checked) selected.add(destination);
+                                else selected.delete(destination);
+                                return { ...previous, handoverDestinations: [...selected] };
+                              })}
+                              className="size-4 accent-amber-600"
+                            />
+                            {destination === 'client' ? `Klien (${isSpvPicForDivision(selectedJobClient, selectedJob.division) ? 'PIC SPV' : 'PIC staff'})` : `Internal (${selectedJob.division} → ${selectedJob.division === 'Accounting' ? 'Tax' : 'Accounting'})`}
+                          </label>
+                        ))}
+                      </div>
+                      <p className="mt-1 text-[10px] leading-4 text-slate-500">PIC yang ditugaskan mencatat penyerahan ke klien; bila klien dipegang langsung SPV, hanya SPV PIC yang ditugaskan dapat mencatat. Checklist internal mengikuti arah divisi job.</p>
+                    </fieldset>
+                  ) : null}
                   <fieldset className="rounded-lg border border-slate-200 bg-white p-3 sm:col-span-2">
                     <legend className="px-1 text-[11px] font-semibold text-slate-700">Checklist per item serah terima</legend>
                     <div className="grid gap-1 sm:grid-cols-2">
@@ -1016,7 +1037,7 @@ export function JobsView({
                       })}
                     </div>
                     {jobEditData.serviceResponsibility !== 'Tim 3' ? (
-                      <p className="mt-1 text-[10px] leading-4 text-slate-500">Checklist tidak aktif karena tanggung jawab job ini bukan Tim 3.</p>
+                      <p className="mt-1 text-[10px] leading-4 text-slate-500">{jobEditData.serviceResponsibility === 'Tim Internal Lain' ? 'Checklist penyerahan ke Tim Internal Lain aktif otomatis setelah review SPV selesai.' : 'Checklist serah terima Tim 3 tidak tersedia untuk tanggung jawab layanan ini.'}</p>
                     ) : (
                       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                         <p className="text-[10px] leading-4 text-slate-500">Ubah centang untuk pengecualian per item; pilihan ini mengesampingkan default job hanya pada item tersebut.</p>
@@ -1043,7 +1064,7 @@ export function JobsView({
                   <div><span className="text-slate-500 font-medium">Mulai / deadline:</span><p className="mt-0.5 font-mono tabular-nums text-slate-800">{selectedJob.startDate} s/d {selectedJob.deadline}</p></div>
                   <div><span className="text-slate-500 font-medium">Prioritas:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.priority}</p></div>
                   <div><span className="text-slate-500 font-medium">Tanggung jawab layanan:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.serviceResponsibility || 'Tim 3'}</p></div>
-                  <div><span className="text-slate-500 font-medium">Tujuan bawaan job:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.handoverDestinations === undefined ? 'Belum diatur' : selectedJob.handoverDestinations.length ? selectedJob.handoverDestinations.map((destination) => destination === 'client' ? `Klien (${isSpvPicForDivision(selectedJobClient, selectedJob.division) ? 'PIC SPV' : 'PIC staff'})` : `Internal (${selectedJob.division} → ${selectedJob.division === 'Accounting' ? 'Tax' : 'Accounting'})`).join(' dan ') : 'Tidak diperlukan'}</p>{Object.keys(selectedJob.handoverDirectionOverrides || {}).length > 0 && <p className="mt-1 text-[10px] text-slate-500">Ada {Object.keys(selectedJob.handoverDirectionOverrides || {}).length} penyesuaian checklist per item.</p>}</div>
+                  <div><span className="text-slate-500 font-medium">Tujuan bawaan job:</span><p className="mt-0.5 font-semibold text-slate-800">{selectedJob.serviceResponsibility === 'Tim Internal Lain' ? 'Tim Internal Lain' : selectedJob.handoverDestinations === undefined ? 'Belum diatur' : selectedJob.handoverDestinations.length ? selectedJob.handoverDestinations.map((destination) => destination === 'client' ? `Klien (${isSpvPicForDivision(selectedJobClient, selectedJob.division) ? 'PIC SPV' : 'PIC staff'})` : `Internal (${selectedJob.division} → ${selectedJob.division === 'Accounting' ? 'Tax' : 'Accounting'})`).join(' dan ') : 'Tidak diperlukan'}</p>{Object.keys(selectedJob.handoverDirectionOverrides || {}).length > 0 && <p className="mt-1 text-[10px] text-slate-500">Ada {Object.keys(selectedJob.handoverDirectionOverrides || {}).length} penyesuaian checklist per item.</p>}</div>
                 </div>
               )}
 
