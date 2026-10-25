@@ -207,6 +207,8 @@ export type JobStatus =
   | 'Perlu Revisi'
   | 'Selesai';
 
+export type JobHandoverDestination = 'client' | 'internal';
+
 export type JobHandoverDirection =
   | 'staff-to-client'
   | 'staff-to-internal'
@@ -214,6 +216,8 @@ export type JobHandoverDirection =
   | 'spv-to-internal'
   | 'tax-to-accounting'
   | 'tax-to-client';
+
+export type JobHandoverDirectionOverrides = Partial<Record<JobHandoverDirection, boolean>>;
 
 export interface JobHandoverRecord {
   id: string;
@@ -258,6 +262,8 @@ export interface Job {
   clientName: string;
   division: JobDivision;
   serviceResponsibility?: ServiceResponsibility;
+  handoverDestinations?: JobHandoverDestination[];
+  handoverDirectionOverrides?: JobHandoverDirectionOverrides;
   title: string;
   picId: string;
   picName: string;

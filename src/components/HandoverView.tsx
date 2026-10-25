@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Ban, CheckCircle2, ClipboardCheck, LockKeyhole, Search, Undo2, X } from 'lucide-react';
+import { Ban, ClipboardCheck, Search, Trash2, Undo2, X } from 'lucide-react';
 import {
   api,
   type CurrentUser,
@@ -29,6 +29,7 @@ type HandoverExportRow = {
   picName: string;
   spvName: string;
   serviceResponsibility: string;
+  handoverDestinations: string;
   jobStatus: string;
   staffToClient: string;
   staffToInternal: string;
@@ -61,6 +62,7 @@ const HANDOVER_EXPORT_COLUMNS: ColumnDef<HandoverExportRow>[] = [
   { header: 'PIC', key: 'picName', width: 24 },
   { header: 'SPV Reviewer', key: 'spvName', width: 24 },
   { header: 'Tanggung Jawab', key: 'serviceResponsibility', width: 24 },
+  { header: 'Tujuan Serah Terima', key: 'handoverDestinations', width: 24 },
   { header: 'Status Job', key: 'jobStatus', width: 18 },
   { header: 'Staff → Klien', key: 'staffToClient', width: 42 },
   { header: 'Staff → Internal', key: 'staffToInternal', width: 42 },
@@ -93,8 +95,30 @@ function isDirectionApplicable(job: Job, direction: JobHandoverDirection, client
   return true;
 }
 
+function isHandoverConfigured(job: Job) {
+  if ((job.serviceResponsibility || 'Tim 3') !== 'Tim 3') return true;
+  return Array.isArray(job.handoverDestinations) || Object.keys(job.handoverDirectionOverrides || {}).length > 0;
+}
+
+function isDirectionRequired(job: Job, direction: JobHandoverDirection, client?: Client) {
+  if (!isDirectionApplicable(job, direction, client)) return false;
+  const override = job.handoverDirectionOverrides?.[direction];
+  if (override !== undefined) return override;
+  if (!Array.isArray(job.handoverDestinations)) return false;
+  const destination = direction.endsWith('-to-client') ? 'client' : 'internal';
+  return job.handoverDestinations.includes(destination);
+}
+
+function getConfiguredDestinationLabel(job: Job, client?: Client) {
+  if (!isHandoverConfigured(job)) return 'Belum diatur';
+  const destinations = new Set(HANDOVER_OPTIONS
+    .filter((option) => isDirectionRequired(job, option.direction, client))
+    .map((option) => option.direction.endsWith('-to-client') ? 'Klien' : 'Internal'));
+  return destinations.size ? [...destinations].join(' + ') : 'Tidak diperlukan';
+}
+
 function canRecordDirection(job: Job, direction: JobHandoverDirection, currentUser: CurrentUser, client?: Client) {
-  if (job.status !== 'Selesai' || !isDirectionApplicable(job, direction, client)) return false;
+  if (job.status !== 'Selesai' || !isDirectionRequired(job, direction, client)) return false;
   if (currentUser.role === 'Admin') return true;
   if (direction === 'staff-to-client' || direction === 'staff-to-internal') {
     return currentUser.role === `Staff ${job.division}` && job.picId === currentUser.id;
@@ -136,6 +160,7 @@ function formatJakartaDateTime(value?: string) {
 
 function getChecklistExportValue(
   job: Job,
+  direction: JobHandoverDirection,
   record: JobHandoverRecord | undefined,
   canceledRecord: JobHandoverRecord | undefined,
   applicable: boolean
@@ -145,6 +170,8 @@ function getChecklistExportValue(
   if (canceledRecord) {
     return `☐ Dibatalkan · ${formatJakartaDateTime(canceledRecord.canceledAt)} · ${canceledRecord.canceledByName || '—'}`;
   }
+  if (!isHandoverConfigured(job)) return '— Tujuan belum diatur';
+  if (!isDirectionRequired(job, direction)) return '— Tidak diminta';
   return job.status === 'Selesai' ? '☐ Belum dicatat' : '— Menunggu review SPV';
 }
 
@@ -175,10 +202,10 @@ function HandoverChecklistCell({
 }) {
   if (!applicable && !record && !canceledRecord) {
     return (
-      <td className="min-w-52 border-b border-slate-100 px-3 py-3 align-top">
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
         <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-500">Tidak berlaku</span>
         <p className="mt-1 text-[10px] leading-4 text-slate-400">Bukan tanggung jawab Tim 3 untuk job ini.</p>
-      </td>
+      </div>
     );
   }
 
@@ -198,8 +225,9 @@ function HandoverChecklistCell({
   const checkboxId = `handover-${job.id}-${option.direction}`;
 
   return (
-    <td className="min-w-52 border-b border-slate-100 px-3 py-3 align-top">
+    <div className="rounded-xl border border-slate-200 bg-white p-3">
       <div className="flex min-w-44 flex-col gap-1.5">
+        <span className="text-xs font-semibold text-slate-800">{option.label}</span>
         <label htmlFor={checkboxId} className={`inline-flex w-fit items-center gap-2 text-xs font-semibold ${disabled ? 'cursor-default' : 'cursor-pointer'}`}>
           <input
             id={checkboxId}
@@ -241,7 +269,7 @@ function HandoverChecklistCell({
           </button>
         )}
       </div>
-    </td>
+    </div>
   );
 }
 
@@ -249,13 +277,17 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
   const { success, error } = useToast();
   const [clientFilter, setClientFilter] = useState('All');
   const [directionFilter, setDirectionFilter] = useState<'All' | JobHandoverDirection>('All');
-  const [statusFilter, setStatusFilter] = useState<'All' | 'review' | 'handover' | 'complete' | 'delivered' | 'canceled'>('All');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'review' | 'handover' | 'complete' | 'delivered' | 'canceled' | 'unconfigured'>('All');
   const [periodFilter, setPeriodFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<{ job: Job; record: JobHandoverRecord } | null>(null);
   const [cancelingRecordId, setCancelingRecordId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ job: Job; record: JobHandoverRecord } | null>(null);
+  const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
+  const [deletedRecordIds, setDeletedRecordIds] = useState<Set<string>>(() => new Set());
   const cancelDialogRef = useRef<HTMLDialogElement>(null);
+  const deleteDialogRef = useRef<HTMLDialogElement>(null);
   const [newlySavedRecords, setNewlySavedRecords] = useState<JobHandoverRecord[]>([]);
 
   const visibleJobs = useMemo(() => jobs.filter((job) => canViewJob(job, currentUser)), [jobs, currentUser]);
@@ -264,10 +296,10 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
   const visibleRecords = useMemo(() => {
     const byId = new Map<string, JobHandoverRecord>();
     [...records, ...newlySavedRecords].forEach((record) => {
-      if (visibleJobIds.has(record.jobId)) byId.set(record.id, record);
+      if (visibleJobIds.has(record.jobId) && !deletedRecordIds.has(record.id)) byId.set(record.id, record);
     });
     return [...byId.values()];
-  }, [records, newlySavedRecords, visibleJobIds]);
+  }, [records, newlySavedRecords, visibleJobIds, deletedRecordIds]);
   const recordsByJobId = useMemo(() => {
     const byJobId = new Map<string, JobHandoverRecord[]>();
     visibleRecords.forEach((record) => {
@@ -319,7 +351,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     if (query && ![job.id, job.title, job.clientName, job.picName, job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(query))) return false;
     const jobOptions = HANDOVER_OPTIONS.filter((option) =>
       (directionFilter === 'All' || option.direction === directionFilter) &&
-      isDirectionApplicable(job, option.direction, clientsById.get(job.clientId))
+      isDirectionRequired(job, option.direction, clientsById.get(job.clientId))
     );
     const jobRecords = jobOptions.map((option) => recordByKey.get(`${job.id}:${option.direction}`));
     const completedHandoverCount = jobRecords.filter(Boolean).length;
@@ -327,6 +359,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     if (statusFilter === 'review' && (job.status === 'Selesai' || (job.serviceResponsibility || 'Tim 3') !== 'Tim 3')) return false;
     if (statusFilter === 'handover' && (job.status !== 'Selesai' || jobOptions.length === 0 || completedHandoverCount === jobOptions.length)) return false;
     if (statusFilter === 'complete' && (job.status !== 'Selesai' || jobOptions.length === 0 || completedHandoverCount !== jobOptions.length)) return false;
+    if (statusFilter === 'unconfigured' && isHandoverConfigured(job)) return false;
     if (statusFilter === 'delivered' && !jobHistory.some((record) =>
       !record.canceledAt &&
       (directionFilter === 'All' || record.direction === directionFilter) &&
@@ -364,6 +397,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     const client = clientsById.get(job.clientId);
     const exportValue = (direction: JobHandoverDirection) => getChecklistExportValue(
       job,
+      direction,
       recordByKey.get(`${job.id}:${direction}`),
       canceledRecordByKey.get(`${job.id}:${direction}`),
       isDirectionApplicable(job, direction, client)
@@ -377,6 +411,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
       picName: job.picName,
       spvName: job.spvName,
       serviceResponsibility: job.serviceResponsibility || 'Tim 3',
+      handoverDestinations: getConfiguredDestinationLabel(job, client),
       jobStatus: job.status,
       staffToClient: exportValue('staff-to-client'),
       staffToInternal: exportValue('staff-to-internal'),
@@ -427,10 +462,14 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     if (job.status !== 'Selesai') return total;
     return total + HANDOVER_OPTIONS.filter((option) =>
       (directionFilter === 'All' || option.direction === directionFilter) &&
-      isDirectionApplicable(job, option.direction, clientsById.get(job.clientId)) &&
+      isDirectionRequired(job, option.direction, clientsById.get(job.clientId)) &&
       !recordByKey.has(`${job.id}:${option.direction}`)
     ).length;
   }, 0), [summaryJobs, directionFilter, recordByKey, clientsById]);
+  const unconfiguredJobCount = useMemo(
+    () => summaryJobs.filter((job) => !isHandoverConfigured(job)).length,
+    [summaryJobs]
+  );
   const activeCountByDirection = useMemo(() => {
     const counts = new Map<JobHandoverDirection, number>();
     activeSummaryRecords.forEach((record) => counts.set(record.direction, (counts.get(record.direction) || 0) + 1));
@@ -438,7 +477,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
   }, [activeSummaryRecords]);
   const directionSummary = useMemo(() => HANDOVER_OPTIONS
     .filter((option) => directionFilter === 'All' || option.direction === directionFilter)
-    .filter((option) => summaryJobs.some((job) => isDirectionApplicable(job, option.direction, clientsById.get(job.clientId))))
+    .filter((option) => summaryJobs.some((job) => isDirectionRequired(job, option.direction, clientsById.get(job.clientId))))
     .map((option) => ({ ...option, count: activeCountByDirection.get(option.direction) || 0 })),
   [directionFilter, summaryJobs, activeCountByDirection, clientsById]);
 
@@ -475,6 +514,24 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     }
   };
 
+  const handleDeleteCanceledHandover = async () => {
+    if (!deleteTarget || deletingRecordId || currentUser.role !== 'Admin') return;
+    const { job, record } = deleteTarget;
+    setDeletingRecordId(record.id);
+    try {
+      const response = await api.deleteCanceledJobHandover(job.id, record.id);
+      setDeletedRecordIds((previous) => new Set(previous).add(record.id));
+      setNewlySavedRecords((previous) => previous.filter((item) => item.id !== record.id));
+      success('Catatan Dihapus', response.message);
+      setDeleteTarget(null);
+      await onRefresh();
+    } catch (err: any) {
+      error('Gagal Menghapus Catatan', err.message || 'Periksa koneksi lalu coba kembali.');
+    } finally {
+      setDeletingRecordId(null);
+    }
+  };
+
   useEffect(() => {
     const dialog = cancelDialogRef.current;
     if (!cancelTarget || !dialog || dialog.open) return;
@@ -483,6 +540,15 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
       if (dialog.open) dialog.close();
     };
   }, [cancelTarget]);
+
+  useEffect(() => {
+    const dialog = deleteDialogRef.current;
+    if (!deleteTarget || !dialog || dialog.open) return;
+    dialog.showModal();
+    return () => {
+      if (dialog.open) dialog.close();
+    };
+  }, [deleteTarget]);
 
   return (
     <>
@@ -493,7 +559,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
         </div>
         <div>
           <h1 id="handover-page-title" className="text-lg font-bold tracking-tight text-slate-900">Rekap Serah Terima</h1>
-          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-600">Catat dokumen yang benar-benar diserahkan Staff atau SPV ke klien maupun tim internal. Checklist hanya aktif untuk pekerjaan yang menjadi tanggung jawab Tim 3.</p>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-600">Pilih tujuan per job agar hanya serah terima yang memang diperlukan masuk checklist terbuka. Catatan batal tetap tersimpan sebagai riwayat; penghapusan permanen tersedia untuk Admin.</p>
         </div>
       </div>
 
@@ -505,12 +571,13 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
           </div>
           <span className="text-[10px] font-medium text-slate-400">{summaryJobs.length} job dalam cakupan</span>
         </div>
-        <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 xl:grid-cols-5">
           {[
             { key: 'delivered' as const, label: 'Terkirim / Diserahkan', count: activeSummaryRecords.length, color: 'emerald' },
             { key: 'handover' as const, label: 'Checklist Terbuka', count: pendingHandoverCount, color: 'sky' },
             { key: 'review' as const, label: 'Menunggu Review', count: pendingReviewCount, color: 'amber' },
             { key: 'canceled' as const, label: 'Catatan Dibatalkan', count: canceledSummaryRecords.length, color: 'rose' },
+            { key: 'unconfigured' as const, label: 'Tujuan Belum Diatur', count: unconfiguredJobCount, color: 'amber' },
           ].map((item) => (
             <button
               key={item.key}
@@ -565,6 +632,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
               <option value="complete">Serah Terima Lengkap</option>
               <option value="delivered">Terkirim / Diserahkan</option>
               <option value="canceled">Catatan Dibatalkan</option>
+              <option value="unconfigured">Tujuan Belum Diatur</option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
@@ -598,99 +666,136 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3" aria-label="Daftar rekap serah terima">
         {filteredJobs.length === 0 ? (
-          <div className="px-5 py-12 text-center">
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-12 text-center">
             <ClipboardCheck className="mx-auto size-8 text-slate-300" />
             <h2 className="mt-3 text-sm font-semibold text-slate-800">Tidak ada job yang cocok</h2>
             <p className="mt-1 text-xs text-slate-500">Ubah filter klien, tujuan, periode, atau pencarian.</p>
           </div>
-        ) : (
-          <div className="overflow-x-auto" role="region" aria-label="Tabel checklist rekap serah terima" tabIndex={0}>
-            <table className="w-full min-w-[2048px] border-collapse text-left text-xs">
-              <caption className="sr-only">Checklist serah terima per job. Centang terisi otomatis dari catatan serah terima yang tersimpan.</caption>
-              <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th scope="col" className="sticky left-0 z-20 w-10 border-b border-slate-200 bg-slate-50 px-3 py-3 text-center">No</th>
-                  <th scope="col" className="sticky left-10 z-20 w-64 border-b border-slate-200 bg-slate-50 px-3 py-3">Job / Klien</th>
-                  <th scope="col" className="w-48 border-b border-slate-200 px-3 py-3">PIC / SPV</th>
-                  <th scope="col" className="w-40 border-b border-slate-200 px-3 py-3">Status Review</th>
-                  {visibleChecklistOptions.map((option) => (
-                    <th key={option.direction} scope="col" className="w-56 border-b border-slate-200 px-3 py-3">{option.label}</th>
-                  ))}
-                  <th scope="col" className="w-32 border-b border-slate-200 px-3 py-3 text-center">Progres</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredJobs.map((job, index) => {
-                  const client = clientsById.get(job.clientId);
-                  const jobOptions = visibleChecklistOptions.filter((option) => isDirectionApplicable(job, option.direction, client));
-                  const doneCount = jobOptions.filter((option) => recordByKey.has(`${job.id}:${option.direction}`)).length;
-                  const isReviewed = job.status === 'Selesai';
-                  const isTim3Assignment = (job.serviceResponsibility || 'Tim 3') === 'Tim 3';
+        ) : filteredJobs.map((job, index) => {
+          const client = clientsById.get(job.clientId);
+          const jobHistory = recordsByJobId.get(job.id) || [];
+          const jobOptions = visibleChecklistOptions.filter((option) => {
+            const key = `${job.id}:${option.direction}`;
+            return isDirectionRequired(job, option.direction, client) || recordByKey.has(key) || canceledRecordByKey.has(key);
+          });
+          const allRequiredOptions = HANDOVER_OPTIONS.filter((option) => isDirectionRequired(job, option.direction, client));
+          const requiredOptions = visibleChecklistOptions.filter((option) => isDirectionRequired(job, option.direction, client));
+          const doneCount = requiredOptions.filter((option) => recordByKey.has(`${job.id}:${option.direction}`)).length;
+          const isReviewed = job.status === 'Selesai';
+          const isTim3Assignment = (job.serviceResponsibility || 'Tim 3') === 'Tim 3';
+          const canceledRecords = jobHistory.filter((record) => Boolean(record.canceledAt) && (directionFilter === 'All' || record.direction === directionFilter)).sort((a, b) => (b.canceledAt || '').localeCompare(a.canceledAt || ''));
+          const configuredDestinationLabel = getConfiguredDestinationLabel(job, client);
+          const destinationLabel = configuredDestinationLabel === 'Belum diatur' ? 'Tujuan belum diatur' : configuredDestinationLabel;
 
-                  return (
-                    <tr key={job.id} className="group hover:bg-slate-50/70">
-                      <td className="sticky left-0 z-[1] border-b border-slate-100 bg-white px-3 py-3 text-center font-mono text-[10px] text-slate-400 group-hover:bg-slate-50">{index + 1}</td>
-                      <td className="sticky left-10 z-[1] border-b border-slate-100 bg-white px-3 py-3 group-hover:bg-slate-50">
-                        <div className="flex min-w-56 flex-col gap-1">
-                          <span className="font-mono text-[10px] font-semibold text-slate-500">{job.id}</span>
-                          <span className="max-w-64 truncate text-xs font-semibold text-slate-900" title={job.title}>{job.title}</span>
-                          <span className="flex items-center gap-1.5 truncate text-[10px] text-slate-500">
-                            <span className={`rounded-full px-1.5 py-0.5 font-semibold ${job.division === 'Tax' ? 'bg-amber-50 text-amber-800' : 'bg-sky-50 text-sky-800'}`}>{job.division}</span>
-                            <span className="truncate" title={job.clientName}>{job.clientName}</span>
-                          </span>
-                          <span className="text-[10px] text-slate-400">Tanggung jawab · {job.serviceResponsibility || 'Tim 3'}</span>
+          return (
+            <article key={job.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex flex-col gap-3 p-4 sm:p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-[10px] font-semibold text-slate-500">{job.id}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${job.division === 'Tax' ? 'bg-amber-50 text-amber-800' : 'bg-sky-50 text-sky-800'}`}>{job.division}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">{job.clientName}</span>
+                    </div>
+                    <h2 className="text-sm font-bold leading-5 text-slate-900">{job.title}</h2>
+                    <p className="mt-1 text-[11px] text-slate-500">PIC {job.picName} <span className="px-1 text-slate-300">·</span> SPV {job.spvName}</p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${!isTim3Assignment ? 'bg-slate-100 text-slate-500' : isReviewed ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+                      {!isTim3Assignment ? 'Di luar Tim 3' : isReviewed ? 'Review selesai' : 'Menunggu SPV'}
+                    </span>
+                    {!isHandoverConfigured(job) ? (
+                      <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-800">Atur tujuan</span>
+                    ) : !isReviewed ? (
+                      <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-800">Aktif setelah review</span>
+                    ) : allRequiredOptions.length === 0 ? (
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">Tidak perlu serah terima</span>
+                    ) : requiredOptions.length === 0 ? (
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">Tidak ada item di filter ini</span>
+                    ) : doneCount === requiredOptions.length ? (
+                      <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-800">Serah terima selesai · {doneCount}/{requiredOptions.length}</span>
+                    ) : (
+                      <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-semibold text-sky-800">Menunggu {requiredOptions.length - doneCount} serah terima · {doneCount}/{requiredOptions.length}</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 text-[10px]">
+                  <span className="font-semibold uppercase tracking-wide text-slate-400">Serah ke</span>
+                  <span className={`rounded-full px-2 py-1 font-semibold ${!isHandoverConfigured(job) ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{destinationLabel}</span>
+                  <span className="text-slate-400">Tanggung jawab: {job.serviceResponsibility || 'Tim 3'}</span>
+                  {isReviewed && job.completedAt && <span className="text-slate-400">Selesai {formatDate(job.completedAt)}</span>}
+                  <span className="ml-auto text-slate-400">{index + 1} / {filteredJobs.length}</span>
+                </div>
+
+                {!isHandoverConfigured(job) && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-[11px] leading-5 text-amber-900">
+                    Tujuan job lama ini belum diatur dan belum dihitung sebagai checklist terbuka. Minta Admin/SPV mengatur Klien/Internal lewat <span className="font-semibold">Job Management → Edit Tugas</span>.
+                  </div>
+                )}
+                {isHandoverConfigured(job) && allRequiredOptions.length === 0 && (
+                  <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-[11px] text-slate-500">Tidak ada dokumen serah terima yang perlu dicatat untuk job ini.</p>
+                )}
+
+                {jobOptions.length > 0 && (
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {jobOptions.map((option) => {
+                      const key = `${job.id}:${option.direction}`;
+                      const record = recordByKey.get(key);
+                      return (
+                        <HandoverChecklistCell
+                          key={option.direction}
+                          job={job}
+                          option={option}
+                          record={record}
+                          canceledRecord={canceledRecordByKey.get(key)}
+                          applicable={isDirectionApplicable(job, option.direction, client)}
+                          canRecord={canRecordDirection(job, option.direction, currentUser, client)}
+                          saving={savingKey === key}
+                          busy={Boolean(savingKey)}
+                          canCancel={Boolean(record && canCancelHandover(job, record, currentUser))}
+                          onRecord={(targetJob, direction) => void handleRecordHandover(targetJob, direction)}
+                          onCancel={(targetJob, targetRecord) => setCancelTarget({ job: targetJob, record: targetRecord })}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+
+                {canceledRecords.length > 0 && (
+                  <details className="rounded-xl border border-rose-100 bg-rose-50/40 p-3" aria-label={`Catatan dibatalkan untuk ${job.title}`}>
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[11px] font-bold text-rose-900">
+                      Riwayat catatan dibatalkan
+                      <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-800">{canceledRecords.length}</span>
+                    </summary>
+                    <div className="mt-3 flex flex-col gap-2">
+                      {canceledRecords.map((record) => (
+                        <div key={record.id} className="flex flex-col gap-2 rounded-lg border border-rose-100 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-slate-800">{HANDOVER_OPTIONS.find((option) => option.direction === record.direction)?.label || 'Serah terima'}</p>
+                            <p className="mt-1 text-[10px] leading-4 text-slate-500">Dikirim {formatDate(record.sentAt)} oleh {record.sentByName} <span className="px-1 text-slate-300">·</span> Dibatalkan {formatDate(record.canceledAt || '')} oleh {record.canceledByName || 'pengguna'}</p>
+                          </div>
+                          {currentUser.role === 'Admin' && (
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTarget({ job, record })}
+                              className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-rose-200 px-3 text-[10px] font-semibold text-rose-700 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                              aria-label={`Hapus permanen catatan ${record.direction} untuk ${job.title}`}
+                            >
+                              <Trash2 className="size-3.5" /> Hapus
+                            </button>
+                          )}
                         </div>
-                      </td>
-                      <td className="border-b border-slate-100 px-3 py-3">
-                        <div className="flex flex-col gap-1 text-[10px] text-slate-600">
-                          <span className="truncate" title={job.picName}>PIC · {job.picName}</span>
-                          <span className="truncate" title={job.spvName}>SPV · {job.spvName}</span>
-                        </div>
-                      </td>
-                      <td className="border-b border-slate-100 px-3 py-3">
-                        <div className="flex flex-col gap-1">
-                          <span className={`inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${!isTim3Assignment ? 'bg-slate-100 text-slate-500' : isReviewed ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
-                            {!isTim3Assignment ? <LockKeyhole className="size-3" /> : isReviewed ? <CheckCircle2 className="size-3" /> : <LockKeyhole className="size-3" />}
-                            {!isTim3Assignment ? 'Di luar Tim 3' : isReviewed ? 'Review selesai' : 'Menunggu SPV'}
-                          </span>
-                          {isTim3Assignment && isReviewed && job.completedAt && <span className="text-[10px] text-slate-500">{formatDate(job.completedAt)}</span>}
-                        </div>
-                      </td>
-                      {visibleChecklistOptions.map((option) => {
-                        const key = `${job.id}:${option.direction}`;
-                        const record = recordByKey.get(key);
-                        const canceledRecord = canceledRecordByKey.get(key);
-                        return (
-                          <HandoverChecklistCell
-                            key={option.direction}
-                            job={job}
-                            option={option}
-                            record={record}
-                            canceledRecord={canceledRecord}
-                            applicable={isDirectionApplicable(job, option.direction, client)}
-                            canRecord={canRecordDirection(job, option.direction, currentUser, client)}
-                            saving={savingKey === key}
-                            busy={Boolean(savingKey)}
-                            canCancel={Boolean(record && canCancelHandover(job, record, currentUser))}
-                            onRecord={(targetJob, direction) => void handleRecordHandover(targetJob, direction)}
-                            onCancel={(targetJob, targetRecord) => setCancelTarget({ job: targetJob, record: targetRecord })}
-                          />
-                        );
-                      })}
-                      <td className="border-b border-slate-100 px-3 py-3 text-center">
-                        <span className={`rounded-full px-2 py-1 text-[10px] font-bold tabular-nums ${jobOptions.length > 0 && doneCount === jobOptions.length ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
-                          {jobOptions.length === 0 ? 'Tidak berlaku' : `${doneCount} / ${jobOptions.length}`}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            </article>
+          );
+        })}
       </div>
     </section>
 
@@ -728,6 +833,32 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
             <button type="button" onClick={() => void handleCancelHandover()} disabled={Boolean(cancelingRecordId)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-rose-700 px-4 text-xs font-semibold text-white transition hover:bg-rose-800 disabled:cursor-wait disabled:opacity-60">
               <Undo2 className="size-3.5" /> {cancelingRecordId ? 'Membatalkan...' : 'Ya, batalkan catatan'}
             </button>
+          </div>
+        </div>
+      )}
+    </dialog>
+
+    <dialog
+      ref={deleteDialogRef}
+      aria-labelledby="delete-handover-title"
+      aria-describedby="delete-handover-description"
+      onCancel={(event) => {
+        event.preventDefault();
+        setDeleteTarget(null);
+      }}
+      className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl bg-transparent p-0 text-slate-900 shadow-none backdrop:bg-slate-950/60 backdrop:backdrop-blur-sm"
+    >
+      {deleteTarget && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-rose-50 text-rose-700">
+            <Trash2 className="size-5" />
+          </div>
+          <h2 id="delete-handover-title" className="mt-4 text-base font-bold text-slate-900">Hapus catatan serah terima?</h2>
+          <p id="delete-handover-description" className="mt-2 text-sm leading-6 text-slate-600">Catatan yang sudah dibatalkan untuk <span className="font-semibold text-slate-800">{deleteTarget.job.title}</span> akan dihapus permanen dari rekap. Aktivitas penghapusan tetap tercatat di audit log.</p>
+          <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600">{HANDOVER_OPTIONS.find((option) => option.direction === deleteTarget.record.direction)?.label} · dikirim {formatDate(deleteTarget.record.sentAt)} · dibatalkan {formatDate(deleteTarget.record.canceledAt || '')}</div>
+          <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" onClick={() => setDeleteTarget(null)} disabled={Boolean(deletingRecordId)} className="min-h-10 rounded-lg border border-slate-200 px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Kembali</button>
+            <button type="button" onClick={() => void handleDeleteCanceledHandover()} disabled={Boolean(deletingRecordId)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-rose-700 px-4 text-xs font-semibold text-white transition hover:bg-rose-800 disabled:cursor-wait disabled:opacity-60"><Trash2 className="size-3.5" />{deletingRecordId ? 'Menghapus...' : 'Hapus permanen'}</button>
           </div>
         </div>
       )}
