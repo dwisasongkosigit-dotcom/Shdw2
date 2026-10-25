@@ -511,12 +511,12 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     }
   };
 
-  const handleDeleteCanceledHandover = async () => {
+  const handleDeleteHandover = async () => {
     if (!deleteTarget || deletingRecordId || currentUser.role !== 'Admin') return;
     const { job, record } = deleteTarget;
     setDeletingRecordId(record.id);
     try {
-      const response = await api.deleteCanceledJobHandover(job.id, record.id);
+      const response = await api.deleteJobHandover(job.id, record.id);
       setDeletedRecordIds((previous) => new Set(previous).add(record.id));
       setNewlySavedRecords((previous) => previous.filter((item) => item.id !== record.id));
       success('Catatan Dihapus', response.message);
@@ -800,10 +800,22 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
                       {legacyRecords.map((record) => (
                         <div key={record.id} className="rounded-lg border border-slate-200 bg-white p-3">
                           <p className="text-xs font-semibold text-slate-800">{getHandoverDirectionLabel(record.direction)}</p>
-                          <p className="mt-1 text-[10px] leading-4 text-slate-500">
-                            Dikirim {formatDate(record.sentAt)} oleh {record.sentByName}
-                            {record.canceledAt && ` · Dibatalkan ${formatDate(record.canceledAt)} oleh ${record.canceledByName || 'pengguna'}`}
-                          </p>
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <p className="text-[10px] leading-4 text-slate-500">
+                              Dikirim {formatDate(record.sentAt)} oleh {record.sentByName}
+                              {record.canceledAt && ` · Dibatalkan ${formatDate(record.canceledAt)} oleh ${record.canceledByName || 'pengguna'}`}
+                            </p>
+                            {currentUser.role === 'Admin' && (
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTarget({ job, record })}
+                                className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-rose-200 px-3 text-[10px] font-semibold text-rose-700 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 sm:self-auto"
+                                aria-label={`Hapus permanen catatan ${record.direction} untuk ${job.title}`}
+                              >
+                                <Trash2 className="size-3.5" /> Hapus
+                              </button>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -871,11 +883,11 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
             <Trash2 className="size-5" />
           </div>
           <h2 id="delete-handover-title" className="mt-4 text-base font-bold text-slate-900">Hapus catatan serah terima?</h2>
-          <p id="delete-handover-description" className="mt-2 text-sm leading-6 text-slate-600">Catatan yang sudah dibatalkan untuk <span className="font-semibold text-slate-800">{deleteTarget.job.title}</span> akan dihapus permanen dari rekap. Aktivitas penghapusan tetap tercatat di audit log.</p>
-          <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600">{getHandoverDirectionLabel(deleteTarget.record.direction)} · dikirim {formatDate(deleteTarget.record.sentAt)} · dibatalkan {formatDate(deleteTarget.record.canceledAt || '')}</div>
+          <p id="delete-handover-description" className="mt-2 text-sm leading-6 text-slate-600">Catatan {deleteTarget.record.canceledAt ? 'yang sudah dibatalkan' : 'dari format serah terima sebelumnya'} untuk <span className="font-semibold text-slate-800">{deleteTarget.job.title}</span> akan dihapus permanen dari rekap. Aktivitas penghapusan tetap tercatat di audit log.</p>
+          <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600">{getHandoverDirectionLabel(deleteTarget.record.direction)} · dikirim {formatDate(deleteTarget.record.sentAt)}{deleteTarget.record.canceledAt && ` · dibatalkan ${formatDate(deleteTarget.record.canceledAt)}`}</div>
           <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button type="button" onClick={() => setDeleteTarget(null)} disabled={Boolean(deletingRecordId)} className="min-h-10 rounded-lg border border-slate-200 px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Kembali</button>
-            <button type="button" onClick={() => void handleDeleteCanceledHandover()} disabled={Boolean(deletingRecordId)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-rose-700 px-4 text-xs font-semibold text-white transition hover:bg-rose-800 disabled:cursor-wait disabled:opacity-60"><Trash2 className="size-3.5" />{deletingRecordId ? 'Menghapus...' : 'Hapus permanen'}</button>
+            <button type="button" onClick={() => void handleDeleteHandover()} disabled={Boolean(deletingRecordId)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-rose-700 px-4 text-xs font-semibold text-white transition hover:bg-rose-800 disabled:cursor-wait disabled:opacity-60"><Trash2 className="size-3.5" />{deletingRecordId ? 'Menghapus...' : 'Hapus permanen'}</button>
           </div>
         </div>
       )}

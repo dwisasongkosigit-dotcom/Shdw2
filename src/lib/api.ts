@@ -595,7 +595,7 @@ export const api = {
     request<{ success: boolean; record: JobHandoverRecord; message: string }>(`/api/jobs/${jobId}/handovers/${recordId}/cancel`, {
       method: 'POST',
     }),
-  deleteCanceledJobHandover: (jobId: string, recordId: string) =>
+  deleteJobHandover: (jobId: string, recordId: string) =>
     request<{ success: boolean; message: string }>(`/api/jobs/${jobId}/handovers/${recordId}`, {
       method: 'DELETE',
     }),

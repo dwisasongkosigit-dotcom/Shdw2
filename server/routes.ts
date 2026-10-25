@@ -64,6 +64,13 @@ const ALL_HANDOVER_DIRECTIONS: JobHandoverDirection[] = [
   'tax-to-client',
 ];
 
+const LEGACY_HANDOVER_DIRECTIONS = new Set<JobHandoverDirection>([
+  'staff-to-internal',
+  'spv-to-client',
+  'spv-to-internal',
+  'tax-to-client',
+]);
+
 const HANDOVER_DIRECTION_LABELS: Record<JobHandoverDirection, string> = {
   'staff-to-client': 'PIC → Klien',
   'accounting-to-tax': 'Accounting → Tax',
@@ -1669,7 +1676,10 @@ apiRouter.delete(
       );
       if (!job || recordIndex < 0) throw new Error('Catatan serah terima tidak ditemukan.');
       const record = database.handoverRecords![recordIndex];
-      if (!record.canceledAt) throw new Error('Hanya catatan yang sudah dibatalkan yang dapat dihapus.');
+      const isLegacyRecord = LEGACY_HANDOVER_DIRECTIONS.has(record.direction);
+      if (!record.canceledAt && !isLegacyRecord) {
+        throw new Error('Hanya catatan yang dibatalkan atau catatan dari format serah terima sebelumnya yang dapat dihapus.');
+      }
       database.handoverRecords!.splice(recordIndex, 1);
       deletedRecord = record;
       logAudit(
