@@ -1380,7 +1380,14 @@ apiRouter.put('/clients/:id/monthly-jobs', authenticateToken, requireRole('Admin
     savedClient = client;
     logAudit('CLIENT_MONTHLY_JOBS_UPDATED', 'Client', `Penugasan template job bulanan klien ${client.name} diperbarui (${uniqueIds.length} template aktif).`, { userId: currentUser.userId, name: currentUser.name, role: currentUser.role }, client.id, client.name);
   });
-  res.json({ success: true, client: savedClient, message: 'Job rutin bulanan klien berhasil disimpan.' });
+  const generatedJobsCount = createCurrentMonthRecurringJobs(req.params.id);
+  res.json({
+    success: true,
+    client: savedClient,
+    month: getJakartaMonth().monthKey,
+    generatedJobsCount,
+    message: 'Job rutin bulanan klien berhasil disimpan.',
+  });
 });
 
 function getJakartaMonth() {
@@ -1396,7 +1403,7 @@ function getJakartaMonth() {
   return { year: Number(values.year), month: Number(values.month), monthKey, dateKey, firstDay: `${monthKey}-01` };
 }
 
-function createCurrentMonthRecurringJobs() {
+function createCurrentMonthRecurringJobs(clientId?: string): number {
   const db = getDb();
   const { year, month, monthKey, firstDay } = getJakartaMonth();
   const now = new Date().toISOString();
@@ -1412,6 +1419,7 @@ function createCurrentMonthRecurringJobs() {
   };
 
   for (const client of db.clients) {
+    if (clientId && client.id !== clientId) continue;
     if (client.status !== 'Aktif') continue;
     const assignedTemplateIds = new Set(client.monthlyJobTemplateIds || []);
     for (const template of templates) {
@@ -1480,6 +1488,7 @@ function createCurrentMonthRecurringJobs() {
       }
     });
   }
+  return newJobs.length;
 }
 
 apiRouter.get('/cron/monthly-jobs', (req: Request, res: Response) => {
