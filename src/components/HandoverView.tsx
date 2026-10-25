@@ -13,6 +13,7 @@ import {
 import { ExportDropdown } from './ExportDropdown';
 import type { ColumnDef } from '../lib/exportUtils';
 import { useToast } from './Toast';
+import { matchesMonthRange } from '../lib/dateFilters';
 
 interface HandoverViewProps {
   jobs: Job[];
@@ -321,7 +322,10 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
   const [destinationFilter, setDestinationFilter] = useState<'All' | JobHandoverDestination>('All');
   const [directionFilter, setDirectionFilter] = useState<'All' | JobHandoverDirection>('All');
   const [statusFilter, setStatusFilter] = useState<'All' | 'review' | 'handover' | 'complete' | 'delivered' | 'canceled' | 'unconfigured'>('All');
-  const [periodFilter, setPeriodFilter] = useState('All');
+  const [periodFrom, setPeriodFrom] = useState('');
+  const [periodTo, setPeriodTo] = useState('');
+  const hasPeriodFilter = Boolean(periodFrom || periodTo);
+  const periodLabel = hasPeriodFilter ? `${periodFrom || 'awal'}–${periodTo || 'terbaru'}` : 'Semua periode';
   const [searchTerm, setSearchTerm] = useState('');
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<{ job: Job; record: JobHandoverRecord } | null>(null);
@@ -367,18 +371,6 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
       .sort((a, b) => (a.canceledAt || '').localeCompare(b.canceledAt || ''));
     return new Map(canceledRecords.map((record) => [`${record.jobId}:${record.direction}`, record]));
   }, [visibleRecords]);
-  const availablePeriods = useMemo(() => {
-    const periods = new Set<string>();
-    visibleJobs.forEach((job) => {
-      periods.add(job.createdAt.slice(0, 7));
-      if (job.completedAt) periods.add(job.completedAt.slice(0, 7));
-    });
-    visibleRecords.forEach((record) => {
-      periods.add(record.sentAt.slice(0, 7));
-      if (record.canceledAt) periods.add(record.canceledAt.slice(0, 7));
-    });
-    return [...periods].filter(Boolean).sort((a, b) => b.localeCompare(a));
-  }, [visibleJobs, visibleRecords]);
   const visibleChecklistOptions = useMemo(
     () => HANDOVER_OPTIONS.filter((option) =>
       (directionFilter === 'All' || option.direction === directionFilter) &&
@@ -418,21 +410,20 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     if (statusFilter === 'delivered' && !jobHistory.some((record) =>
       !record.canceledAt &&
       isHandoverDirectionVisible(record.direction, visibleChecklistOptions, directionFilter, destinationFilter) &&
-      (periodFilter === 'All' || record.sentAt.startsWith(periodFilter))
+      matchesMonthRange(record.sentAt, periodFrom, periodTo)
     )) return false;
     if (statusFilter === 'canceled' && !jobHistory.some((record) =>
       Boolean(record.canceledAt) &&
       isHandoverDirectionVisible(record.direction, visibleChecklistOptions, directionFilter, destinationFilter) &&
-      (periodFilter === 'All' || record.canceledAt?.startsWith(periodFilter))
+      matchesMonthRange(record.canceledAt, periodFrom, periodTo)
     )) return false;
-    if (periodFilter !== 'All') {
-      const hasActiveRecordInPeriod = jobRecords.some((record) => record?.sentAt.startsWith(periodFilter));
-      const hasCanceledRecordInPeriod = jobHistory.some((record) =>
-        Boolean(record.canceledAt) &&
+    if (hasPeriodFilter) {
+      const hasActiveRecordInPeriod = jobRecords.some((record) => record && matchesMonthRange(record.sentAt, periodFrom, periodTo));
+      const hasHandoverRecordInPeriod = jobHistory.some((record) =>
         isHandoverDirectionVisible(record.direction, visibleChecklistOptions, directionFilter, destinationFilter) &&
-        (record.sentAt.startsWith(periodFilter) || record.canceledAt?.startsWith(periodFilter))
+        (matchesMonthRange(record.sentAt, periodFrom, periodTo) || matchesMonthRange(record.canceledAt, periodFrom, periodTo))
       );
-      if (!job.createdAt.startsWith(periodFilter) && !job.completedAt?.startsWith(periodFilter) && !hasActiveRecordInPeriod && !hasCanceledRecordInPeriod) return false;
+      if (!matchesMonthRange(job.createdAt, periodFrom, periodTo) && !matchesMonthRange(job.completedAt, periodFrom, periodTo) && !hasActiveRecordInPeriod && !hasHandoverRecordInPeriod) return false;
     }
     return true;
   }).sort((a, b) => (b.completedAt || b.updatedAt || b.createdAt).localeCompare(a.completedAt || a.updatedAt || a.createdAt)), [
@@ -448,7 +439,9 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     recordsByJobId,
     canceledRecordByKey,
     statusFilter,
-    periodFilter,
+    periodFrom,
+    periodTo,
+    hasPeriodFilter,
   ]);
 
   const handoverExportRows = useMemo(() => filteredJobs.map((job, index) => {
@@ -490,16 +483,16 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     )) return false;
     const query = searchTerm.trim().toLocaleLowerCase('id-ID');
     if (query && ![job.id, job.title, job.clientName, job.picName, job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(query))) return false;
-    if (periodFilter !== 'All') {
-      const hasPeriod = job.createdAt.startsWith(periodFilter) || job.completedAt?.startsWith(periodFilter) ||
+    if (hasPeriodFilter) {
+      const hasPeriod = matchesMonthRange(job.createdAt, periodFrom, periodTo) || matchesMonthRange(job.completedAt, periodFrom, periodTo) ||
         (recordsByJobId.get(job.id) || []).some((record) =>
           isHandoverDirectionVisible(record.direction, visibleChecklistOptions, directionFilter, destinationFilter) &&
-          (record.sentAt.startsWith(periodFilter) || record.canceledAt?.startsWith(periodFilter))
+          (matchesMonthRange(record.sentAt, periodFrom, periodTo) || matchesMonthRange(record.canceledAt, periodFrom, periodTo))
         );
       if (!hasPeriod) return false;
     }
     return true;
-  }), [visibleJobs, clientsById, clientFilter, picFilter, destinationFilter, directionFilter, visibleChecklistOptions, searchTerm, periodFilter, recordsByJobId]);
+  }), [visibleJobs, clientsById, clientFilter, picFilter, destinationFilter, directionFilter, visibleChecklistOptions, searchTerm, periodFrom, periodTo, hasPeriodFilter, recordsByJobId]);
   const summaryJobIds = useMemo(() => new Set(summaryJobs.map((job) => job.id)), [summaryJobs]);
   const summaryJobsById = useMemo(() => new Map(summaryJobs.map((job) => [job.id, job])), [summaryJobs]);
   const summaryRecords = useMemo(() => visibleRecords.filter((record) =>
@@ -508,13 +501,13 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
   const activeSummaryRecords = useMemo(() => summaryRecords.filter((record) => {
     const job = summaryJobsById.get(record.jobId);
     return Boolean(job && isDirectionApplicable(job, record.direction, clientsById.get(job.clientId)) &&
-      !record.canceledAt && (periodFilter === 'All' || record.sentAt.startsWith(periodFilter)));
-  }), [summaryRecords, summaryJobsById, clientsById, periodFilter]);
+      !record.canceledAt && matchesMonthRange(record.sentAt, periodFrom, periodTo));
+  }), [summaryRecords, summaryJobsById, clientsById, periodFrom, periodTo]);
   const canceledSummaryRecords = useMemo(() => summaryRecords.filter((record) => {
     const job = summaryJobsById.get(record.jobId);
     return Boolean(job && isDirectionApplicable(job, record.direction, clientsById.get(job.clientId)) &&
-      record.canceledAt && (periodFilter === 'All' || record.canceledAt.startsWith(periodFilter)));
-  }), [summaryRecords, summaryJobsById, clientsById, periodFilter]);
+      record.canceledAt && matchesMonthRange(record.canceledAt, periodFrom, periodTo));
+  }), [summaryRecords, summaryJobsById, clientsById, periodFrom, periodTo]);
   const pendingReviewCount = useMemo(
     () => summaryJobs.filter((job) => job.status !== 'Selesai').length,
     [summaryJobs]
@@ -669,7 +662,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
       </section>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <label className="relative sm:col-span-2 xl:col-span-1">
             <span className="sr-only">Cari job, klien, PIC, atau reviewer</span>
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
@@ -702,11 +695,12 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
             </select>
           </label>
           <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Periode
-            <select value={periodFilter} onChange={(event) => setPeriodFilter(event.target.value)} className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-medium normal-case tracking-normal text-slate-700 outline-none focus:border-amber-500">
-              <option value="All">Semua Periode</option>
-              {availablePeriods.map((period) => <option key={period} value={period}>{new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(`${period}-01T00:00:00`))}</option>)}
-            </select>
+            Bulan mulai
+            <input type="month" value={periodFrom} onChange={(event) => setPeriodFrom(event.target.value)} aria-label="Bulan mulai rekap serah terima" className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-medium normal-case tracking-normal text-slate-700 outline-none focus:border-amber-500" />
+          </label>
+          <label className="flex flex-col gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Sampai bulan
+            <input type="month" value={periodTo} onChange={(event) => setPeriodTo(event.target.value)} aria-label="Bulan akhir rekap serah terima" className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-medium normal-case tracking-normal text-slate-700 outline-none focus:border-amber-500" />
           </label>
         </div>
 
@@ -735,7 +729,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
               filename="Rekap_Serah_Terima_TMM_BMA"
               sheetName="Rekap Serah Terima"
               title="REKAP SERAH TERIMA PEKERJAAN"
-              subtitle={`Filter: ${statusFilter} · Klien: ${clientFilter === 'All' ? 'Semua klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} · PIC: ${picFilter === 'All' ? 'Semua PIC' : availablePics.find(([id]) => id === picFilter)?.[1] || 'PIC'} · Periode: ${periodFilter} · Tujuan: ${destinationFilter === 'All' ? 'Semua tujuan' : destinationFilter === 'client' ? 'Klien' : 'Antar divisi'} · Arah: ${directionFilter === 'All' ? 'Semua arah' : HANDOVER_OPTIONS.find((option) => option.direction === directionFilter)?.label || 'Arah'} · ${filteredJobs.length} job`}
+              subtitle={`Filter: ${statusFilter} · Klien: ${clientFilter === 'All' ? 'Semua klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} · PIC: ${picFilter === 'All' ? 'Semua PIC' : availablePics.find(([id]) => id === picFilter)?.[1] || 'PIC'} · Periode: ${periodLabel} · Tujuan: ${destinationFilter === 'All' ? 'Semua tujuan' : destinationFilter === 'client' ? 'Klien' : 'Antar divisi'} · Arah: ${directionFilter === 'All' ? 'Semua arah' : HANDOVER_OPTIONS.find((option) => option.direction === directionFilter)?.label || 'Arah'} · ${filteredJobs.length} job`}
               columns={handoverExportColumns}
               data={handoverExportRows}
               label="Ekspor Rekap"

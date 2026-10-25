@@ -25,6 +25,7 @@ import { api, type Case, type Client, type CurrentUser, type CaseStatus, type Us
 import { useToast } from './Toast';
 import { ExportDropdown } from './ExportDropdown';
 import type { ColumnDef } from '../lib/exportUtils';
+import { matchesMonthRange } from '../lib/dateFilters';
 
 interface CasesViewProps {
   cases: Case[];
@@ -39,6 +40,9 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
   const [searchTerm, setSearchTerm] = useState('');
   const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>('All');
   const [clientFilter, setClientFilter] = useState('All');
+  const [picFilter, setPicFilter] = useState('All');
+  const [monthFrom, setMonthFrom] = useState('');
+  const [monthTo, setMonthTo] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [priorityFilter, setPriorityFilter] = useState<string>('All');
 
@@ -105,11 +109,21 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
   };
 
   const today = new Date().toISOString().split('T')[0];
+  const availablePics = useMemo(() => {
+    const picsById = new Map<string, string>();
+    cases.forEach((item) => {
+      if (item.picId) picsById.set(item.picId, item.picName || 'PIC utama');
+      if (item.followUpPicId) picsById.set(item.followUpPicId, item.followUpPicName || 'PIC follow-up');
+    });
+    return [...picsById.entries()].sort((a, b) => a[1].localeCompare(b[1], 'id-ID'));
+  }, [cases]);
 
   const filteredCases = useMemo(() => {
     return cases.filter((c) => {
       if (divisionFilter !== 'All' && c.division !== divisionFilter) return false;
       if (clientFilter !== 'All' && c.clientId !== clientFilter) return false;
+      if (picFilter !== 'All' && c.picId !== picFilter && c.followUpPicId !== picFilter) return false;
+      if (!matchesMonthRange(c.createdAt, monthFrom, monthTo)) return false;
       if (statusFilter !== 'All' && c.status !== statusFilter) return false;
       if (priorityFilter !== 'All' && c.priority !== priorityFilter) return false;
 
@@ -123,7 +137,7 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
       }
       return true;
     });
-  }, [cases, divisionFilter, clientFilter, statusFilter, priorityFilter, searchTerm]);
+  }, [cases, divisionFilter, clientFilter, picFilter, monthFrom, monthTo, statusFilter, priorityFilter, searchTerm]);
 
   const handleOpenDetail = (item: Case) => {
     setSelectedCase(item);
@@ -284,7 +298,7 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
             filename="Register_Kasus_Case_TMM_BMA"
             sheetName="Case Register"
             title="REGISTER KASUS & PERMASALAHAN KLIEN (CASE REGISTER)"
-            subtitle={`Filter: ${divisionFilter} | Klien: ${clientFilter === 'All' ? 'Semua Klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} | Status: ${statusFilter} | Total: ${filteredCases.length} kasus`}
+            subtitle={`Filter: ${divisionFilter} | Klien: ${clientFilter === 'All' ? 'Semua Klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} | PIC: ${picFilter === 'All' ? 'Semua PIC' : availablePics.find(([id]) => id === picFilter)?.[1] || 'PIC'} | Bulan: ${monthFrom || 'awal'}–${monthTo || 'terbaru'} | Status: ${statusFilter} | Total: ${filteredCases.length} kasus`}
             columns={caseExportColumns}
             data={filteredCases}
             label="Ekspor & Copas"
@@ -387,6 +401,22 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
             <option key={client.id} value={client.id}>{client.name}</option>
           ))}
         </select>
+        <select
+          value={picFilter}
+          onChange={(event) => setPicFilter(event.target.value)}
+          aria-label="Filter PIC kasus"
+          className="min-h-10 max-w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none"
+        >
+          <option value="All">Semua PIC</option>
+          {availablePics.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+        <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-slate-600">
+          <span className="sr-only">Dari bulan pembuatan kasus</span>
+          <input type="month" value={monthFrom} onChange={(event) => setMonthFrom(event.target.value)} aria-label="Dari bulan pembuatan kasus" className="min-h-7 min-w-0 bg-transparent text-xs font-medium outline-none" />
+          <span aria-hidden="true">—</span>
+          <span className="sr-only">Sampai bulan pembuatan kasus</span>
+          <input type="month" value={monthTo} onChange={(event) => setMonthTo(event.target.value)} aria-label="Sampai bulan pembuatan kasus" className="min-h-7 min-w-0 bg-transparent text-xs font-medium outline-none" />
+        </label>
         <select
           value={priorityFilter}
           onChange={(e) => setPriorityFilter(e.target.value)}
