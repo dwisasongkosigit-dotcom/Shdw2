@@ -18,6 +18,7 @@ const TAB_TITLES: Record<string, { title: string; subtitle: string }> = {
   dashboard: { title: 'Dashboard Eksekutif', subtitle: 'Kendali operasional & matriks risiko klien terkini' },
   clients: { title: 'Master Klien', subtitle: 'Kelola basis 50+ klien, profil PKP, rezim PPh & asesmen risiko' },
   jobs: { title: 'Job Management', subtitle: 'Pendelegasian, tracking progres, dan alur approval SPV' },
+  handover: { title: 'Rekap Serah Terima', subtitle: 'Pencatatan pengiriman laporan klien dan serah terima antar divisi' },
   cases: { title: 'Case Register', subtitle: 'Pencatatan masalah, akar penyebab, dan kronologi penanganan' },
   followup: { title: 'Follow-up Tracker', subtitle: 'Pengawasan tindak lanjut jatuh tempo & mitigasi keterlambatan' },
   activities: { title: 'Daily Activity Log', subtitle: 'Jurnal harian penanganan pekerjaan staf akuntansi dan pajak' },

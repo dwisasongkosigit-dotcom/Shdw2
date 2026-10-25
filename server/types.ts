@@ -171,6 +171,18 @@ export type JobStatus =
   | 'Perlu Revisi'
   | 'Selesai';
 
+export type JobHandoverDirection = 'staff-to-client' | 'spv-to-client' | 'tax-to-accounting' | 'tax-to-client';
+
+export interface JobHandoverRecord {
+  id: string;
+  jobId: string;
+  direction: JobHandoverDirection;
+  sentAt: string;
+  sentById: string;
+  sentByName: string;
+  sentByRole: string;
+}
+
 export interface JobHistoryItem {
   id: string;
   timestamp: string;
@@ -404,6 +416,7 @@ export interface DatabaseSchema {
   clients: Client[];
   jobs: Job[];
   monthlyJobTemplates?: MonthlyJobTemplate[];
+  handoverRecords?: JobHandoverRecord[];
   cases: Case[];
   activities: DailyActivity[];
   auditLogs: AuditLog[];

@@ -160,6 +160,18 @@ export interface MonthlyJobTemplate {
   updatedAt: string;
 }
 
+export type JobHandoverDirection = 'staff-to-client' | 'spv-to-client' | 'tax-to-accounting' | 'tax-to-client';
+
+export interface JobHandoverRecord {
+  id: string;
+  jobId: string;
+  direction: JobHandoverDirection;
+  sentAt: string;
+  sentById: string;
+  sentByName: string;
+  sentByRole: string;
+}
+
 export interface Job {
   id: string;
   clientId: string;
@@ -545,6 +557,12 @@ export const api = {
   deleteJob: (id: string) =>
     request<{ success: boolean; message: string }>(`/api/jobs/${id}`, {
       method: 'DELETE',
+    }),
+  getHandovers: () => request<JobHandoverRecord[]>('/api/handovers'),
+  recordJobHandover: (jobId: string, direction: JobHandoverDirection) =>
+    request<{ success: boolean; record: JobHandoverRecord; message: string }>(`/api/jobs/${jobId}/handovers`, {
+      method: 'POST',
+      body: JSON.stringify({ direction }),
     }),
 
   // Cases

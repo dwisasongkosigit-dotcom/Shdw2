@@ -12,6 +12,7 @@ import {
   type TeamAgendaEntry,
   type UserAccount,
   type MonthlyJobTemplate,
+  type JobHandoverRecord,
 } from './lib/api';
 import { ToastProvider, useToast } from './components/Toast';
 import { Sidebar, type NavTab } from './components/Sidebar';
@@ -20,6 +21,7 @@ import { LoginView } from './components/LoginView';
 const DashboardView = lazy(() => import('./components/DashboardView').then(({ DashboardView }) => ({ default: DashboardView })));
 const ClientsView = lazy(() => import('./components/ClientsView').then(({ ClientsView }) => ({ default: ClientsView })));
 const JobsView = lazy(() => import('./components/JobsView').then(({ JobsView }) => ({ default: JobsView })));
+const HandoverView = lazy(() => import('./components/HandoverView').then(({ HandoverView }) => ({ default: HandoverView })));
 const CasesView = lazy(() => import('./components/CasesView').then(({ CasesView }) => ({ default: CasesView })));
 const FollowUpView = lazy(() => import('./components/FollowUpView').then(({ FollowUpView }) => ({ default: FollowUpView })));
 const DailyActivitiesView = lazy(() => import('./components/DailyActivitiesView').then(({ DailyActivitiesView }) => ({ default: DailyActivitiesView })));
@@ -58,6 +60,7 @@ function MainApp() {
   // Core Data
   const [clients, setClients] = useState<Client[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [handoverRecords, setHandoverRecords] = useState<JobHandoverRecord[]>([]);
   const [monthlyJobTemplates, setMonthlyJobTemplates] = useState<MonthlyJobTemplate[]>([]);
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [cases, setCases] = useState<Case[]>([]);
@@ -110,7 +113,7 @@ function MainApp() {
     setConnectionError(null);
 
     try {
-      const [clientsData, jobsData, casesData, activitiesData, meetingMinutesData, agendaData, statsData, healthData, usersData, monthlyTemplatesData] =
+      const [clientsData, jobsData, casesData, activitiesData, meetingMinutesData, agendaData, statsData, healthData, usersData, monthlyTemplatesData, handoverData] =
         await Promise.all([
           api.getClients(),
           api.getJobs(),
@@ -122,10 +125,12 @@ function MainApp() {
           api.getHealth(),
           api.getUsers(),
           api.getMonthlyJobTemplates(),
+          api.getHandovers(),
         ]);
 
       setClients(clientsData);
       setJobs(jobsData);
+      setHandoverRecords(handoverData);
       setMonthlyJobTemplates(monthlyTemplatesData);
       setUsers(usersData);
       setCases(casesData);
@@ -284,6 +289,16 @@ function MainApp() {
               clients={clients}
               users={users}
               monthlyJobTemplates={monthlyJobTemplates}
+              currentUser={currentUser}
+              onRefresh={() => loadAllBusinessData()}
+            />
+          )}
+
+          {currentTab === 'handover' && (
+            <HandoverView
+              jobs={jobs}
+              clients={clients}
+              records={handoverRecords}
               currentUser={currentUser}
               onRefresh={() => loadAllBusinessData()}
             />

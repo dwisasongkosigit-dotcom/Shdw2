@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Building2,
   Briefcase,
+  ClipboardCheck,
   AlertCircle,
   Clock,
   CalendarCheck,
@@ -24,6 +25,7 @@ export type NavTab =
   | 'dashboard'
   | 'clients'
   | 'jobs'
+  | 'handover'
   | 'cases'
   | 'followup'
   | 'activities'
@@ -75,6 +77,7 @@ export function Sidebar({
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'clients', label: 'Master Klien', icon: Building2 },
     { id: 'jobs', label: 'Job Management', icon: Briefcase },
+    { id: 'handover', label: 'Rekap Serah Terima', icon: ClipboardCheck },
     { id: 'cases', label: 'Case Register', icon: AlertCircle },
     { id: 'followup', label: 'Follow-up', icon: Clock },
     { id: 'activities', label: 'Daily Activity', icon: CalendarCheck },
