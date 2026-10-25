@@ -136,10 +136,8 @@ function getHandoverServiceResponsibility(job: Job, client?: Client) {
   return jobResponsibility;
 }
 
-function getHandoverPicLabel(job: Job, client?: Client) {
-  return getHandoverServiceResponsibility(job, client) === 'Tim Internal Lain'
-    ? 'Tim Internal Lain'
-    : job.picName;
+function getHandoverPicLabel(job: Job) {
+  return job.picName;
 }
 
 function isDirectionApplicable(job: Job, direction: JobHandoverDirection, client?: Client) {
@@ -391,13 +389,10 @@ export function HandoverView({ jobs, clients, records, profileAssignmentRecords,
   const availablePics = useMemo(() => {
     const picsById = new Map<string, string>();
     visibleJobs.forEach((job) => {
-      const client = clientsById.get(job.clientId);
-      if (getHandoverServiceResponsibility(job, client) !== 'Tim Internal Lain') {
-        picsById.set(job.picId, job.picName);
-      }
+      picsById.set(job.picId, job.picName);
     });
     return [...picsById.entries()].sort((a, b) => a[1].localeCompare(b[1], 'id-ID'));
-  }, [visibleJobs, clientsById]);
+  }, [visibleJobs]);
   const visibleJobIds = useMemo(() => new Set(visibleJobs.map((job) => job.id)), [visibleJobs]);
   const visibleRecords = useMemo(() => {
     const byId = new Map<string, JobHandoverRecord>();
@@ -442,14 +437,12 @@ export function HandoverView({ jobs, clients, records, profileAssignmentRecords,
   const filteredJobs = useMemo(() => visibleJobs.filter((job) => {
     if (clientFilter !== 'All' && job.clientId !== clientFilter) return false;
     const client = clientsById.get(job.clientId);
-    if (picFilter !== 'All' && (
-      job.picId !== picFilter || getHandoverServiceResponsibility(job, client) === 'Tim Internal Lain'
-    )) return false;
+    if (picFilter !== 'All' && job.picId !== picFilter) return false;
     if (directionFilter !== 'All' && !isDirectionRequired(job, directionFilter, client)) return false;
     if (destinationFilter !== 'All' && !HANDOVER_OPTIONS.some((option) =>
       getHandoverDestination(option.direction) === destinationFilter && isDirectionRequired(job, option.direction, client)
     )) return false;
-    if (normalizedSearchTerm && ![job.id, job.title, job.clientName, getHandoverPicLabel(job, client), job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(normalizedSearchTerm))) return false;
+    if (normalizedSearchTerm && ![job.id, job.title, job.clientName, getHandoverPicLabel(job), job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(normalizedSearchTerm))) return false;
     const jobOptions = HANDOVER_OPTIONS.filter((option) =>
       visibleChecklistOptions.some((visibleOption) => visibleOption.direction === option.direction) &&
       isDirectionRequired(job, option.direction, client)
@@ -515,7 +508,7 @@ export function HandoverView({ jobs, clients, records, profileAssignmentRecords,
         clientName: job.clientName,
         division: job.division,
         title: job.title,
-        picName: getHandoverPicLabel(job, client),
+        picName: getHandoverPicLabel(job),
         spvName: job.spvName,
         serviceResponsibility: getHandoverServiceResponsibility(job, client),
         handoverDestinations: getConfiguredDestinationLabel(job, client),
@@ -533,16 +526,14 @@ export function HandoverView({ jobs, clients, records, profileAssignmentRecords,
   const summaryJobs = useMemo(() => visibleJobs.filter((job) => {
     if (clientFilter !== 'All' && job.clientId !== clientFilter) return false;
     const client = clientsById.get(job.clientId);
-    if (picFilter !== 'All' && (
-      job.picId !== picFilter || getHandoverServiceResponsibility(job, client) === 'Tim Internal Lain'
-    )) return false;
+    if (picFilter !== 'All' && job.picId !== picFilter) return false;
     const responsibility = getHandoverServiceResponsibility(job, client);
     if (responsibility !== 'Tim 3' && responsibility !== 'Tim Internal Lain') return false;
     if (directionFilter !== 'All' && !isDirectionRequired(job, directionFilter, client)) return false;
     if (destinationFilter !== 'All' && !HANDOVER_OPTIONS.some((option) =>
       getHandoverDestination(option.direction) === destinationFilter && isDirectionRequired(job, option.direction, client)
     )) return false;
-    if (normalizedSearchTerm && ![job.id, job.title, job.clientName, getHandoverPicLabel(job, client), job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(normalizedSearchTerm))) return false;
+    if (normalizedSearchTerm && ![job.id, job.title, job.clientName, getHandoverPicLabel(job), job.spvName].some((value) => value.toLocaleLowerCase('id-ID').includes(normalizedSearchTerm))) return false;
     if (hasPeriodFilter) {
       const hasPeriod = matchesMonthRange(job.createdAt, periodFrom, periodTo) || matchesMonthRange(job.completedAt, periodFrom, periodTo) ||
         (recordsByJobId.get(job.id) || []).some((record) =>
@@ -837,7 +828,7 @@ export function HandoverView({ jobs, clients, records, profileAssignmentRecords,
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">{job.clientName}</span>
                     </div>
                     <h2 className="text-sm font-bold leading-5 text-slate-900">{job.title}</h2>
-                    <p className="mt-1 text-[11px] text-slate-500">PIC {getHandoverPicLabel(job, client)} <span className="px-1 text-slate-300">·</span> SPV {job.spvName}</p>
+                    <p className="mt-1 text-[11px] text-slate-500">PIC {getHandoverPicLabel(job)} <span className="px-1 text-slate-300">·</span> SPV {job.spvName}</p>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
                     <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${!isTrackedAssignment ? 'bg-slate-100 text-slate-500' : isReviewed ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
