@@ -1,5 +1,6 @@
 import { ClipboardList, Menu, RefreshCw, Database, Shield, Moon, Sun } from 'lucide-react';
 import type { CurrentUser, BrandingConfig } from '../lib/api';
+import { NotificationInbox } from './NotificationInbox';
 
 interface HeaderProps {
   currentTab: string;
@@ -117,6 +118,8 @@ export function Header({
             </span>
           )}
         </div>
+
+        <NotificationInbox userId={currentUser.id} />
 
         <button
           type="button"

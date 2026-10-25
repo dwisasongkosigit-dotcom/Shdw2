@@ -28,6 +28,7 @@
     "react-dom": "^19.0.1",
     "recharts": "^3.10.1",
     "serverless-http": "^4.0.0",
+    "swr": "^2.5.1",
     "vite": "^8.3.0"
   },
   "devDependencies": {

@@ -21,6 +21,19 @@ export interface User {
   updatedAt: string;
 }
 
+export interface AppNotification {
+  id: string;
+  recipientId: string;
+  kind: 'job-review';
+  title: string;
+  message: string;
+  jobId: string;
+  jobTitle: string;
+  actorName: string;
+  createdAt: string;
+  readAt?: string;
+}
+
 export interface BrandingConfig {
   appName: string;
   companyName: string;
@@ -476,6 +489,7 @@ export interface DatabaseSchema {
   jobs: Job[];
   monthlyJobTemplates?: MonthlyJobTemplate[];
   handoverRecords?: JobHandoverRecord[];
+  notifications?: AppNotification[];
   cases: Case[];
   activities: DailyActivity[];
   auditLogs: AuditLog[];
