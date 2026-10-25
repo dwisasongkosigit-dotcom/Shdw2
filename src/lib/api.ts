@@ -558,7 +558,7 @@ export const api = {
       method: 'DELETE',
     }),
   updateClientMonthlyJobs: (id: string, templateIds: string[]) =>
-    request<{ success: boolean; client: Client; message: string }>(`/api/clients/${id}/monthly-jobs`, {
+    request<{ success: boolean; client: Client; message: string; month: string; generatedJobsCount: number }>(`/api/clients/${id}/monthly-jobs`, {
       method: 'PUT',
       body: JSON.stringify({ templateIds }),
     }),

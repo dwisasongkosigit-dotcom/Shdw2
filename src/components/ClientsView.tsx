@@ -346,7 +346,12 @@ export function ClientsView({
       const response = await api.updateClientMonthlyJobs(selectedClient.id, selectedMonthlyTemplateIds);
       setSelectedClient(response.client);
       setFormData((current) => ({ ...current, monthlyJobTemplateIds: response.client.monthlyJobTemplateIds || [] }));
-      success('Job rutin disimpan', `Template pekerjaan bulanan untuk ${response.client.name} berhasil diperbarui.`);
+      success(
+        'Job rutin disimpan',
+        response.generatedJobsCount > 0
+          ? `${response.generatedJobsCount} job untuk ${response.month} langsung dibuat untuk ${response.client.name}.`
+          : `Penugasan template ${response.client.name} tersimpan. Tidak ada job baru yang memenuhi syarat untuk ${response.month}.`
+      );
       onRefresh();
     } catch (cause: any) {
       error('Gagal menyimpan job rutin', cause.message || 'Periksa penugasan lalu coba lagi.');
