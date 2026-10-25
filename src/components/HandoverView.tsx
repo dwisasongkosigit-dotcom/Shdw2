@@ -124,9 +124,20 @@ function canViewJob(job: Job, currentUser: CurrentUser) {
   return false;
 }
 
+function getHandoverServiceResponsibility(job: Job, client?: Client) {
+  const jobResponsibility = job.serviceResponsibility || 'Tim 3';
+  const clientResponsibility = job.division === 'Accounting'
+    ? client?.accountingServiceResponsibility
+    : client?.taxServiceResponsibility;
+  if (jobResponsibility === 'Tim Internal Lain') return jobResponsibility;
+  if (jobResponsibility === 'Tim 3' && clientResponsibility === 'Tim Internal Lain') return clientResponsibility;
+  return jobResponsibility;
+}
+
 function isDirectionApplicable(job: Job, direction: JobHandoverDirection, client?: Client) {
-  if (direction === 'staff-to-internal') return job.serviceResponsibility === 'Tim Internal Lain';
-  if ((job.serviceResponsibility || 'Tim 3') !== 'Tim 3') return false;
+  const responsibility = getHandoverServiceResponsibility(job, client);
+  if (direction === 'staff-to-internal') return responsibility === 'Tim Internal Lain';
+  if (responsibility !== 'Tim 3') return false;
   if (direction === 'staff-to-client') return !isSpvPicForDivision(client, job.division);
   if (direction === 'spv-pic-to-client') return isSpvPicForDivision(client, job.division);
   if (direction === 'accounting-to-tax') {
@@ -139,8 +150,8 @@ function isDirectionApplicable(job: Job, direction: JobHandoverDirection, client
   return true;
 }
 
-function isHandoverConfigured(job: Job) {
-  if ((job.serviceResponsibility || 'Tim 3') !== 'Tim 3') return true;
+function isHandoverConfigured(job: Job, client?: Client) {
+  if (getHandoverServiceResponsibility(job, client) !== 'Tim 3') return true;
   return Array.isArray(job.handoverDestinations) || Object.keys(job.handoverDirectionOverrides || {}).length > 0;
 }
 
@@ -155,7 +166,7 @@ function isDirectionRequired(job: Job, direction: JobHandoverDirection, client?:
 }
 
 function getConfiguredDestinationLabel(job: Job, client?: Client) {
-  if (!isHandoverConfigured(job)) return 'Belum diatur';
+  if (!isHandoverConfigured(job, client)) return 'Belum diatur';
   const destinations = new Set(HANDOVER_OPTIONS
     .filter((option) => isDirectionRequired(job, option.direction, client))
     .map((option) => option.direction === 'staff-to-client'
@@ -220,7 +231,7 @@ function getChecklistExportValue(
   if (canceledRecord) {
     return `☐ Dibatalkan · ${formatJakartaDateTime(canceledRecord.canceledAt)} · ${canceledRecord.canceledByName || '—'}`;
   }
-  if (!isHandoverConfigured(job)) return '— Tujuan belum diatur';
+  if (!isHandoverConfigured(job, client)) return '— Tujuan belum diatur';
   if (!isDirectionRequired(job, direction, client)) return '— Tidak diminta';
   return job.status === 'Selesai' ? '☐ Belum dicatat' : '— Menunggu review SPV';
 }
@@ -412,10 +423,10 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     const jobRecords = jobOptions.map((option) => recordByKey.get(`${job.id}:${option.direction}`));
     const completedHandoverCount = jobRecords.filter(Boolean).length;
     const jobHistory = recordsByJobId.get(job.id) || [];
-    if (statusFilter === 'review' && (job.status === 'Selesai' || !['Tim 3', 'Tim Internal Lain'].includes(job.serviceResponsibility || 'Tim 3'))) return false;
+    if (statusFilter === 'review' && (job.status === 'Selesai' || !['Tim 3', 'Tim Internal Lain'].includes(getHandoverServiceResponsibility(job, client)))) return false;
     if (statusFilter === 'handover' && (job.status !== 'Selesai' || jobOptions.length === 0 || completedHandoverCount === jobOptions.length)) return false;
     if (statusFilter === 'complete' && (job.status !== 'Selesai' || jobOptions.length === 0 || completedHandoverCount !== jobOptions.length)) return false;
-    if (statusFilter === 'unconfigured' && isHandoverConfigured(job)) return false;
+    if (statusFilter === 'unconfigured' && isHandoverConfigured(job, client)) return false;
     if (statusFilter === 'delivered' && !jobHistory.some((record) =>
       !record.canceledAt &&
       isHandoverDirectionVisible(record.direction, visibleChecklistOptions, directionFilter, destinationFilter) &&
@@ -471,7 +482,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
       title: job.title,
       picName: job.picName,
       spvName: job.spvName,
-      serviceResponsibility: job.serviceResponsibility || 'Tim 3',
+      serviceResponsibility: getHandoverServiceResponsibility(job, client),
       handoverDestinations: getConfiguredDestinationLabel(job, client),
       jobStatus: job.status,
       staffToClient: exportValue('staff-to-client'),
@@ -483,11 +494,11 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
   }), [filteredJobs, clientsById, recordByKey, canceledRecordByKey]);
 
   const summaryJobs = useMemo(() => visibleJobs.filter((job) => {
-    const responsibility = job.serviceResponsibility || 'Tim 3';
-    if (responsibility !== 'Tim 3' && responsibility !== 'Tim Internal Lain') return false;
     if (clientFilter !== 'All' && job.clientId !== clientFilter) return false;
     if (picFilter !== 'All' && job.picId !== picFilter) return false;
     const client = clientsById.get(job.clientId);
+    const responsibility = getHandoverServiceResponsibility(job, client);
+    if (responsibility !== 'Tim 3' && responsibility !== 'Tim Internal Lain') return false;
     if (directionFilter !== 'All' && !isDirectionRequired(job, directionFilter, client)) return false;
     if (destinationFilter !== 'All' && !HANDOVER_OPTIONS.some((option) =>
       getHandoverDestination(option.direction) === destinationFilter && isDirectionRequired(job, option.direction, client)
@@ -530,7 +541,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     ).length;
   }, 0), [summaryJobs, visibleChecklistOptions, recordByKey, clientsById]);
   const unconfiguredJobCount = useMemo(
-    () => summaryJobs.filter((job) => !isHandoverConfigured(job)).length,
+    () => summaryJobs.filter((job) => !isHandoverConfigured(job, clientsById.get(job.clientId))).length,
     [summaryJobs]
   );
   const activeCountByDirection = useMemo(() => {
@@ -768,7 +779,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
           const requiredOptions = visibleChecklistOptions.filter((option) => isDirectionRequired(job, option.direction, client));
           const doneCount = requiredOptions.filter((option) => recordByKey.has(`${job.id}:${option.direction}`)).length;
           const isReviewed = job.status === 'Selesai';
-          const responsibility = job.serviceResponsibility || 'Tim 3';
+          const responsibility = getHandoverServiceResponsibility(job, client);
           const isTrackedAssignment = responsibility === 'Tim 3' || responsibility === 'Tim Internal Lain';
           const canceledRecords = jobHistory.filter((record) => Boolean(record.canceledAt) && ACTIVE_HANDOVER_DIRECTIONS.has(record.direction) && visibleChecklistOptions.some((option) => option.direction === record.direction)).sort((a, b) => (b.canceledAt || '').localeCompare(a.canceledAt || ''));
           const legacyRecords = jobHistory.filter((record) => !ACTIVE_HANDOVER_DIRECTIONS.has(record.direction) && (destinationFilter === 'All' || getHandoverDestination(record.direction) === destinationFilter) && directionFilter === 'All').sort((a, b) => b.sentAt.localeCompare(a.sentAt));
@@ -792,7 +803,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
                     <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${!isTrackedAssignment ? 'bg-slate-100 text-slate-500' : isReviewed ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
                       {!isTrackedAssignment ? 'Di luar cakupan serah terima' : isReviewed ? 'Review selesai' : 'Menunggu SPV'}
                     </span>
-                    {!isHandoverConfigured(job) ? (
+                    {!isHandoverConfigured(job, client) ? (
                       <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-800">Atur tujuan</span>
                     ) : !isReviewed ? (
                       <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-800">Aktif setelah review</span>
@@ -810,18 +821,18 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
 
                 <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 text-[10px]">
                   <span className="font-semibold uppercase tracking-wide text-slate-400">Serah ke</span>
-                  <span className={`rounded-full px-2 py-1 font-semibold ${!isHandoverConfigured(job) ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{destinationLabel}</span>
-                  <span className="text-slate-400">Tanggung jawab: {job.serviceResponsibility || 'Tim 3'}</span>
+                  <span className={`rounded-full px-2 py-1 font-semibold ${!isHandoverConfigured(job, client) ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{destinationLabel}</span>
+                  <span className="text-slate-400">Tanggung jawab: {responsibility}</span>
                   {isReviewed && job.completedAt && <span className="text-slate-400">Selesai {formatDate(job.completedAt)}</span>}
                   <span className="ml-auto text-slate-400">{index + 1} / {filteredJobs.length}</span>
                 </div>
 
-                {!isHandoverConfigured(job) && (
+                {!isHandoverConfigured(job, client) && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-[11px] leading-5 text-amber-900">
                     Tujuan job lama ini belum diatur dan belum dihitung sebagai checklist terbuka. Minta Admin/SPV mengatur Klien/Internal lewat <span className="font-semibold">Job Management → Edit Tugas</span>.
                   </div>
                 )}
-                {isHandoverConfigured(job) && allRequiredOptions.length === 0 && (
+                {isHandoverConfigured(job, client) && allRequiredOptions.length === 0 && (
                   <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-[11px] text-slate-500">Tidak ada dokumen serah terima yang perlu dicatat untuk job ini.</p>
                 )}
 
