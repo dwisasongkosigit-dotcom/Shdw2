@@ -254,8 +254,10 @@ function HandoverChecklistCell({
   saving,
   busy,
   canCancel,
+  canDelete,
   onRecord,
   onCancel,
+  onDelete,
 }: {
   job: Job;
   option: (typeof HANDOVER_OPTIONS)[number];
@@ -266,8 +268,10 @@ function HandoverChecklistCell({
   saving: boolean;
   busy: boolean;
   canCancel: boolean;
+  canDelete: boolean;
   onRecord: (job: Job, direction: ActiveJobHandoverDirection) => void;
   onCancel: (job: Job, record: JobHandoverRecord) => void;
+  onDelete: (job: Job, record: JobHandoverRecord) => void;
 }) {
   if (!applicable && !record && !canceledRecord) {
     return (
@@ -328,14 +332,30 @@ function HandoverChecklistCell({
             {saving ? 'Menyimpan catatan serah terima…' : !isReviewed ? 'Checklist aktif setelah review SPV.' : canRecord ? option.helper : 'Hanya PIC yang ditugaskan dapat mencatat; SPV lain hanya melihat.'}
           </p>
         )}
-        {record && canCancel && (
-          <button
-            type="button"
-            onClick={() => onCancel(job, record)}
-            className="inline-flex min-h-8 w-fit items-center gap-1 rounded-lg border border-rose-200 px-2 text-[10px] font-semibold text-rose-700 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-          >
-            <Undo2 className="size-3" /> Batalkan
-          </button>
+        {record && (canCancel || canDelete) && (
+          <div className="flex flex-wrap gap-2">
+            {canCancel && (
+              <button
+                type="button"
+                onClick={() => onCancel(job, record)}
+                disabled={busy}
+                className="inline-flex min-h-8 w-fit items-center gap-1 rounded-lg border border-rose-200 px-2 text-[10px] font-semibold text-rose-700 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 disabled:cursor-wait disabled:opacity-50"
+              >
+                <Undo2 className="size-3" /> Batalkan
+              </button>
+            )}
+            {canDelete && (
+              <button
+                type="button"
+                onClick={() => onDelete(job, record)}
+                disabled={busy}
+                className="inline-flex min-h-8 w-fit items-center gap-1 rounded-lg border border-rose-200 px-2 text-[10px] font-semibold text-rose-700 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 disabled:cursor-wait disabled:opacity-50"
+                aria-label={`Hapus permanen catatan ${option.label} untuk ${job.title}`}
+              >
+                <Trash2 className="size-3" /> Hapus
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -873,8 +893,10 @@ export function HandoverView({ jobs, clients, records, profileAssignmentRecords,
                           saving={savingKey === key}
                           busy={Boolean(savingKey)}
                           canCancel={Boolean(record && canCancelHandover(record, currentUser, job))}
+                          canDelete={currentUser.role === 'Admin'}
                           onRecord={(targetJob, direction) => void handleRecordHandover(targetJob, direction)}
                           onCancel={(targetJob, targetRecord) => setCancelTarget({ job: targetJob, record: targetRecord })}
+                          onDelete={(targetJob, targetRecord) => setDeleteTarget({ job: targetJob, record: targetRecord })}
                         />
                       );
                     })}
@@ -1002,7 +1024,7 @@ export function HandoverView({ jobs, clients, records, profileAssignmentRecords,
             <Trash2 className="size-5" />
           </div>
           <h2 id="delete-handover-title" className="mt-4 text-base font-bold text-slate-900">Hapus catatan serah terima?</h2>
-          <p id="delete-handover-description" className="mt-2 text-sm leading-6 text-slate-600">Catatan {deleteTarget.record.canceledAt ? 'yang sudah dibatalkan' : 'dari format serah terima sebelumnya'} untuk <span className="font-semibold text-slate-800">{deleteTarget.job.title}</span> akan dihapus permanen dari rekap. Aktivitas penghapusan tetap tercatat di audit log.</p>
+          <p id="delete-handover-description" className="mt-2 text-sm leading-6 text-slate-600">Catatan serah terima ini untuk <span className="font-semibold text-slate-800">{deleteTarget.job.title}</span> akan dihapus permanen dari rekap. Aktivitas penghapusan tetap tercatat di audit log.</p>
           <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600">{getHandoverDirectionLabel(deleteTarget.record.direction)} · dikirim {formatDate(deleteTarget.record.sentAt)}{deleteTarget.record.canceledAt && ` · dibatalkan ${formatDate(deleteTarget.record.canceledAt)}`}</div>
           <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button type="button" onClick={() => setDeleteTarget(null)} disabled={Boolean(deletingRecordId)} className="min-h-10 rounded-lg border border-slate-200 px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Kembali</button>

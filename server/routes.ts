@@ -1923,10 +1923,6 @@ apiRouter.delete(
       );
       if (!job || recordIndex < 0) throw new Error('Catatan serah terima tidak ditemukan.');
       const record = database.handoverRecords![recordIndex];
-      const isLegacyRecord = LEGACY_HANDOVER_DIRECTIONS.has(record.direction);
-      if (!record.canceledAt && !isLegacyRecord) {
-        throw new Error('Hanya catatan yang dibatalkan atau catatan dari format serah terima sebelumnya yang dapat dihapus.');
-      }
       database.handoverRecords!.splice(recordIndex, 1);
       deletedRecord = record;
       logAudit(
@@ -1943,7 +1939,7 @@ apiRouter.delete(
       res.status(404).json({ error: 'Catatan serah terima tidak ditemukan.' });
       return;
     }
-    res.json({ success: true, message: 'Catatan serah terima yang dibatalkan berhasil dihapus.' });
+    res.json({ success: true, message: 'Catatan serah terima berhasil dihapus dari rekap.' });
   }
 );
 
