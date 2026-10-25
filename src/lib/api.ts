@@ -24,6 +24,7 @@ export interface AppNotification {
   message: string;
   jobId: string;
   jobTitle: string;
+  clientName?: string;
   actorName: string;
   createdAt: string;
   readAt?: string;

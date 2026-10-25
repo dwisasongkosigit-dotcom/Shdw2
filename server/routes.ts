@@ -2349,6 +2349,7 @@ apiRouter.put(
           message: reviewMessage,
           jobId: job.id,
           jobTitle: job.title,
+          clientName: database.clients.find((client) => client.id === job.clientId)?.name || job.clientName,
           actorName: currentUser.name,
           createdAt: new Date().toISOString(),
         };
