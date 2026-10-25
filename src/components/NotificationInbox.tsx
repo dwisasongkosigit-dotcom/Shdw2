@@ -190,6 +190,7 @@ function NotificationItem({
       </div>
       <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-slate-700">{notification.message}</p>
       <p className="mt-2 text-[10px] text-slate-500">
+        {notification.clientName && <><span className="font-semibold text-slate-700">Klien: {notification.clientName}</span>{' · '}</>}
         <span className="font-mono font-semibold text-slate-600">{notification.jobId}</span>
         {' · '}{notification.jobTitle}
         {' · '}Review oleh {notification.actorName}
