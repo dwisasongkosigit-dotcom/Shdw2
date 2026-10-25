@@ -209,12 +209,16 @@ export type JobStatus =
 
 export type JobHandoverDestination = 'client' | 'internal';
 
-export type JobHandoverDirection =
+export type ActiveJobHandoverDirection =
   | 'staff-to-client'
+  | 'accounting-to-tax'
+  | 'tax-to-accounting';
+
+export type JobHandoverDirection =
+  | ActiveJobHandoverDirection
   | 'staff-to-internal'
   | 'spv-to-client'
   | 'spv-to-internal'
-  | 'tax-to-accounting'
   | 'tax-to-client';
 
 export type JobHandoverDirectionOverrides = Partial<Record<JobHandoverDirection, boolean>>;
