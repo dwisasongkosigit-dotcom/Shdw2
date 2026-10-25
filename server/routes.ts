@@ -1489,7 +1489,7 @@ apiRouter.post(
       return;
     }
 
-    const existingRecord = (db.handoverRecords || []).find((record) => record.jobId === job.id && record.direction === direction);
+    const existingRecord = (db.handoverRecords || []).find((record) => record.jobId === job.id && record.direction === direction && !record.canceledAt);
     if (existingRecord) {
       res.json({ success: true, record: existingRecord, message: 'Serah terima ini sudah pernah dicatat.' });
       return;
@@ -1525,6 +1525,66 @@ apiRouter.post(
     });
 
     res.status(201).json({ success: true, record, message: `${directionLabels[direction]} berhasil dicatat.` });
+  }
+);
+
+apiRouter.post(
+  '/jobs/:id/handovers/:recordId/cancel',
+  authenticateToken,
+  requireWritable,
+  (req: AuthenticatedRequest, res: Response) => {
+    const currentUser = req.user!;
+    const db = getDb();
+    const job = db.jobs.find((candidate) => candidate.id === req.params.id);
+    const record = (db.handoverRecords || []).find((candidate) => candidate.id === req.params.recordId && candidate.jobId === req.params.id);
+
+    if (!job || !record) {
+      res.status(404).json({ error: 'Catatan serah terima tidak ditemukan.' });
+      return;
+    }
+    if (record.canceledAt) {
+      res.status(409).json({ error: 'Catatan serah terima ini sudah dibatalkan.' });
+      return;
+    }
+
+    const isAssignedReviewer = currentUser.role === `SPV ${job.division}` && job.spvId === currentUser.userId;
+    if (currentUser.role !== 'Admin' && record.sentById !== currentUser.userId && !isAssignedReviewer) {
+      res.status(403).json({ error: 'Akses ditolak: hanya pencatat awal, SPV reviewer yang ditugaskan, atau Admin yang dapat membatalkan catatan ini.' });
+      return;
+    }
+
+    const canceledAt = new Date().toISOString();
+    let canceledRecord: JobHandoverRecord | undefined;
+    const directionLabels: Record<JobHandoverDirection, string> = {
+      'staff-to-client': 'Staff → Klien',
+      'spv-to-client': 'SPV → Klien',
+      'tax-to-accounting': 'Tim Tax → Accounting',
+      'tax-to-client': 'Tim Tax → Klien',
+    };
+
+    mutateDb((database) => {
+      const storedRecord = (database.handoverRecords || []).find((candidate) => candidate.id === record.id);
+      if (!storedRecord || storedRecord.canceledAt) throw new Error('Catatan serah terima ini sudah dibatalkan.');
+      storedRecord.canceledAt = canceledAt;
+      storedRecord.canceledById = currentUser.userId;
+      storedRecord.canceledByName = currentUser.name;
+      storedRecord.canceledByRole = currentUser.role;
+      canceledRecord = { ...storedRecord };
+      logAudit(
+        'JOB_HANDOVER_CANCELED',
+        'Job',
+        `${directionLabels[storedRecord.direction]} untuk pekerjaan ${job.id} (${job.title}) dibatalkan. Catatan pengiriman awal tetap disimpan.`,
+        { userId: currentUser.userId, name: currentUser.name, role: currentUser.role },
+        job.id,
+        job.title
+      );
+    });
+
+    if (!canceledRecord) {
+      res.status(500).json({ error: 'Gagal menyimpan pembatalan serah terima.' });
+      return;
+    }
+    res.json({ success: true, record: canceledRecord, message: 'Catatan dibatalkan tanpa menghapus riwayat awal.' });
   }
 );
 

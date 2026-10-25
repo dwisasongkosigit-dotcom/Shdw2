@@ -181,6 +181,10 @@ export interface JobHandoverRecord {
   sentById: string;
   sentByName: string;
   sentByRole: string;
+  canceledAt?: string;
+  canceledById?: string;
+  canceledByName?: string;
+  canceledByRole?: string;
 }
 
 export interface JobHistoryItem {
