@@ -1515,6 +1515,14 @@ apiRouter.get('/jobs', authenticateToken, (req: AuthenticatedRequest, res: Respo
   if (jobType) results = results.filter((j) => (j.jobType || 'Additional') === jobType);
   if (recurringMonth) results = results.filter((j) => j.recurringMonth === recurringMonth);
 
+  const currentUser = req.user!;
+  if (currentUser.role === 'SPV Accounting' || currentUser.role === 'SPV Tax') {
+    const assignedDivision = currentUser.role === 'SPV Accounting' ? 'Accounting' : 'Tax';
+    results = results.filter((job) =>
+      job.division === assignedDivision && (job.spvId === currentUser.userId || job.picId === currentUser.userId)
+    );
+  }
+
   res.json(results);
 });
 

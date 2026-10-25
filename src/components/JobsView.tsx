@@ -25,6 +25,7 @@ import { MonthlyJobTemplatesPanel } from './MonthlyJobTemplatesPanel';
 import { useToast } from './Toast';
 import { ExportDropdown } from './ExportDropdown';
 import type { ColumnDef } from '../lib/exportUtils';
+import { matchesMonthRange } from '../lib/dateFilters';
 
 const SERVICE_RESPONSIBILITY_OPTIONS: ServiceResponsibility[] = [
   'Tim 3',
@@ -69,7 +70,10 @@ export function JobsView({
   const currentDivision = currentUser.role.includes('Accounting') ? 'Accounting' : 'Tax';
   const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>('All');
   const [clientFilter, setClientFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState<string>(currentUser.role.startsWith('SPV') ? 'Siap Direview' : 'All');
+  const [picFilter, setPicFilter] = useState('All');
+  const [monthFrom, setMonthFrom] = useState('');
+  const [monthTo, setMonthTo] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('All');
   const [priorityFilter, setPriorityFilter] = useState<string>('All');
   const [jobTypeFilter, setJobTypeFilter] = useState<'All' | 'Continuing' | 'Additional'>('All');
   const [activePanel, setActivePanel] = useState<'jobs' | 'templates'>('jobs');
@@ -138,12 +142,19 @@ export function JobsView({
   );
 
   const pendingReviewCount = jobs.filter((job) => job.status === 'Siap Direview' && isAssignedReviewer(job)).length;
+  const availablePics = useMemo(() => {
+    const picsById = new Map<string, string>();
+    jobs.forEach((job) => picsById.set(job.picId, job.picName));
+    return [...picsById.entries()].sort((a, b) => a[1].localeCompare(b[1], 'id-ID'));
+  }, [jobs]);
 
   // Filtered jobs
   const filteredJobs = useMemo(() => {
     return jobs.filter((j) => {
       if (divisionFilter !== 'All' && j.division !== divisionFilter) return false;
       if (clientFilter !== 'All' && j.clientId !== clientFilter) return false;
+      if (picFilter !== 'All' && j.picId !== picFilter) return false;
+      if (!matchesMonthRange(j.startDate || j.createdAt, monthFrom, monthTo)) return false;
       if (statusFilter !== 'All') {
         if (statusFilter === 'Terlambat') {
           if (j.status === 'Selesai' || j.deadline >= today) return false;
@@ -164,7 +175,7 @@ export function JobsView({
       }
       return true;
     });
-  }, [jobs, divisionFilter, clientFilter, statusFilter, priorityFilter, jobTypeFilter, searchTerm, today]);
+  }, [jobs, divisionFilter, clientFilter, picFilter, monthFrom, monthTo, statusFilter, priorityFilter, jobTypeFilter, searchTerm, today]);
 
   const handleOpenDetail = (job: Job) => {
     setSelectedJob(job);
@@ -520,7 +531,7 @@ export function JobsView({
         >
           <span className="min-w-0">
             <span className="block text-xs font-bold text-amber-950">Antrean review Anda</span>
-            <span className="mt-0.5 block text-[11px] text-amber-800">Pekerjaan dari klien yang Anda tangani</span>
+            <span className="mt-0.5 block text-[11px] text-amber-800">Daftar pekerjaan juga menampilkan progres staf sebelum siap direview</span>
           </span>
           <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-amber-600 text-sm font-bold text-white">{pendingReviewCount}</span>
         </button>
@@ -559,7 +570,7 @@ export function JobsView({
             filename="Daftar_Pekerjaan_Jobs_TMM_BMA"
             sheetName="Jobs"
             title="MONITORING PENUGASAN & PROGRES PEKERJAAN (JOB MANAGEMENT)"
-            subtitle={`Filter: ${divisionFilter} | Klien: ${clientFilter === 'All' ? 'Semua Klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} | Status: ${statusFilter} | Total: ${filteredJobs.length} pekerjaan`}
+            subtitle={`Filter: ${divisionFilter} | Klien: ${clientFilter === 'All' ? 'Semua Klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} | PIC: ${picFilter === 'All' ? 'Semua PIC' : availablePics.find(([id]) => id === picFilter)?.[1] || 'PIC'} | Bulan: ${monthFrom || 'awal'}–${monthTo || 'terbaru'} | Status: ${statusFilter} | Total: ${filteredJobs.length} pekerjaan`}
             columns={jobExportColumns}
             data={filteredJobs}
             label="Ekspor & Copas"
@@ -645,6 +656,22 @@ export function JobsView({
             <option key={client.id} value={client.id}>{client.name}</option>
           ))}
         </select>
+        <select
+          value={picFilter}
+          onChange={(event) => setPicFilter(event.target.value)}
+          aria-label="Filter PIC pekerjaan"
+          className="min-h-10 max-w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-medium text-slate-700 focus:outline-none"
+        >
+          <option value="All">Semua PIC</option>
+          {availablePics.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+        <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-slate-600">
+          <span className="sr-only">Dari bulan mulai pekerjaan</span>
+          <input type="month" value={monthFrom} onChange={(event) => setMonthFrom(event.target.value)} aria-label="Dari bulan mulai pekerjaan" className="min-h-7 min-w-0 bg-transparent text-xs font-medium outline-none" />
+          <span aria-hidden="true">—</span>
+          <span className="sr-only">Sampai bulan mulai pekerjaan</span>
+          <input type="month" value={monthTo} onChange={(event) => setMonthTo(event.target.value)} aria-label="Sampai bulan mulai pekerjaan" className="min-h-7 min-w-0 bg-transparent text-xs font-medium outline-none" />
+        </label>
         <select
           value={priorityFilter}
           onChange={(e) => setPriorityFilter(e.target.value)}
