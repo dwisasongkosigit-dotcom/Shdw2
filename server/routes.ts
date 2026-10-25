@@ -36,6 +36,7 @@ import type {
   ActiveJobHandoverDirection,
   JobHandoverDestination,
   JobHandoverRecord,
+  ProfileAssignmentHandoverRecord,
   RiskLevel,
   RiskHistoryItem,
   PicHistoryItem,
@@ -85,6 +86,37 @@ const HANDOVER_DIRECTION_LABELS: Record<JobHandoverDirection, string> = {
 
 function isSpvPicForDivision(client: Client | undefined, division: Job['division']) {
   return division === 'Accounting' ? client?.accountingSpvIsPic === true : client?.taxSpvIsPic === true;
+}
+
+function getProfileAssignmentOwners(client: Client, division: Job['division']) {
+  const isSpvPic = isSpvPicForDivision(client, division);
+  return division === 'Accounting'
+    ? {
+        picId: isSpvPic ? client.accountingSpvId : client.accountingStaffPicId,
+        picName: isSpvPic ? client.accountingSpvName : client.accountingStaffPicName,
+        spvId: client.accountingSpvId,
+      }
+    : {
+        picId: isSpvPic ? client.taxSpvId : client.taxStaffPicId,
+        picName: isSpvPic ? client.taxSpvName : client.taxStaffPicName,
+        spvId: client.taxSpvId,
+      };
+}
+
+function canViewProfileAssignment(client: Client, division: Job['division'], user: { userId: string; role: string }) {
+  if (user.role === 'Admin' || user.role === 'Owner' || user.role === 'Manager') return true;
+  const { picId, spvId } = getProfileAssignmentOwners(client, division);
+  if (user.role === `Staff ${division}`) return picId === user.userId;
+  if (user.role === `SPV ${division}`) return spvId === user.userId || picId === user.userId;
+  return false;
+}
+
+function canRecordProfileAssignment(client: Client, division: Job['division'], user: { userId: string; role: string }) {
+  if (user.role === 'Admin') return true;
+  const { picId } = getProfileAssignmentOwners(client, division);
+  const isSpvPic = isSpvPicForDivision(client, division);
+  const picRole = isSpvPic ? `SPV ${division}` : `Staff ${division}`;
+  return user.role === picRole && picId === user.userId;
 }
 
 function hasDivisionAccess(role: string, division: string) {
@@ -1579,9 +1611,141 @@ apiRouter.get('/handovers', authenticateToken, (req: AuthenticatedRequest, res: 
     if (currentUser.role === `SPV ${job.division}`) return job.spvId === currentUser.userId || job.picId === currentUser.userId;
     return false;
   }).map((job) => job.id));
+  const jobAssignmentKeys = new Set(db.jobs.map((job) => `${job.clientId}:${job.division}`));
+  const visibleProfileAssignmentKeys = new Set(db.clients.flatMap((client) =>
+    (['Accounting', 'Tax'] as const).flatMap((division) => {
+      const responsibility = division === 'Accounting'
+        ? client.accountingServiceResponsibility || 'Tim 3'
+        : client.taxServiceResponsibility || 'Tim 3';
+      if (responsibility !== 'Tim Internal Lain' || jobAssignmentKeys.has(`${client.id}:${division}`)) return [];
+      return canViewProfileAssignment(client, division, currentUser) ? [`${client.id}:${division}`] : [];
+    })
+  ));
 
-  res.json((db.handoverRecords || []).filter((record) => visibleJobIds.has(record.jobId)));
+  res.json({
+    jobRecords: (db.handoverRecords || []).filter((record) => visibleJobIds.has(record.jobId)),
+    profileAssignmentRecords: (db.profileAssignmentHandoverRecords || []).filter((record) =>
+      visibleProfileAssignmentKeys.has(`${record.clientId}:${record.division}`)
+    ),
+  });
 });
+
+apiRouter.post(
+  '/clients/:clientId/profile-handovers/:division',
+  authenticateToken,
+  requireWritable,
+  (req: AuthenticatedRequest, res: Response) => {
+    const currentUser = req.user!;
+    const db = getDb();
+    const division = req.params.division as Job['division'];
+    if (division !== 'Accounting' && division !== 'Tax') {
+      res.status(400).json({ error: 'Divisi assignment tidak valid.' });
+      return;
+    }
+
+    const client = db.clients.find((candidate) => candidate.id === req.params.clientId);
+    if (!client) {
+      res.status(404).json({ error: 'Klien tidak ditemukan.' });
+      return;
+    }
+    const responsibility = division === 'Accounting'
+      ? client.accountingServiceResponsibility || 'Tim 3'
+      : client.taxServiceResponsibility || 'Tim 3';
+    if (responsibility !== 'Tim Internal Lain' || db.jobs.some((job) => job.clientId === client.id && job.division === division)) {
+      res.status(409).json({ error: 'Assignment internal ini sudah memiliki pekerjaan atau tidak aktif.' });
+      return;
+    }
+    if (!canRecordProfileAssignment(client, division, currentUser)) {
+      res.status(403).json({ error: 'Akses ditolak: hanya Admin atau PIC yang ditugaskan dapat mencatat serah terima.' });
+      return;
+    }
+
+    const existingRecord = (db.profileAssignmentHandoverRecords || []).find((record) =>
+      record.clientId === client.id && record.division === division && !record.canceledAt
+    );
+    if (existingRecord) {
+      res.json({ success: true, record: existingRecord, message: 'Serah terima assignment ini sudah pernah dicatat.' });
+      return;
+    }
+
+    const record: ProfileAssignmentHandoverRecord = {
+      id: `HDO-${randomUUID()}`,
+      clientId: client.id,
+      division,
+      sentAt: new Date().toISOString(),
+      sentById: currentUser.userId,
+      sentByName: currentUser.name,
+      sentByRole: currentUser.role,
+    };
+    mutateDb((database) => {
+      database.profileAssignmentHandoverRecords = database.profileAssignmentHandoverRecords || [];
+      database.profileAssignmentHandoverRecords.push(record);
+      logAudit(
+        'CLIENT_PROFILE_HANDOVER_RECORDED',
+        'Client',
+        `PIC → Tim Internal Lain dicatat untuk assignment ${division} klien ${client.id} (${client.name}).`,
+        { userId: currentUser.userId, name: currentUser.name, role: currentUser.role },
+        client.id,
+        client.name
+      );
+    });
+
+    res.status(201).json({ success: true, record, message: 'Serah terima PIC → Tim Internal Lain berhasil dicatat.' });
+  }
+);
+
+apiRouter.post(
+  '/clients/:clientId/profile-handovers/:division/:recordId/cancel',
+  authenticateToken,
+  requireWritable,
+  (req: AuthenticatedRequest, res: Response) => {
+    const currentUser = req.user!;
+    const db = getDb();
+    const division = req.params.division as Job['division'];
+    const client = db.clients.find((candidate) => candidate.id === req.params.clientId);
+    const record = (db.profileAssignmentHandoverRecords || []).find((candidate) =>
+      candidate.id === req.params.recordId && candidate.clientId === req.params.clientId && candidate.division === division
+    );
+    if (!client || (division !== 'Accounting' && division !== 'Tax') || !record) {
+      res.status(404).json({ error: 'Catatan assignment serah terima tidak ditemukan.' });
+      return;
+    }
+    if (record.canceledAt) {
+      res.status(409).json({ error: 'Catatan serah terima ini sudah dibatalkan.' });
+      return;
+    }
+    if (currentUser.role !== 'Admin' && record.sentById !== currentUser.userId) {
+      res.status(403).json({ error: 'Akses ditolak: hanya pencatat awal atau Admin yang dapat membatalkan catatan ini.' });
+      return;
+    }
+
+    let canceledRecord: ProfileAssignmentHandoverRecord | undefined;
+    const canceledAt = new Date().toISOString();
+    mutateDb((database) => {
+      const storedRecord = (database.profileAssignmentHandoverRecords || []).find((candidate) => candidate.id === record.id);
+      if (!storedRecord || storedRecord.canceledAt) throw new Error('Catatan serah terima ini sudah dibatalkan.');
+      storedRecord.canceledAt = canceledAt;
+      storedRecord.canceledById = currentUser.userId;
+      storedRecord.canceledByName = currentUser.name;
+      storedRecord.canceledByRole = currentUser.role;
+      canceledRecord = { ...storedRecord };
+      logAudit(
+        'CLIENT_PROFILE_HANDOVER_CANCELED',
+        'Client',
+        `Catatan PIC → Tim Internal Lain untuk assignment ${division} klien ${client.id} (${client.name}) dibatalkan; riwayat awal tetap disimpan.`,
+        { userId: currentUser.userId, name: currentUser.name, role: currentUser.role },
+        client.id,
+        client.name
+      );
+    });
+
+    if (!canceledRecord) {
+      res.status(500).json({ error: 'Gagal menyimpan pembatalan serah terima.' });
+      return;
+    }
+    res.json({ success: true, record: canceledRecord, message: 'Catatan dibatalkan tanpa menghapus riwayat awal.' });
+  }
+);
 
 apiRouter.post(
   '/jobs/:id/handovers',

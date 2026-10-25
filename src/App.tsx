@@ -13,6 +13,7 @@ import {
   type UserAccount,
   type MonthlyJobTemplate,
   type JobHandoverRecord,
+  type ProfileAssignmentHandoverRecord,
 } from './lib/api';
 import { ToastProvider, useToast } from './components/Toast';
 import { Sidebar, type NavTab } from './components/Sidebar';
@@ -61,6 +62,7 @@ function MainApp() {
   const [clients, setClients] = useState<Client[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [handoverRecords, setHandoverRecords] = useState<JobHandoverRecord[]>([]);
+  const [profileAssignmentHandoverRecords, setProfileAssignmentHandoverRecords] = useState<ProfileAssignmentHandoverRecord[]>([]);
   const [monthlyJobTemplates, setMonthlyJobTemplates] = useState<MonthlyJobTemplate[]>([]);
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [cases, setCases] = useState<Case[]>([]);
@@ -123,7 +125,8 @@ function MainApp() {
 
       setClients(clientsData);
       setJobs(jobsData);
-      setHandoverRecords(handoverData);
+      setHandoverRecords(handoverData.jobRecords);
+      setProfileAssignmentHandoverRecords(handoverData.profileAssignmentRecords);
       setMonthlyJobTemplates(monthlyTemplatesData);
       setUsers(usersData);
       setCases(casesData);
@@ -192,7 +195,8 @@ function MainApp() {
           ]);
           setJobs(jobsData);
           setClients(clientsData);
-          setHandoverRecords(handoverData);
+          setHandoverRecords(handoverData.jobRecords);
+          setProfileAssignmentHandoverRecords(handoverData.profileAssignmentRecords);
           break;
         }
         case 'cases': {
@@ -419,6 +423,7 @@ function MainApp() {
               jobs={jobs}
               clients={clients}
               records={handoverRecords}
+              profileAssignmentRecords={profileAssignmentHandoverRecords}
               currentUser={currentUser}
               onRefresh={() => loadTabData('handover')}
             />
