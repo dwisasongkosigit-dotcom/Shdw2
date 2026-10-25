@@ -209,6 +209,20 @@ export interface JobHandoverRecord {
   canceledByRole?: string;
 }
 
+export interface ProfileAssignmentHandoverRecord {
+  id: string;
+  clientId: string;
+  division: JobDivision;
+  sentAt: string;
+  sentById: string;
+  sentByName: string;
+  sentByRole: string;
+  canceledAt?: string;
+  canceledById?: string;
+  canceledByName?: string;
+  canceledByRole?: string;
+}
+
 export interface Job {
   id: string;
   clientId: string;
@@ -605,7 +619,15 @@ export const api = {
     request<{ success: boolean; message: string }>(`/api/jobs/${id}`, {
       method: 'DELETE',
     }),
-  getHandovers: () => request<JobHandoverRecord[]>('/api/handovers'),
+  getHandovers: () => request<{ jobRecords: JobHandoverRecord[]; profileAssignmentRecords: ProfileAssignmentHandoverRecord[] }>('/api/handovers'),
+  recordProfileAssignmentHandover: (clientId: string, division: JobDivision) =>
+    request<{ success: boolean; record: ProfileAssignmentHandoverRecord; message: string }>(`/api/clients/${encodeURIComponent(clientId)}/profile-handovers/${division}`, {
+      method: 'POST',
+    }),
+  cancelProfileAssignmentHandover: (clientId: string, division: JobDivision, recordId: string) =>
+    request<{ success: boolean; record: ProfileAssignmentHandoverRecord; message: string }>(`/api/clients/${encodeURIComponent(clientId)}/profile-handovers/${division}/${encodeURIComponent(recordId)}/cancel`, {
+      method: 'POST',
+    }),
   recordJobHandover: (jobId: string, direction: JobHandoverDirection) =>
     request<{ success: boolean; record: JobHandoverRecord; message: string }>(`/api/jobs/${jobId}/handovers`, {
       method: 'POST',

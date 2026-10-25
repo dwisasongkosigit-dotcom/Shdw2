@@ -83,3 +83,152 @@
   color: #8091a8;
   opacity: 1;
 }
+
+:root[data-theme='dark'] [class~='text-rose-600'],
+:root[data-theme='dark'] [class~='text-rose-700'],
+:root[data-theme='dark'] [class~='text-rose-800'],
+:root[data-theme='dark'] [class~='text-rose-900'],
+:root[data-theme='dark'] [class~='text-red-600'],
+:root[data-theme='dark'] [class~='text-red-700'],
+:root[data-theme='dark'] [class~='text-red-800'],
+:root[data-theme='dark'] [class~='text-red-900'] {
+  color: #fda4af !important;
+}
+
+:root[data-theme='dark'] [class~='text-amber-600'],
+:root[data-theme='dark'] [class~='text-amber-700'],
+:root[data-theme='dark'] [class~='text-amber-800'],
+:root[data-theme='dark'] [class~='text-amber-900'],
+:root[data-theme='dark'] [class~='text-amber-950'],
+:root[data-theme='dark'] [class~='text-orange-600'],
+:root[data-theme='dark'] [class~='text-orange-700'],
+:root[data-theme='dark'] [class~='text-orange-800'],
+:root[data-theme='dark'] [class~='text-orange-900'] {
+  color: #fcd34d !important;
+}
+
+:root[data-theme='dark'] [class~='text-emerald-600'],
+:root[data-theme='dark'] [class~='text-emerald-700'],
+:root[data-theme='dark'] [class~='text-emerald-800'],
+:root[data-theme='dark'] [class~='text-emerald-900'],
+:root[data-theme='dark'] [class~='text-green-600'],
+:root[data-theme='dark'] [class~='text-green-700'],
+:root[data-theme='dark'] [class~='text-green-800'],
+:root[data-theme='dark'] [class~='text-green-900'] {
+  color: #6ee7b7 !important;
+}
+
+:root[data-theme='dark'] [class~='text-sky-600'],
+:root[data-theme='dark'] [class~='text-sky-700'],
+:root[data-theme='dark'] [class~='text-sky-800'],
+:root[data-theme='dark'] [class~='text-sky-900'],
+:root[data-theme='dark'] [class~='text-blue-600'],
+:root[data-theme='dark'] [class~='text-blue-700'],
+:root[data-theme='dark'] [class~='text-blue-800'],
+:root[data-theme='dark'] [class~='text-blue-900'],
+:root[data-theme='dark'] [class~='text-cyan-600'],
+:root[data-theme='dark'] [class~='text-cyan-700'],
+:root[data-theme='dark'] [class~='text-cyan-800'],
+:root[data-theme='dark'] [class~='text-cyan-900'] {
+  color: #7dd3fc !important;
+}
+
+:root[data-theme='dark'] [class~='text-violet-600'],
+:root[data-theme='dark'] [class~='text-violet-700'],
+:root[data-theme='dark'] [class~='text-violet-800'],
+:root[data-theme='dark'] [class~='text-violet-900'],
+:root[data-theme='dark'] [class~='text-indigo-600'],
+:root[data-theme='dark'] [class~='text-indigo-700'],
+:root[data-theme='dark'] [class~='text-indigo-800'],
+:root[data-theme='dark'] [class~='text-indigo-900'],
+:root[data-theme='dark'] [class~='text-purple-600'],
+:root[data-theme='dark'] [class~='text-purple-700'],
+:root[data-theme='dark'] [class~='text-purple-800'],
+:root[data-theme='dark'] [class~='text-purple-900'] {
+  color: #c4b5fd !important;
+}
+
+:root[data-theme='dark'] [class~='bg-rose-50'],
+:root[data-theme='dark'] [class~='bg-rose-50/40'],
+:root[data-theme='dark'] [class~='bg-rose-50/60'],
+:root[data-theme='dark'] [class~='bg-rose-100'],
+:root[data-theme='dark'] [class~='bg-rose-100/70'],
+:root[data-theme='dark'] [class~='bg-red-50'],
+:root[data-theme='dark'] [class~='bg-red-100'] {
+  background-color: #301d2a !important;
+}
+
+:root[data-theme='dark'] [class~='bg-amber-50'],
+:root[data-theme='dark'] [class~='bg-amber-50/40'],
+:root[data-theme='dark'] [class~='bg-amber-50/60'],
+:root[data-theme='dark'] [class~='bg-amber-50/70'],
+:root[data-theme='dark'] [class~='bg-amber-100'],
+:root[data-theme='dark'] [class~='bg-amber-100/70'],
+:root[data-theme='dark'] [class~='bg-amber-200'],
+:root[data-theme='dark'] [class~='bg-yellow-50'],
+:root[data-theme='dark'] [class~='bg-yellow-100'] {
+  background-color: #30291a !important;
+}
+
+:root[data-theme='dark'] [class~='bg-emerald-50'],
+:root[data-theme='dark'] [class~='bg-emerald-50/60'],
+:root[data-theme='dark'] [class~='bg-emerald-100'],
+:root[data-theme='dark'] [class~='bg-emerald-100/70'],
+:root[data-theme='dark'] [class~='bg-green-50'],
+:root[data-theme='dark'] [class~='bg-green-100'] {
+  background-color: #153027 !important;
+}
+
+:root[data-theme='dark'] [class~='bg-sky-50'],
+:root[data-theme='dark'] [class~='bg-sky-50/60'],
+:root[data-theme='dark'] [class~='bg-sky-100'],
+:root[data-theme='dark'] [class~='bg-sky-100/70'],
+:root[data-theme='dark'] [class~='bg-blue-50'],
+:root[data-theme='dark'] [class~='bg-blue-100'],
+:root[data-theme='dark'] [class~='bg-cyan-50'],
+:root[data-theme='dark'] [class~='bg-cyan-100'] {
+  background-color: #182d41 !important;
+}
+
+:root[data-theme='dark'] [class~='bg-violet-50'],
+:root[data-theme='dark'] [class~='bg-violet-50/40'],
+:root[data-theme='dark'] [class~='bg-violet-100'],
+:root[data-theme='dark'] [class~='bg-indigo-50'],
+:root[data-theme='dark'] [class~='bg-indigo-100'],
+:root[data-theme='dark'] [class~='bg-purple-50'],
+:root[data-theme='dark'] [class~='bg-purple-100'] {
+  background-color: #27243c !important;
+}
+
+:root[data-theme='dark'] [class~='border-rose-100'],
+:root[data-theme='dark'] [class~='border-rose-200'],
+:root[data-theme='dark'] [class~='border-rose-300'] {
+  border-color: #673849 !important;
+}
+
+:root[data-theme='dark'] [class~='border-amber-100'],
+:root[data-theme='dark'] [class~='border-amber-200'],
+:root[data-theme='dark'] [class~='border-amber-300'] {
+  border-color: #66542a !important;
+}
+
+:root[data-theme='dark'] [class~='border-emerald-100'],
+:root[data-theme='dark'] [class~='border-emerald-200'],
+:root[data-theme='dark'] [class~='border-green-100'],
+:root[data-theme='dark'] [class~='border-green-200'] {
+  border-color: #285b48 !important;
+}
+
+:root[data-theme='dark'] [class~='border-sky-100'],
+:root[data-theme='dark'] [class~='border-sky-200'],
+:root[data-theme='dark'] [class~='border-blue-100'],
+:root[data-theme='dark'] [class~='border-blue-200'] {
+  border-color: #31536e !important;
+}
+
+:root[data-theme='dark'] [class~='border-violet-100'],
+:root[data-theme='dark'] [class~='border-violet-200'],
+:root[data-theme='dark'] [class~='border-indigo-100'],
+:root[data-theme='dark'] [class~='border-indigo-200'] {
+  border-color: #4c426e !important;
+}

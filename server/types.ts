@@ -252,6 +252,20 @@ export interface JobHandoverRecord {
   canceledByRole?: string;
 }
 
+export interface ProfileAssignmentHandoverRecord {
+  id: string;
+  clientId: string;
+  division: JobDivision;
+  sentAt: string;
+  sentById: string;
+  sentByName: string;
+  sentByRole: string;
+  canceledAt?: string;
+  canceledById?: string;
+  canceledByName?: string;
+  canceledByRole?: string;
+}
+
 export interface JobHistoryItem {
   id: string;
   timestamp: string;
@@ -490,6 +504,7 @@ export interface DatabaseSchema {
   jobs: Job[];
   monthlyJobTemplates?: MonthlyJobTemplate[];
   handoverRecords?: JobHandoverRecord[];
+  profileAssignmentHandoverRecords?: ProfileAssignmentHandoverRecord[];
   notifications?: AppNotification[];
   cases: Case[];
   activities: DailyActivity[];
