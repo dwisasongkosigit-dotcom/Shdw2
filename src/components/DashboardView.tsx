@@ -547,7 +547,6 @@ export function DashboardView({
                 <th className="py-2.5 px-3 font-semibold text-center">Pekerjaan Berjalan</th>
                 <th className="py-2.5 px-3 font-semibold text-center">Siap Review SPV</th>
                 <th className="py-2.5 px-3 font-semibold text-center">Terlambat</th>
-                <th className="py-2.5 px-3 font-semibold text-right">Status Beban</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -570,17 +569,6 @@ export function DashboardView({
                     ) : (
                       <span className="text-slate-400">0</span>
                     )}
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    <span
-                      className={`inline-block px-2 py-0.5 rounded text-[11px] font-medium ${
-                        w.activeJobs > 4
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-slate-100 text-slate-700'
-                      }`}
-                    >
-                      {w.activeJobs > 4 ? 'Kapasitas Penuh' : 'Optimal'}
-                    </span>
                   </td>
                 </tr>
               ))}
