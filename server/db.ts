@@ -4,6 +4,7 @@ import { appState, backupSnapshots } from '../db/schema.ts';
 import { db as postgres } from '../db/index.ts';
 import { getInitialSeedData } from './seed.ts';
 import { hashPassword } from './auth.ts';
+import { calculateClientPicAssignmentStatus, SERVICE_RESPONSIBILITY_OPTIONS } from './types.ts';
 import initialData from '../data/tmm_bma_database.json' with { type: 'json' };
 import type { DatabaseSchema, BackupInfo, AuditLog } from './types.ts';
 
@@ -90,6 +91,8 @@ function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
 
   // Ensure PIC ownership and reviewer assignment fields exist on each client
   db.clients.forEach((c: any) => {
+    if (!SERVICE_RESPONSIBILITY_OPTIONS.includes(c.accountingServiceResponsibility)) c.accountingServiceResponsibility = 'Tim 3';
+    if (!SERVICE_RESPONSIBILITY_OPTIONS.includes(c.taxServiceResponsibility)) c.taxServiceResponsibility = 'Tim 3';
     if (!c.version) c.version = 1;
     if (!c.picHistory) c.picHistory = [];
     if (!c.suggestions) c.suggestions = [];
@@ -110,16 +113,7 @@ function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
     if (!c.taxSpvId) c.taxSpvId = 'USR-SPV-TAX';
     if (!c.taxSpvName) c.taxSpvName = 'Ratna Kartika, SE, BKP';
 
-    // Verification of completeness: all 4 must be valid non-empty
-    const accountingOwner = c.accountingSpvIsPic ? c.accountingSpvName : c.accountingStaffPicName;
-    const taxOwner = c.taxSpvIsPic ? c.taxSpvName : c.taxStaffPicName;
-    const isComplete =
-      Boolean(accountingOwner && accountingOwner !== '-' && accountingOwner.trim()) &&
-      Boolean(taxOwner && taxOwner !== '-' && taxOwner.trim()) &&
-      Boolean(c.accountingSpvName && c.accountingSpvName !== '-' && c.accountingSpvName.trim()) &&
-      Boolean(c.taxSpvName && c.taxSpvName !== '-' && c.taxSpvName.trim());
-
-    c.picAssignmentStatus = isComplete ? 'Lengkap' : 'Belum Lengkap';
+    c.picAssignmentStatus = calculateClientPicAssignmentStatus(c);
 
     // Synchronize backward-compat fields
     c.accountingPicId = c.accountingSpvIsPic ? c.accountingSpvId : c.accountingStaffPicId;
@@ -130,8 +124,17 @@ function upgradeSchema(db: DatabaseSchema): DatabaseSchema {
     c.spvName = c.accountingSpvName;
   });
 
-  // Ensure job versions
+  // Preserve existing jobs as Tim 3 work unless they inherit a client-level assignment.
+  const serviceResponsibilityByClientId = new Map<string, Record<string, string>>(
+    db.clients.map((client: any) => [client.id, {
+      Accounting: client.accountingServiceResponsibility || 'Tim 3',
+      Tax: client.taxServiceResponsibility || 'Tim 3',
+    }] as [string, Record<string, string>])
+  );
   db.jobs.forEach((j: any) => {
+    if (!SERVICE_RESPONSIBILITY_OPTIONS.includes(j.serviceResponsibility)) {
+      j.serviceResponsibility = serviceResponsibilityByClientId.get(j.clientId)?.[j.division] || 'Tim 3';
+    }
     if (!j.version) j.version = 1;
   });
 
