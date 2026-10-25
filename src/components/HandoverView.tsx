@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Ban, CheckCircle2, ClipboardCheck, Clock3, LockKeyhole, Search, Send, Undo2, X } from 'lucide-react';
+import { Ban, CheckCircle2, ClipboardCheck, LockKeyhole, Search, Undo2, X } from 'lucide-react';
 import {
   api,
   type CurrentUser,
@@ -29,13 +29,10 @@ type HandoverExportRow = {
   picName: string;
   spvName: string;
   jobStatus: string;
-  reviewedAt: string;
-  direction: string;
-  handoverStatus: string;
-  sentAt: string;
-  sentBy: string;
-  canceledAt: string;
-  canceledBy: string;
+  staffToClient: string;
+  spvToClient: string;
+  taxToAccounting: string;
+  taxToClient: string;
 };
 
 const HANDOVER_OPTIONS: Array<{
@@ -49,6 +46,28 @@ const HANDOVER_OPTIONS: Array<{
   { direction: 'tax-to-accounting', label: 'Tim Tax → Accounting', helper: 'Konfirmasi data tim Tax telah diserahkan ke Accounting.', taxOnly: true },
   { direction: 'tax-to-client', label: 'Tim Tax → Klien', helper: 'Konfirmasi data tim Tax telah disampaikan kepada klien.', taxOnly: true },
 ];
+
+const HANDOVER_EXPORT_COLUMNS: ColumnDef<HandoverExportRow>[] = [
+  { header: 'No', key: 'number', width: 7, align: 'center' },
+  { header: 'ID Job', key: 'jobId', width: 18, align: 'center' },
+  { header: 'Nama Klien', key: 'clientName', width: 28 },
+  { header: 'Divisi', key: 'division', width: 14, align: 'center' },
+  { header: 'Judul Pekerjaan', key: 'title', width: 38 },
+  { header: 'PIC', key: 'picName', width: 24 },
+  { header: 'SPV Reviewer', key: 'spvName', width: 24 },
+  { header: 'Status Job', key: 'jobStatus', width: 18 },
+  { header: 'Staff → Klien', key: 'staffToClient', width: 42 },
+  { header: 'SPV → Klien', key: 'spvToClient', width: 42 },
+  { header: 'Tim Tax → Accounting', key: 'taxToAccounting', width: 42 },
+  { header: 'Tim Tax → Klien', key: 'taxToClient', width: 42 },
+];
+
+const HANDOVER_EXPORT_KEY: Record<JobHandoverDirection, keyof HandoverExportRow> = {
+  'staff-to-client': 'staffToClient',
+  'spv-to-client': 'spvToClient',
+  'tax-to-accounting': 'taxToAccounting',
+  'tax-to-client': 'taxToClient',
+};
 
 function canViewJob(job: Job, currentUser: CurrentUser) {
   if (currentUser.role === 'Admin' || currentUser.role === 'Owner' || currentUser.role === 'Manager') return true;
@@ -98,6 +117,106 @@ function formatJakartaDateTime(value?: string) {
         dateStyle: 'medium',
         timeStyle: 'short',
       }).format(date);
+}
+
+function getChecklistExportValue(
+  job: Job,
+  option: (typeof HANDOVER_OPTIONS)[number],
+  record: JobHandoverRecord | undefined,
+  canceledRecord: JobHandoverRecord | undefined
+) {
+  if (option.taxOnly && job.division !== 'Tax') return '— Tidak berlaku';
+  if (record) return `✓ Terkirim · ${formatJakartaDateTime(record.sentAt)} · ${record.sentByName}`;
+  if (canceledRecord) {
+    return `☐ Dibatalkan · ${formatJakartaDateTime(canceledRecord.canceledAt)} · ${canceledRecord.canceledByName || '—'}`;
+  }
+  return job.status === 'Selesai' ? '☐ Belum dicatat' : '— Menunggu review SPV';
+}
+
+function HandoverChecklistCell({
+  job,
+  option,
+  record,
+  canceledRecord,
+  canRecord,
+  saving,
+  busy,
+  canCancel,
+  onRecord,
+  onCancel,
+}: {
+  job: Job;
+  option: (typeof HANDOVER_OPTIONS)[number];
+  record?: JobHandoverRecord;
+  canceledRecord?: JobHandoverRecord;
+  canRecord: boolean;
+  saving: boolean;
+  busy: boolean;
+  canCancel: boolean;
+  onRecord: (job: Job, direction: JobHandoverDirection) => void;
+  onCancel: (job: Job, record: JobHandoverRecord) => void;
+}) {
+  const isReviewed = job.status === 'Selesai';
+  const disabled = !isReviewed || Boolean(record) || !canRecord || busy;
+  const status = record
+    ? 'Terkirim'
+    : canceledRecord
+      ? 'Dibatalkan'
+      : saving
+        ? 'Menyimpan…'
+        : !isReviewed
+          ? 'Menunggu review SPV'
+          : canRecord
+            ? 'Belum dicatat'
+            : 'Menunggu pengirim yang ditugaskan';
+  const checkboxId = `handover-${job.id}-${option.direction}`;
+
+  return (
+    <td className="min-w-52 border-b border-slate-100 px-3 py-3 align-top">
+      <div className="flex min-w-44 flex-col gap-1.5">
+        <label htmlFor={checkboxId} className={`inline-flex w-fit items-center gap-2 text-xs font-semibold ${disabled ? 'cursor-default' : 'cursor-pointer'}`}>
+          <input
+            id={checkboxId}
+            type="checkbox"
+            checked={Boolean(record)}
+            disabled={disabled}
+            onChange={(event) => {
+              if (event.target.checked) onRecord(job, option.direction);
+            }}
+            aria-label={`Catat ${option.label} untuk ${job.title}`}
+            className="size-4 shrink-0 accent-amber-600 disabled:cursor-not-allowed"
+          />
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+            record ? 'bg-emerald-50 text-emerald-800' : canceledRecord ? 'bg-rose-50 text-rose-800' : isReviewed ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-800'
+          }`}>
+            {status}
+          </span>
+        </label>
+        {record ? (
+          <p className="text-[10px] leading-4 text-slate-500">
+            {formatDate(record.sentAt)} · {record.sentByName}
+          </p>
+        ) : canceledRecord ? (
+          <p className="text-[10px] leading-4 text-slate-500">
+            {formatDate(canceledRecord.sentAt)} · dibatalkan {formatDate(canceledRecord.canceledAt || '')} oleh {canceledRecord.canceledByName || 'pengguna'}
+          </p>
+        ) : (
+          <p className="text-[10px] leading-4 text-slate-500">
+            {saving ? 'Menyimpan catatan serah terima…' : !isReviewed ? 'Checklist aktif setelah review SPV.' : canRecord ? option.helper : 'Hanya pengirim yang ditugaskan dapat mencatat.'}
+          </p>
+        )}
+        {record && canCancel && (
+          <button
+            type="button"
+            onClick={() => onCancel(job, record)}
+            className="inline-flex min-h-8 w-fit items-center gap-1 rounded-lg border border-rose-200 px-2 text-[10px] font-semibold text-rose-700 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+          >
+            <Undo2 className="size-3" /> Batalkan
+          </button>
+        )}
+      </div>
+    </td>
+  );
 }
 
 export function HandoverView({ jobs, clients, records, currentUser, onRefresh }: HandoverViewProps) {
@@ -153,6 +272,17 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     });
     return [...periods].filter(Boolean).sort((a, b) => b.localeCompare(a));
   }, [visibleJobs, visibleRecords]);
+  const visibleChecklistOptions = useMemo(
+    () => HANDOVER_OPTIONS.filter((option) => directionFilter === 'All' || option.direction === directionFilter),
+    [directionFilter]
+  );
+  const handoverExportColumns = useMemo(() => {
+    const selectedKeys = new Set(visibleChecklistOptions.map((option) => HANDOVER_EXPORT_KEY[option.direction]));
+    return HANDOVER_EXPORT_COLUMNS.filter((column) => {
+      const isChecklistColumn = Object.values(HANDOVER_EXPORT_KEY).includes(column.key as keyof HandoverExportRow);
+      return !isChecklistColumn || selectedKeys.has(column.key as keyof HandoverExportRow);
+    });
+  }, [visibleChecklistOptions]);
 
   const filteredJobs = useMemo(() => visibleJobs.filter((job) => {
     if (clientFilter !== 'All' && job.clientId !== clientFilter) return false;
@@ -182,8 +312,9 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     )) return false;
     if (periodFilter !== 'All') {
       const hasActiveRecordInPeriod = jobRecords.some((record) => record?.sentAt.startsWith(periodFilter));
-      const hasCanceledRecordInPeriod = jobHistory.some((record) =>
+          const hasCanceledRecordInPeriod = jobHistory.some((record) =>
         Boolean(record.canceledAt) &&
+        (directionFilter === 'All' || record.direction === directionFilter) &&
         (record.sentAt.startsWith(periodFilter) || record.canceledAt?.startsWith(periodFilter))
       );
       if (!job.createdAt.startsWith(periodFilter) && !job.completedAt?.startsWith(periodFilter) && !hasActiveRecordInPeriod && !hasCanceledRecordInPeriod) return false;
@@ -201,62 +332,40 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
     periodFilter,
   ]);
 
-  const handoverExportRows = useMemo(() => {
-    const rows: HandoverExportRow[] = [];
-    filteredJobs.forEach((job) => {
-      const options = HANDOVER_OPTIONS.filter((option) =>
-        (!option.taxOnly || job.division === 'Tax') &&
-        (directionFilter === 'All' || option.direction === directionFilter)
-      );
-      options.forEach((option) => {
-        const key = `${job.id}:${option.direction}`;
-        const record = recordByKey.get(key);
-        const canceledRecord = canceledRecordByKey.get(key);
-        rows.push({
-          number: rows.length + 1,
-          jobId: job.id,
-          clientName: job.clientName,
-          division: job.division,
-          title: job.title,
-          picName: job.picName,
-          spvName: job.spvName,
-          jobStatus: job.status,
-          reviewedAt: formatJakartaDateTime(job.completedAt),
-          direction: option.label,
-          handoverStatus: record
-            ? 'Terkirim / diserahkan'
-            : canceledRecord
-              ? 'Dibatalkan · dapat dicatat ulang'
-              : job.status === 'Selesai'
-                ? 'Belum dicatat'
-                : 'Menunggu review SPV',
-          sentAt: formatJakartaDateTime((record || canceledRecord)?.sentAt),
-          sentBy: (record || canceledRecord)?.sentByName || '-',
-          canceledAt: formatJakartaDateTime(canceledRecord?.canceledAt),
-          canceledBy: canceledRecord?.canceledByName || '-',
-        });
-      });
-    });
-    return rows;
-  }, [filteredJobs, directionFilter, recordByKey, canceledRecordByKey]);
-
-  const handoverExportColumns: ColumnDef<HandoverExportRow>[] = [
-    { header: 'No', key: 'number', width: 7, align: 'center' },
-    { header: 'ID Job', key: 'jobId', width: 18, align: 'center' },
-    { header: 'Nama Klien', key: 'clientName', width: 28 },
-    { header: 'Divisi', key: 'division', width: 14, align: 'center' },
-    { header: 'Judul Pekerjaan', key: 'title', width: 38 },
-    { header: 'PIC', key: 'picName', width: 24 },
-    { header: 'SPV Reviewer', key: 'spvName', width: 24 },
-    { header: 'Status Job', key: 'jobStatus', width: 18 },
-    { header: 'Review Selesai (WIB)', key: 'reviewedAt', width: 24 },
-    { header: 'Tujuan Serah Terima', key: 'direction', width: 25 },
-    { header: 'Status Serah Terima', key: 'handoverStatus', width: 30 },
-    { header: 'Waktu Dicatat (WIB)', key: 'sentAt', width: 24 },
-    { header: 'Dicatat Oleh', key: 'sentBy', width: 24 },
-    { header: 'Waktu Pembatalan (WIB)', key: 'canceledAt', width: 24 },
-    { header: 'Dibatalkan Oleh', key: 'canceledBy', width: 24 },
-  ];
+  const handoverExportRows = useMemo(() => filteredJobs.map((job, index) => ({
+    number: index + 1,
+    jobId: job.id,
+    clientName: job.clientName,
+    division: job.division,
+    title: job.title,
+    picName: job.picName,
+    spvName: job.spvName,
+    jobStatus: job.status,
+    staffToClient: getChecklistExportValue(
+      job,
+      HANDOVER_OPTIONS[0],
+      recordByKey.get(`${job.id}:staff-to-client`),
+      canceledRecordByKey.get(`${job.id}:staff-to-client`)
+    ),
+    spvToClient: getChecklistExportValue(
+      job,
+      HANDOVER_OPTIONS[1],
+      recordByKey.get(`${job.id}:spv-to-client`),
+      canceledRecordByKey.get(`${job.id}:spv-to-client`)
+    ),
+    taxToAccounting: getChecklistExportValue(
+      job,
+      HANDOVER_OPTIONS[2],
+      recordByKey.get(`${job.id}:tax-to-accounting`),
+      canceledRecordByKey.get(`${job.id}:tax-to-accounting`)
+    ),
+    taxToClient: getChecklistExportValue(
+      job,
+      HANDOVER_OPTIONS[3],
+      recordByKey.get(`${job.id}:tax-to-client`),
+      canceledRecordByKey.get(`${job.id}:tax-to-client`)
+    ),
+  })), [filteredJobs, recordByKey, canceledRecordByKey]);
 
   const summaryJobs = useMemo(() => visibleJobs.filter((job) => {
     if (clientFilter !== 'All' && job.clientId !== clientFilter) return false;
@@ -463,83 +572,98 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {filteredJobs.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-12 text-center">
+          <div className="px-5 py-12 text-center">
             <ClipboardCheck className="mx-auto size-8 text-slate-300" />
             <h2 className="mt-3 text-sm font-semibold text-slate-800">Tidak ada job yang cocok</h2>
             <p className="mt-1 text-xs text-slate-500">Ubah filter klien, tujuan, periode, atau pencarian.</p>
           </div>
-        ) : filteredJobs.map((job) => {
-          const options = HANDOVER_OPTIONS.filter((option) => (!option.taxOnly || job.division === 'Tax') && (directionFilter === 'All' || option.direction === directionFilter));
-          const doneCount = options.filter((option) => recordByKey.has(`${job.id}:${option.direction}`)).length;
-          const isReviewed = job.status === 'Selesai';
-          return (
-            <article key={job.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-start sm:justify-between sm:p-5">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-[11px] font-bold text-slate-500">{job.id}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${job.division === 'Tax' ? 'bg-amber-50 text-amber-800' : 'bg-sky-50 text-sky-800'}`}>{job.division}</span>
-                    {isReviewed ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800"><CheckCircle2 className="size-3" /> Review selesai</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600"><LockKeyhole className="size-3" /> Menunggu review SPV</span>
-                    )}
-                  </div>
-                  <h2 className="mt-1.5 truncate text-sm font-bold text-slate-900">{job.title}</h2>
-                  <p className="mt-1 truncate text-xs text-slate-600">{job.clientName} <span className="px-1 text-slate-300">·</span> PIC {job.picName} <span className="px-1 text-slate-300">·</span> SPV {job.spvName}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2 text-[11px] text-slate-500">
-                  {isReviewed ? <><Clock3 className="size-3.5" /><span>Review: {job.completedAt ? formatDate(job.completedAt) : 'Selesai'}</span></> : <><LockKeyhole className="size-3.5" /><span>Checklist terkunci</span></>}
-                </div>
-              </div>
+        ) : (
+          <div className="overflow-x-auto" role="region" aria-label="Tabel checklist rekap serah terima" tabIndex={0}>
+            <table className="w-full min-w-[1480px] border-collapse text-left text-xs">
+              <caption className="sr-only">Checklist serah terima per job. Centang terisi otomatis dari catatan serah terima yang tersimpan.</caption>
+              <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th scope="col" className="sticky left-0 z-20 w-10 border-b border-slate-200 bg-slate-50 px-3 py-3 text-center">No</th>
+                  <th scope="col" className="sticky left-10 z-20 w-64 border-b border-slate-200 bg-slate-50 px-3 py-3">Job / Klien</th>
+                  <th scope="col" className="w-48 border-b border-slate-200 px-3 py-3">PIC / SPV</th>
+                  <th scope="col" className="w-40 border-b border-slate-200 px-3 py-3">Status Review</th>
+                  {visibleChecklistOptions.map((option) => (
+                    <th key={option.direction} scope="col" className="w-56 border-b border-slate-200 px-3 py-3">{option.label}</th>
+                  ))}
+                  <th scope="col" className="w-32 border-b border-slate-200 px-3 py-3 text-center">Progres</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredJobs.map((job, index) => {
+                  const jobOptions = visibleChecklistOptions.filter((option) => !option.taxOnly || job.division === 'Tax');
+                  const doneCount = jobOptions.filter((option) => recordByKey.has(`${job.id}:${option.direction}`)).length;
+                  const isReviewed = job.status === 'Selesai';
 
-              <div className="divide-y divide-slate-100">
-                {options.length === 0 ? (
-                  <p className="px-5 py-4 text-xs text-slate-500">Tidak ada tujuan serah terima untuk divisi ini.</p>
-                ) : options.map((option) => {
-                  const key = `${job.id}:${option.direction}`;
-                  const record = recordByKey.get(key);
-                  const canceledRecord = canceledRecordByKey.get(key);
-                  const canRecord = canRecordDirection(job, option.direction, currentUser);
-                  const canCancel = Boolean(record && canCancelHandover(job, record, currentUser));
-                  const disabled = !isReviewed || Boolean(record) || !canRecord || Boolean(savingKey);
-                  const checkboxId = `handover-${job.id}-${option.direction}`;
                   return (
-                    <div key={option.direction} className="flex items-start gap-3 px-4 py-3.5 transition-colors sm:px-5">
-                      <input id={checkboxId} type="checkbox" checked={Boolean(record)} disabled={disabled} onChange={(event) => { if (event.target.checked) void handleRecordHandover(job, option.direction); }} aria-label={`Catat ${option.label} untuk ${job.title}`} className="mt-0.5 size-4 shrink-0 accent-amber-600 disabled:cursor-not-allowed" />
-                      <div className="min-w-0 flex-1">
-                        <label htmlFor={checkboxId} className={`flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-800 ${disabled ? 'cursor-default' : 'cursor-pointer'}`}>
-                          {option.label}<ArrowRight className="size-3 text-slate-400" />
-                          {record ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">Terkirim</span> : canceledRecord ? <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-800">Dibatalkan · bisa dicatat ulang</span> : !isReviewed ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">Aktif setelah review</span> : !canRecord ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">Menunggu pengirim yang ditugaskan</span> : savingKey === key ? <span className="text-[10px] text-amber-700">Menyimpan...</span> : <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700"><Send className="size-3" /> Konfirmasi pengiriman</span>}
-                        </label>
-                        <p className="mt-1 text-[11px] leading-4 text-slate-500">
-                          {record
-                            ? `${formatDate(record.sentAt)} · Dicatat oleh ${record.sentByName} (${record.sentByRole})`
-                            : canceledRecord
-                              ? `${formatDate(canceledRecord.sentAt)} · Awalnya dicatat oleh ${canceledRecord.sentByName}; dibatalkan ${formatDate(canceledRecord.canceledAt || '')} oleh ${canceledRecord.canceledByName || 'pengguna'}.`
-                              : option.helper}
-                        </p>
-                        {record && canCancel && (
-                          <button type="button" onClick={() => setCancelTarget({ job, record })} disabled={Boolean(cancelingRecordId)} className="mt-2 inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-rose-200 px-2.5 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50">
-                            <Undo2 className="size-3.5" /> Batalkan catatan
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                    <tr key={job.id} className="group hover:bg-slate-50/70">
+                      <td className="sticky left-0 z-[1] border-b border-slate-100 bg-white px-3 py-3 text-center font-mono text-[10px] text-slate-400 group-hover:bg-slate-50">{index + 1}</td>
+                      <td className="sticky left-10 z-[1] border-b border-slate-100 bg-white px-3 py-3 group-hover:bg-slate-50">
+                        <div className="flex min-w-56 flex-col gap-1">
+                          <span className="font-mono text-[10px] font-semibold text-slate-500">{job.id}</span>
+                          <span className="max-w-64 truncate text-xs font-semibold text-slate-900" title={job.title}>{job.title}</span>
+                          <span className="flex items-center gap-1.5 truncate text-[10px] text-slate-500">
+                            <span className={`rounded-full px-1.5 py-0.5 font-semibold ${job.division === 'Tax' ? 'bg-amber-50 text-amber-800' : 'bg-sky-50 text-sky-800'}`}>{job.division}</span>
+                            <span className="truncate" title={job.clientName}>{job.clientName}</span>
+                          </span>
+                        </div>
+                      </td>
+                      <td className="border-b border-slate-100 px-3 py-3">
+                        <div className="flex flex-col gap-1 text-[10px] text-slate-600">
+                          <span className="truncate" title={job.picName}>PIC · {job.picName}</span>
+                          <span className="truncate" title={job.spvName}>SPV · {job.spvName}</span>
+                        </div>
+                      </td>
+                      <td className="border-b border-slate-100 px-3 py-3">
+                        <div className="flex flex-col gap-1">
+                          <span className={`inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${isReviewed ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+                            {isReviewed ? <CheckCircle2 className="size-3" /> : <LockKeyhole className="size-3" />}
+                            {isReviewed ? 'Review selesai' : 'Menunggu SPV'}
+                          </span>
+                          {isReviewed && job.completedAt && <span className="text-[10px] text-slate-500">{formatDate(job.completedAt)}</span>}
+                        </div>
+                      </td>
+                      {visibleChecklistOptions.map((option) => {
+                        if (option.taxOnly && job.division !== 'Tax') {
+                          return <td key={option.direction} className="border-b border-slate-100 px-3 py-3 text-center text-slate-300">—</td>;
+                        }
+                        const key = `${job.id}:${option.direction}`;
+                        const record = recordByKey.get(key);
+                        const canceledRecord = canceledRecordByKey.get(key);
+                        return (
+                          <HandoverChecklistCell
+                            key={option.direction}
+                            job={job}
+                            option={option}
+                            record={record}
+                            canceledRecord={canceledRecord}
+                            canRecord={canRecordDirection(job, option.direction, currentUser)}
+                            saving={savingKey === key}
+                            busy={Boolean(savingKey)}
+                            canCancel={Boolean(record && canCancelHandover(job, record, currentUser))}
+                            onRecord={(targetJob, direction) => void handleRecordHandover(targetJob, direction)}
+                            onCancel={(targetJob, targetRecord) => setCancelTarget({ job: targetJob, record: targetRecord })}
+                          />
+                        );
+                      })}
+                      <td className="border-b border-slate-100 px-3 py-3 text-center">
+                        <span className={`rounded-full px-2 py-1 text-[10px] font-bold tabular-nums ${doneCount === jobOptions.length ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+                          {doneCount} / {jobOptions.length}
+                        </span>
+                      </td>
+                    </tr>
                   );
                 })}
-              </div>
-              {isReviewed && options.length > 0 && (
-                <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-4 py-2.5 text-[10px] text-slate-500 sm:px-5">
-                  <span>{doneCount} dari {options.length} tujuan dicatat</span>
-                  <span>{doneCount === options.length ? 'Serah terima lengkap' : 'Tanggal dan pengirim tersimpan otomatis saat dicentang'}</span>
-                </div>
-              )}
-            </article>
-          );
-        })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </section>
 
