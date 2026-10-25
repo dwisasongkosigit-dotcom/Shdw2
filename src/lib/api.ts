@@ -168,6 +168,7 @@ export type JobHandoverDestination = 'client' | 'internal';
 
 export type ActiveJobHandoverDirection =
   | 'staff-to-client'
+  | 'spv-pic-to-client'
   | 'accounting-to-tax'
   | 'tax-to-accounting';
 

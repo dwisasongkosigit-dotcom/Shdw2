@@ -33,6 +33,7 @@ type HandoverExportRow = {
   handoverDestinations: string;
   jobStatus: string;
   staffToClient: string;
+  spvPicToClient: string;
   accountingToTax: string;
   taxToAccounting: string;
 };
@@ -42,13 +43,15 @@ const HANDOVER_OPTIONS: Array<{
   label: string;
   helper: string;
 }> = [
-  { direction: 'staff-to-client', label: 'PIC → Klien', helper: 'PIC staff mencatat laporan yang sudah disampaikan ke klien.' },
+  { direction: 'staff-to-client', label: 'PIC staff → Klien', helper: 'PIC staff yang ditugaskan mencatat laporan yang sudah disampaikan ke klien.' },
+  { direction: 'spv-pic-to-client', label: 'PIC SPV → Klien', helper: 'SPV yang ditugaskan sebagai PIC mencatat laporan yang sudah disampaikan ke klien.' },
   { direction: 'accounting-to-tax', label: 'Accounting → Tax', helper: 'PIC Accounting mencatat penyerahan pekerjaan ke tim Tax.' },
   { direction: 'tax-to-accounting', label: 'Tax → Accounting', helper: 'PIC Tax mencatat penyerahan pekerjaan ke tim Accounting.' },
 ];
 
 const HANDOVER_DIRECTION_LABELS: Record<JobHandoverDirection, string> = {
-  'staff-to-client': 'PIC → Klien',
+  'staff-to-client': 'PIC staff → Klien',
+  'spv-pic-to-client': 'PIC SPV → Klien',
   'accounting-to-tax': 'Accounting → Tax',
   'tax-to-accounting': 'Tax → Accounting',
   'staff-to-internal': 'PIC → Internal (format lama)',
@@ -58,6 +61,10 @@ const HANDOVER_DIRECTION_LABELS: Record<JobHandoverDirection, string> = {
 };
 
 const ACTIVE_HANDOVER_DIRECTIONS = new Set<JobHandoverDirection>(HANDOVER_OPTIONS.map((option) => option.direction));
+
+function isSpvPicForDivision(client: Client | undefined, division: Job['division']) {
+  return division === 'Accounting' ? client?.accountingSpvIsPic === true : client?.taxSpvIsPic === true;
+}
 
 function getHandoverDirectionLabel(direction: JobHandoverDirection) {
   return HANDOVER_DIRECTION_LABELS[direction];
@@ -74,13 +81,15 @@ const HANDOVER_EXPORT_COLUMNS: ColumnDef<HandoverExportRow>[] = [
   { header: 'Tanggung Jawab', key: 'serviceResponsibility', width: 24 },
   { header: 'Tujuan Serah Terima', key: 'handoverDestinations', width: 24 },
   { header: 'Status Job', key: 'jobStatus', width: 18 },
-  { header: 'PIC → Klien', key: 'staffToClient', width: 42 },
+  { header: 'PIC staff → Klien', key: 'staffToClient', width: 42 },
+  { header: 'PIC SPV → Klien', key: 'spvPicToClient', width: 42 },
   { header: 'Accounting → Tax', key: 'accountingToTax', width: 42 },
   { header: 'Tax → Accounting', key: 'taxToAccounting', width: 42 },
 ];
 
 const HANDOVER_EXPORT_KEY: Record<ActiveJobHandoverDirection, keyof HandoverExportRow> = {
   'staff-to-client': 'staffToClient',
+  'spv-pic-to-client': 'spvPicToClient',
   'accounting-to-tax': 'accountingToTax',
   'tax-to-accounting': 'taxToAccounting',
 };
@@ -88,12 +97,14 @@ const HANDOVER_EXPORT_KEY: Record<ActiveJobHandoverDirection, keyof HandoverExpo
 function canViewJob(job: Job, currentUser: CurrentUser) {
   if (currentUser.role === 'Admin' || currentUser.role === 'Owner' || currentUser.role === 'Manager') return true;
   if (currentUser.role === `Staff ${job.division}`) return job.picId === currentUser.id;
-  if (currentUser.role === `SPV ${job.division}`) return job.spvId === currentUser.id;
+  if (currentUser.role === `SPV ${job.division}`) return job.spvId === currentUser.id || job.picId === currentUser.id;
   return false;
 }
 
 function isDirectionApplicable(job: Job, direction: JobHandoverDirection, client?: Client) {
   if ((job.serviceResponsibility || 'Tim 3') !== 'Tim 3') return false;
+  if (direction === 'staff-to-client') return !isSpvPicForDivision(client, job.division);
+  if (direction === 'spv-pic-to-client') return isSpvPicForDivision(client, job.division);
   if (direction === 'accounting-to-tax') {
     return job.division === 'Accounting' && (client?.taxServiceResponsibility || 'Tim 3') === 'Tim 3';
   }
@@ -124,19 +135,30 @@ function getConfiguredDestinationLabel(job: Job, client?: Client) {
     .filter((option) => isDirectionRequired(job, option.direction, client))
     .map((option) => option.direction === 'staff-to-client'
       ? 'Klien (PIC staff)'
-      : `${job.division} → ${job.division === 'Accounting' ? 'Tax' : 'Accounting'}`));
+      : option.direction === 'spv-pic-to-client'
+        ? 'Klien (PIC SPV)'
+        : `${job.division} → ${job.division === 'Accounting' ? 'Tax' : 'Accounting'}`));
   return destinations.size ? [...destinations].join(' + ') : 'Tidak diperlukan';
 }
 
 function canRecordDirection(job: Job, direction: ActiveJobHandoverDirection, currentUser: CurrentUser, client?: Client) {
   if (job.status !== 'Selesai' || !isDirectionRequired(job, direction, client)) return false;
   if (currentUser.role === 'Admin') return true;
-  return currentUser.role === `Staff ${job.division}` && job.picId === currentUser.id;
+  const isSpvPic = isSpvPicForDivision(client, job.division);
+  const assignedPicRole = isSpvPic ? `SPV ${job.division}` : `Staff ${job.division}`;
+  const matchesDirectionRole = direction === 'spv-pic-to-client'
+    ? isSpvPic && currentUser.role === `SPV ${job.division}`
+    : direction === 'staff-to-client'
+      ? !isSpvPic && currentUser.role === `Staff ${job.division}`
+      : currentUser.role === assignedPicRole;
+  return matchesDirectionRole && job.picId === currentUser.id;
 }
 
-function canCancelHandover(record: JobHandoverRecord, currentUser: CurrentUser) {
-  return currentUser.role === 'Admin' ||
-    (!currentUser.role.startsWith('SPV') && record.sentById === currentUser.id);
+function canCancelHandover(record: JobHandoverRecord, currentUser: CurrentUser, job: Job) {
+  if (currentUser.role === 'Admin') return true;
+  if (record.sentById !== currentUser.id) return false;
+  return !currentUser.role.startsWith('SPV') ||
+    (currentUser.role === `SPV ${job.division}` && job.picId === currentUser.id);
 }
 
 function formatDate(value: string) {
@@ -163,7 +185,8 @@ function getChecklistExportValue(
   direction: ActiveJobHandoverDirection,
   record: JobHandoverRecord | undefined,
   canceledRecord: JobHandoverRecord | undefined,
-  applicable: boolean
+  applicable: boolean,
+  client?: Client
 ) {
   if (!applicable && !record && !canceledRecord) return '— Tidak berlaku';
   if (record) return `✓ Terkirim · ${formatJakartaDateTime(record.sentAt)} · ${record.sentByName}`;
@@ -171,7 +194,7 @@ function getChecklistExportValue(
     return `☐ Dibatalkan · ${formatJakartaDateTime(canceledRecord.canceledAt)} · ${canceledRecord.canceledByName || '—'}`;
   }
   if (!isHandoverConfigured(job)) return '— Tujuan belum diatur';
-  if (!isDirectionRequired(job, direction)) return '— Tidak diminta';
+  if (!isDirectionRequired(job, direction, client)) return '— Tidak diminta';
   return job.status === 'Selesai' ? '☐ Belum dicatat' : '— Menunggu review SPV';
 }
 
@@ -219,9 +242,9 @@ function HandoverChecklistCell({
         ? 'Menyimpan…'
         : !isReviewed
           ? 'Menunggu review SPV'
-          : canRecord
-            ? 'Belum dicatat'
-            : 'Menunggu PIC staff yang ditugaskan';
+              : canRecord
+                ? 'Belum dicatat'
+                : 'Menunggu PIC yang ditugaskan';
   const checkboxId = `handover-${job.id}-${option.direction}`;
 
   return (
@@ -256,7 +279,7 @@ function HandoverChecklistCell({
           </p>
         ) : (
           <p className="text-[10px] leading-4 text-slate-500">
-            {saving ? 'Menyimpan catatan serah terima…' : !isReviewed ? 'Checklist aktif setelah review SPV.' : canRecord ? option.helper : 'Hanya PIC staff yang ditugaskan dapat mencatat; SPV hanya melihat.'}
+            {saving ? 'Menyimpan catatan serah terima…' : !isReviewed ? 'Checklist aktif setelah review SPV.' : canRecord ? option.helper : 'Hanya PIC yang ditugaskan dapat mencatat; SPV lain hanya melihat.'}
           </p>
         )}
         {record && canCancel && (
@@ -400,7 +423,8 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
       direction,
       recordByKey.get(`${job.id}:${direction}`),
       canceledRecordByKey.get(`${job.id}:${direction}`),
-      isDirectionApplicable(job, direction, client)
+      isDirectionApplicable(job, direction, client),
+      client
     );
     return {
       number: index + 1,
@@ -414,6 +438,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
       handoverDestinations: getConfiguredDestinationLabel(job, client),
       jobStatus: job.status,
       staffToClient: exportValue('staff-to-client'),
+      spvPicToClient: exportValue('spv-pic-to-client'),
       accountingToTax: exportValue('accounting-to-tax'),
       taxToAccounting: exportValue('tax-to-accounting'),
     };
@@ -556,7 +581,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
         </div>
         <div>
           <h1 id="handover-page-title" className="text-lg font-bold tracking-tight text-slate-900">Rekap Serah Terima</h1>
-          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-600">PIC staff mencatat serah ke klien atau perpindahan Accounting ↔ Tax setelah review selesai; SPV hanya melihat status dan riwayat. Catatan lama dan pembatalan tetap tersimpan; penghapusan permanen tersedia untuk Admin.</p>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-600">PIC yang ditugaskan mencatat serah ke klien atau perpindahan Accounting ↔ Tax setelah review selesai; bila SPV menjadi PIC klien, SPV PIC tersebut juga dapat mencatat. Catatan lama dan pembatalan tetap tersimpan; penghapusan permanen tersedia untuk Admin.</p>
         </div>
       </div>
 
@@ -753,7 +778,7 @@ export function HandoverView({ jobs, clients, records, currentUser, onRefresh }:
                           canRecord={canRecordDirection(job, option.direction, currentUser, client)}
                           saving={savingKey === key}
                           busy={Boolean(savingKey)}
-                          canCancel={Boolean(record && canCancelHandover(record, currentUser))}
+                          canCancel={Boolean(record && canCancelHandover(record, currentUser, job))}
                           onRecord={(targetJob, direction) => void handleRecordHandover(targetJob, direction)}
                           onCancel={(targetJob, targetRecord) => setCancelTarget({ job: targetJob, record: targetRecord })}
                         />
