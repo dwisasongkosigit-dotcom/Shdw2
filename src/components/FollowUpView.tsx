@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   Clock,
   AlertTriangle,
@@ -24,6 +24,8 @@ interface FollowUpViewProps {
   currentUser: CurrentUser;
   onRefresh: () => void;
   onOpenCaseDetail: (item: Case) => void;
+  initialFilter?: 'Overdue' | null;
+  onInitialFilterApplied?: () => void;
 }
 
 export function FollowUpView({
@@ -31,10 +33,12 @@ export function FollowUpView({
   currentUser,
   onRefresh,
   onOpenCaseDetail,
+  initialFilter,
+  onInitialFilterApplied,
 }: FollowUpViewProps) {
   const { success, error } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
-  const [viewFilter, setViewFilter] = useState<'All' | 'Overdue' | 'Upcoming'>('All');
+  const [viewFilter, setViewFilter] = useState<'All' | 'Overdue' | 'Upcoming'>(initialFilter || 'All');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   // Follow-up & Case delete states
@@ -42,6 +46,10 @@ export function FollowUpView({
   const [deletingCase, setDeletingCase] = useState(false);
   const [caseToClearFollowUp, setCaseToClearFollowUp] = useState<Case | null>(null);
   const [clearingFollowUp, setClearingFollowUp] = useState(false);
+
+  useEffect(() => {
+    if (initialFilter) onInitialFilterApplied?.();
+  }, [initialFilter, onInitialFilterApplied]);
 
   const isReadOnly = currentUser.role === 'Owner' || currentUser.role === 'Manager';
   const currentDivision = currentUser.role.includes('Accounting') ? 'Accounting' : 'Tax';

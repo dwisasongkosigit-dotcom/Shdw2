@@ -35,9 +35,11 @@ interface CasesViewProps {
   onRefresh: () => void;
   initialSelectedCaseId?: string | null;
   onInitialCaseSelected?: () => void;
+  initialStatusFilter?: string | null;
+  onInitialStatusFilterApplied?: () => void;
 }
 
-export function CasesView({ cases, clients, users, currentUser, onRefresh, initialSelectedCaseId, onInitialCaseSelected }: CasesViewProps) {
+export function CasesView({ cases, clients, users, currentUser, onRefresh, initialSelectedCaseId, onInitialCaseSelected, initialStatusFilter, onInitialStatusFilterApplied }: CasesViewProps) {
   const { success, error } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>('All');
@@ -45,7 +47,7 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh, initi
   const [picFilter, setPicFilter] = useState('All');
   const [monthFrom, setMonthFrom] = useState('');
   const [monthTo, setMonthTo] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [statusFilter, setStatusFilter] = useState<string>(initialStatusFilter || 'All');
   const [priorityFilter, setPriorityFilter] = useState<string>('All');
 
   const [selectedCase, setSelectedCase] = useState<Case | null>(null);
@@ -126,7 +128,11 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh, initi
       if (clientFilter !== 'All' && c.clientId !== clientFilter) return false;
       if (picFilter !== 'All' && c.picId !== picFilter && c.followUpPicId !== picFilter) return false;
       if (!matchesMonthRange(c.createdAt, monthFrom, monthTo)) return false;
-      if (statusFilter !== 'All' && c.status !== statusFilter) return false;
+      if (statusFilter === 'Terbuka') {
+        if (c.status === 'Resolved' || c.status === 'Closed') return false;
+      } else if (statusFilter !== 'All' && c.status !== statusFilter) {
+        return false;
+      }
       if (priorityFilter !== 'All' && c.priority !== priorityFilter) return false;
 
       if (searchTerm.trim()) {
@@ -158,6 +164,12 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh, initi
     handleOpenDetail(item);
     onInitialCaseSelected?.();
   }, [initialSelectedCaseId, cases, onInitialCaseSelected]);
+
+  useEffect(() => {
+    if (!initialStatusFilter) return;
+    setStatusFilter(initialStatusFilter);
+    onInitialStatusFilterApplied?.();
+  }, [initialStatusFilter, onInitialStatusFilterApplied]);
 
   const handleCreateCase = async () => {
     if (!newCaseData.title?.trim() || !newCaseData.clientId || !newCaseData.description?.trim() || !newCaseData.picId) {
@@ -390,8 +402,9 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh, initi
           onChange={(e) => setStatusFilter(e.target.value)}
           className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-slate-700 font-medium focus:outline-none"
         >
-          <option value="All">Semua Status</option>
-          <option value="Open">Open</option>
+  <option value="All">Semua Status</option>
+  <option value="Terbuka">Semua Kasus Terbuka</option>
+  <option value="Open">Open</option>
           <option value="In Progress">In Progress</option>
           <option value="Waiting for Client">Waiting for Client</option>
           <option value="Waiting Internal">Waiting Internal</option>
