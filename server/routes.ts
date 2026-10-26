@@ -132,9 +132,16 @@ function asyncHandler<R extends Request>(fn: (req: R, res: Response, next: NextF
   };
 }
 
-function normalizeMeetingMinute(data: any, users: User[]) {
+function normalizeMeetingMinute(data: any, users: User[], clients: Client[]) {
   const text = (value: unknown, maxLength = 1000) =>
     typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+  const clientRelation: MeetingMinute['clientRelation'] = data?.clientRelation === 'Terkait Klien' ||
+    (data?.clientRelation !== 'Tidak Terkait' && Boolean(text(data?.clientId, 80)))
+    ? 'Terkait Klien'
+    : 'Tidak Terkait';
+  const relatedClient = clientRelation === 'Terkait Klien'
+    ? clients.find((client) => client.id === text(data?.clientId, 80))
+    : undefined;
   const validStatuses: MeetingActionItem['status'][] = ['Belum Dimulai', 'Dalam Proses', 'Selesai'];
   const attendeeUserIds: string[] = Array.isArray(data?.attendeeUserIds)
     ? [...new Set<string>(data.attendeeUserIds.slice(0, 50).map((id: unknown) => text(id, 80)).filter((id: string) => Boolean(id)))]
@@ -155,6 +162,9 @@ function normalizeMeetingMinute(data: any, users: User[]) {
     startTime: text(data?.startTime, 5),
     endTime: text(data?.endTime, 5),
     meetingType: text(data?.meetingType, 80) || 'Rapat Manajemen',
+    clientRelation,
+    clientId: relatedClient?.id || '',
+    clientName: relatedClient?.name || '',
     location: text(data?.location, 180),
     chairperson: text(data?.chairperson, 120),
     recorder: text(data?.recorder, 120),
@@ -247,6 +257,7 @@ function validateMeetingMinute(meeting: ReturnType<typeof normalizeMeetingMinute
   if (meeting.startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(meeting.startTime)) return 'Waktu mulai tidak valid.';
   if (meeting.endTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(meeting.endTime)) return 'Waktu selesai tidak valid.';
   if (meeting.nextMeetingDate && !isValidDate(meeting.nextMeetingDate)) return 'Tanggal rapat berikutnya tidak valid.';
+  if (meeting.clientRelation === 'Terkait Klien' && !meeting.clientId) return 'Pilih klien yang terkait dengan rapat ini.';
   if (!meeting.agendaItems.length) return 'Tambahkan minimal satu topik agenda.';
   if (meeting.actionItems.some((item: MeetingActionItem) => item.deadline && !isValidDate(item.deadline))) return 'Salah satu tenggat tindak lanjut tidak valid.';
   return null;
@@ -3082,7 +3093,7 @@ apiRouter.post(
   requireWritable,
   (req: AuthenticatedRequest, res: Response) => {
     const database = getDb();
-    const data = normalizeMeetingMinute(req.body, database.users);
+    const data = normalizeMeetingMinute(req.body, database.users, database.clients);
     const referencedUserIds = [
       ...(data.attendeeUserIds || []),
       ...data.actionItems.flatMap((item: MeetingActionItem) => item.ownerUserId ? [item.ownerUserId] : []),
@@ -3133,7 +3144,7 @@ apiRouter.put(
   requireWritable,
   (req: AuthenticatedRequest, res: Response) => {
     const database = getDb();
-    const data = normalizeMeetingMinute(req.body, database.users);
+    const data = normalizeMeetingMinute(req.body, database.users, database.clients);
     const referencedUserIds = [
       ...(data.attendeeUserIds || []),
       ...data.actionItems.flatMap((item: MeetingActionItem) => item.ownerUserId ? [item.ownerUserId] : []),

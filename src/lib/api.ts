@@ -356,6 +356,9 @@ export interface MeetingMinute {
   startTime: string;
   endTime: string;
   meetingType: string;
+  clientRelation?: 'Terkait Klien' | 'Tidak Terkait';
+  clientId?: string;
+  clientName?: string;
   location: string;
   chairperson: string;
   recorder: string;

@@ -30,6 +30,17 @@ import type { ColumnDef } from '../lib/exportUtils';
 type ClientPicDivision = 'Accounting' | 'Tax';
 
 function getPrimaryPic(client: Client, division: ClientPicDivision) {
+  const serviceResponsibility = division === 'Accounting'
+    ? client.accountingServiceResponsibility || 'Tim 3'
+    : client.taxServiceResponsibility || 'Tim 3';
+  if (serviceResponsibility !== 'Tim 3') {
+    return {
+      id: `responsibility:${division}:${serviceResponsibility}`,
+      name: `${serviceResponsibility} (${division})`,
+      role: `Tanggung Jawab ${division}`,
+    };
+  }
+
   const spvIsPic = division === 'Accounting' ? client.accountingSpvIsPic : client.taxSpvIsPic;
   const id = division === 'Accounting'
     ? spvIsPic ? client.accountingSpvId : client.accountingStaffPicId

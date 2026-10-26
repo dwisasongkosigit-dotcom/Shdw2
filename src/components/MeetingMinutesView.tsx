@@ -21,6 +21,7 @@ import {
   type MeetingActionItem,
   type MeetingAgendaItem,
   type MeetingMinute,
+  type Client,
   type UserAccount,
 } from '../lib/api';
 import { MeetingParticipantsField, getParticipantSelection } from './MeetingParticipantsField';
@@ -29,6 +30,7 @@ import { downloadMeetingMinuteWord, printMeetingMinutePdf } from '../lib/meeting
 
 interface MeetingMinutesViewProps {
   meetings: MeetingMinute[];
+  clients: Client[];
   users: UserAccount[];
   currentUser: CurrentUser;
   companyName: string;
@@ -53,6 +55,9 @@ function createDraft(meeting?: MeetingMinute, users: UserAccount[] = []): Meetin
       startTime: meeting.startTime,
       endTime: meeting.endTime,
       meetingType: meeting.meetingType,
+      clientRelation: meeting.clientRelation || (meeting.clientId ? 'Terkait Klien' : 'Tidak Terkait'),
+      clientId: meeting.clientId || '',
+      clientName: meeting.clientName || '',
       location: meeting.location,
       chairperson: meeting.chairperson,
       recorder: meeting.recorder,
@@ -74,6 +79,9 @@ function createDraft(meeting?: MeetingMinute, users: UserAccount[] = []): Meetin
     startTime: '09:00',
     endTime: '10:00',
     meetingType: 'Rapat Manajemen',
+    clientRelation: 'Tidak Terkait',
+    clientId: '',
+    clientName: '',
     location: '',
     chairperson: '',
     recorder: '',
@@ -103,7 +111,7 @@ function isReadOnly(user: CurrentUser) {
   return user.role === 'Owner' || user.role === 'Manager';
 }
 
-export function MeetingMinutesView({ meetings, users, currentUser, companyName, onRefresh }: MeetingMinutesViewProps) {
+export function MeetingMinutesView({ meetings, clients, users, currentUser, companyName, onRefresh }: MeetingMinutesViewProps) {
   const { success, error } = useToast();
   const [query, setQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('');
@@ -120,12 +128,16 @@ export function MeetingMinutesView({ meetings, users, currentUser, companyName, 
     () => [...meetings].sort((a, b) => `${b.meetingDate}${b.startTime}`.localeCompare(`${a.meetingDate}${a.startTime}`)),
     [meetings]
   );
+  const sortedClients = useMemo(
+    () => [...clients].sort((a, b) => a.name.localeCompare(b.name, 'id-ID')),
+    [clients]
+  );
   const filteredMeetings = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return sortedMeetings.filter((meeting) => {
       if (dateFilter && meeting.meetingDate.slice(0, 7) !== dateFilter) return false;
       if (!normalizedQuery) return true;
-      return [meeting.title, meeting.id, meeting.location, meeting.chairperson, ...meeting.attendees]
+      return [meeting.title, meeting.id, meeting.location, meeting.clientName || '', meeting.chairperson, ...meeting.attendees]
         .some((value) => value.toLowerCase().includes(normalizedQuery));
     });
   }, [dateFilter, query, sortedMeetings]);
@@ -178,6 +190,10 @@ export function MeetingMinutesView({ meetings, users, currentUser, companyName, 
     }
     if (!agendaItems.length) {
       error('Agenda diperlukan', 'Tambahkan minimal satu topik pembahasan sebelum menyimpan MoM.');
+      return;
+    }
+    if (draft.clientRelation === 'Terkait Klien' && !draft.clientId) {
+      error('Klien belum dipilih', 'Pilih klien yang terkait dengan rapat ini.');
       return;
     }
 
@@ -336,6 +352,7 @@ export function MeetingMinutesView({ meetings, users, currentUser, companyName, 
                       <span className="min-w-0 flex-1">
                         <span className="mb-1 block truncate text-[10px] font-semibold tracking-wide text-slate-400">{meeting.id}</span>
                         <span className="block line-clamp-2 text-sm font-semibold leading-5 text-slate-800">{meeting.title}</span>
+                        {meeting.clientName && <span className="mt-1 block truncate text-[10px] font-medium text-amber-800">Klien: {meeting.clientName}</span>}
                         <span className="mt-1.5 flex items-center gap-1 text-[11px] text-slate-500">
                           <Clock3 className="size-3 shrink-0" /> {meeting.startTime || '—'}{meeting.endTime ? `–${meeting.endTime}` : ''}
                         </span>
@@ -397,6 +414,19 @@ export function MeetingMinutesView({ meetings, users, currentUser, companyName, 
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <Field label="Judul rapat" required className="sm:col-span-2"><input autoFocus value={draft.title} onChange={(event) => updateDraft('title', event.target.value)} maxLength={180} placeholder="Contoh: Management Review · Oktober 2026" className={inputClass} /></Field>
                     <Field label="Jenis rapat"><select value={draft.meetingType} onChange={(event) => updateDraft('meetingType', event.target.value)} className={inputClass}>{meetingTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
+                    <Field label="Keterkaitan dengan klien"><select value={draft.clientRelation || 'Tidak Terkait'} onChange={(event) => {
+                      const clientRelation = event.target.value as NonNullable<MeetingDraft['clientRelation']>;
+                      updateDraft('clientRelation', clientRelation);
+                      if (clientRelation === 'Tidak Terkait') {
+                        updateDraft('clientId', '');
+                        updateDraft('clientName', '');
+                      }
+                    }} className={inputClass}><option value="Tidak Terkait">Tidak terkait klien</option><option value="Terkait Klien">Terkait dengan klien</option></select></Field>
+                    {draft.clientRelation === 'Terkait Klien' && <Field label="Pilih klien" required><select value={draft.clientId || ''} onChange={(event) => {
+                      const client = sortedClients.find((item) => item.id === event.target.value);
+                      updateDraft('clientId', client?.id || '');
+                      updateDraft('clientName', client?.name || '');
+                    }} className={inputClass}><option value="">Pilih klien terkait</option>{sortedClients.map((client) => <option key={client.id} value={client.id}>{client.name} · {client.id}</option>)}</select></Field>}
                     <Field label="Tanggal rapat" required><input type="date" value={draft.meetingDate} onChange={(event) => updateDraft('meetingDate', event.target.value)} className={inputClass} /></Field>
                     <Field label="Waktu mulai"><input type="time" value={draft.startTime} onChange={(event) => updateDraft('startTime', event.target.value)} className={inputClass} /></Field>
                     <Field label="Waktu selesai"><input type="time" value={draft.endTime} onChange={(event) => updateDraft('endTime', event.target.value)} className={inputClass} /></Field>
@@ -538,7 +568,8 @@ function MeetingDetail({ meeting, companyName, canEdit, exporting, onEdit, onDel
       </header>
 
       <div className="flex flex-col gap-6 px-5 py-5 sm:px-7 sm:py-6">
-        <section aria-label="Informasi peserta" className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2">
+        <section aria-label="Informasi peserta dan klien" className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2">
+          <DetailItem label="Klien terkait" value={meeting.clientName || 'Tidak terkait klien'} />
           <DetailItem label="Pimpinan rapat" value={meeting.chairperson || 'Belum dicatat'} />
           <DetailItem label="Notulis" value={meeting.recorder || 'Belum dicatat'} />
           <div className="sm:col-span-2">
