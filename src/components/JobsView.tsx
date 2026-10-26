@@ -100,7 +100,7 @@ export function JobsView({
 
   // Auto-save status indicator
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  const autoSaveTimeoutRef = useRef<any>(null);
+  const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Delete Job State
   const [jobToDelete, setJobToDelete] = useState<Job | null>(null);
@@ -186,7 +186,18 @@ export function JobsView({
     });
   }, [jobs, divisionFilter, titleFilter, clientFilter, picFilter, monthFrom, monthTo, statusFilter, priorityFilter, jobTypeFilter, deferredSearchTerm, today]);
 
+  const cancelPendingProgressAutoSave = () => {
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+    autoSaveTimeoutRef.current = null;
+    setAutoSaveStatus('idle');
+  };
+
+  useEffect(() => () => {
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+  }, [selectedJob?.id]);
+
   const handleOpenDetail = (job: Job) => {
+    cancelPendingProgressAutoSave();
     setSelectedJob(job);
     setUpdateStatus(job.status);
     setProgressPercent(job.progressPercent || 0);
@@ -306,25 +317,27 @@ export function JobsView({
     }
   };
 
-  // Section 7.E: Auto-save notes/progress changes with debouncing
-  const triggerAutoSave = (newPercent: number, noteText: string) => {
-    if (!selectedJob || isReadOnly) return;
+  // Autosave only the progress slider; activity and review notes stay local until an explicit submission.
+  const triggerProgressAutoSave = (newPercent: number) => {
+    const job = selectedJob;
+    if (!job || isReadOnly || job.progressPercent === newPercent) return;
     if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
 
     setAutoSaveStatus('saving');
     autoSaveTimeoutRef.current = setTimeout(async () => {
       try {
-        const response = await api.updateJob(selectedJob.id, {
+        const response = await api.updateJob(job.id, {
           progressPercent: newPercent,
-          notes: noteText,
-          expectedVersion: selectedJob.version,
+          expectedVersion: job.version,
           historyNote: `Pembaruan progres otomatis ke ${newPercent}%`,
         });
-        setSelectedJob(response.job);
+        setSelectedJob((current) => current?.id === job.id ? response.job : current);
         setAutoSaveStatus('saved');
         setTimeout(() => setAutoSaveStatus('idle'), 3000);
-      } catch (err) {
+      } catch {
         setAutoSaveStatus('error');
+      } finally {
+        autoSaveTimeoutRef.current = null;
       }
     }, 1500);
   };
@@ -332,6 +345,7 @@ export function JobsView({
   // Staff Submitting Job for Review
   const handleSubmitForReview = async () => {
     if (!selectedJob || !isStaff || selectedJob.picId !== currentUser.id) return;
+    cancelPendingProgressAutoSave();
     setSaving(true);
     try {
       await api.updateJob(selectedJob.id, {
@@ -353,6 +367,7 @@ export function JobsView({
   // SPV Approving Job as 'Selesai'
   const handleApproveJob = async () => {
     if (!selectedJob || !isAssignedReviewer(selectedJob) || (selectedJob.status !== 'Siap Direview' && currentUser.role !== 'Admin')) return;
+    cancelPendingProgressAutoSave();
     setSaving(true);
     try {
       await api.updateJob(selectedJob.id, {
@@ -376,18 +391,20 @@ export function JobsView({
   // SPV Requesting Revision
   const handleRequestRevision = async () => {
     if (!selectedJob || !isAssignedReviewer(selectedJob) || (selectedJob.status !== 'Siap Direview' && currentUser.role !== 'Admin')) return;
-    if (!actionNotes.trim() && !reviewNotes.trim()) {
+    const submittedReviewNotes = actionNotes.trim() || reviewNotes.trim();
+    if (!submittedReviewNotes) {
       warning('Catatan Wajib', 'Harap masukkan catatan detail bagian yang perlu direvisi oleh staf.');
       return;
     }
 
+    cancelPendingProgressAutoSave();
     setSaving(true);
     try {
       await api.updateJob(selectedJob.id, {
         status: 'Perlu Revisi',
         expectedVersion: selectedJob.version,
-        reviewNotes: actionNotes || reviewNotes,
-        historyNote: `Instruksi revisi SPV: ${actionNotes || reviewNotes}`,
+        reviewNotes: submittedReviewNotes,
+        historyNote: `Instruksi revisi SPV: ${submittedReviewNotes}`,
       });
       warning('Revisi Diminta', 'Pekerjaan dikembalikan ke staf dengan catatan revisi.');
       setSelectedJob(null);
@@ -411,14 +428,29 @@ export function JobsView({
       return;
     }
 
+    cancelPendingProgressAutoSave();
     setSaving(true);
     try {
+      const isSubmittingRevision = isAssignedReviewer(selectedJob) && updateStatus === 'Perlu Revisi';
+      const submittedReviewNotes = actionNotes.trim() || reviewNotes.trim();
+      if (isSubmittingRevision && !submittedReviewNotes) {
+        warning('Catatan Wajib', 'Harap masukkan catatan detail bagian yang perlu direvisi oleh staf.');
+        return;
+      }
+
       await api.updateJob(selectedJob.id, {
         status: updateStatus,
         progressPercent,
-        notes: actionNotes || selectedJob.notes,
+        notes: isAssignedReviewer(selectedJob) ? selectedJob.notes : actionNotes || selectedJob.notes,
+        ...(isSubmittingRevision ? {
+          reviewNotes: submittedReviewNotes,
+          historyNote: `Instruksi revisi SPV: ${submittedReviewNotes}`,
+        } : {
+          historyNote: isAssignedReviewer(selectedJob)
+            ? `Update status ke ${updateStatus} (Progres: ${progressPercent}%)`
+            : actionNotes || `Update status ke ${updateStatus} (Progres: ${progressPercent}%)`,
+        }),
         expectedVersion: selectedJob.version,
-        historyNote: actionNotes || `Update status ke ${updateStatus} (Progres: ${progressPercent}%)`,
       });
       success('Berhasil Disimpan', 'Pembaruan pekerjaan dan riwayat audit berhasil disimpan.');
       setSelectedJob(null);
@@ -1112,10 +1144,10 @@ export function JobsView({
                     {/* Auto-save Status Badge (Section 7.E) */}
                     <span className="text-[11px] font-mono">
                       {autoSaveStatus === 'saving' && (
-                        <span className="text-amber-700 font-semibold animate-pulse">Menyimpan otomatis...</span>
+                        <span className="text-amber-700 font-semibold animate-pulse">Menyimpan progres...</span>
                       )}
                       {autoSaveStatus === 'saved' && (
-                        <span className="text-emerald-700 font-semibold">Tersimpan di Database</span>
+                        <span className="text-emerald-700 font-semibold">Progres tersimpan</span>
                       )}
                       {autoSaveStatus === 'error' && (
                         <span className="text-rose-700 font-semibold">Gagal Menyimpan</span>
@@ -1140,7 +1172,7 @@ export function JobsView({
                       onChange={(e) => {
                         const val = Number(e.target.value);
                         setProgressPercent(val);
-                        triggerAutoSave(val, actionNotes);
+                        triggerProgressAutoSave(val);
                       }}
                       className="w-full accent-amber-600"
                     />
@@ -1171,11 +1203,8 @@ export function JobsView({
                     <textarea
                       rows={2}
                       value={actionNotes}
-                      onChange={(e) => {
-                        setActionNotes(e.target.value);
-                        triggerAutoSave(progressPercent, e.target.value);
-                      }}
-                      placeholder="Tuliskan ringkasan pembaruan progres atau catatan instruksi khusus..."
+                      onChange={(e) => setActionNotes(e.target.value)}
+                      placeholder="Catatan tersimpan saat Anda mengirim update atau meminta revisi..."
                       className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-slate-900 text-xs focus:outline-none focus:border-amber-500"
                     />
                   </div>

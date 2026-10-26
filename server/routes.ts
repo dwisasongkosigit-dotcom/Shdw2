@@ -2194,8 +2194,6 @@ apiRouter.put(
       const job = database.jobs.find((j) => j.id === id);
       if (!job) throw new Error('Pekerjaan tidak ditemukan.');
       const previousStatus = job.status;
-      const previousReviewNotes = job.reviewNotes || '';
-      const previousJobNotes = job.notes || '';
 
       if (currentUser.role === 'Staff Accounting' && (job.division !== 'Accounting' || job.picId !== currentUser.userId)) {
         throw new Error('Akses ditolak: pekerjaan ini bukan tugas Accounting yang ditugaskan kepada Anda.');
@@ -2366,17 +2364,9 @@ apiRouter.put(
       const isNewRevisionRequest = updates.status === 'Perlu Revisi' && previousStatus !== 'Perlu Revisi';
       const reviewMessage = typeof updates.reviewNotes === 'string' ? updates.reviewNotes.trim() : '';
       const jobMessage = typeof updates.notes === 'string' ? updates.notes.trim() : '';
-      const hasNewReviewNote = Boolean(
-        reviewMessage &&
-        reviewMessage !== previousReviewNotes.trim() &&
-        updates.reviewNotesAreCustom !== false
-      );
-      const hasNewJobNote = Boolean(jobMessage && jobMessage !== previousJobNotes.trim());
-      const notificationMessage = isNewRevisionRequest
-        ? reviewMessage || jobMessage
-        : hasNewReviewNote ? reviewMessage : hasNewJobNote ? jobMessage : '';
+      const notificationMessage = isNewRevisionRequest ? reviewMessage || jobMessage : '';
 
-      if (isSpv && notificationMessage && job.picId && job.picId !== currentUser.userId) {
+      if (isSpv && isNewRevisionRequest && notificationMessage && job.picId && job.picId !== currentUser.userId) {
         database.notifications = database.notifications || [];
         const hasRecentDuplicate = database.notifications.some((notification) => {
           const ageMs = Date.now() - Date.parse(notification.createdAt);
@@ -2393,7 +2383,7 @@ apiRouter.put(
             id: randomUUID(),
             recipientId: job.picId,
             kind: 'job-review',
-            title: isNewRevisionRequest ? 'Catatan revisi dari SPV' : 'Catatan baru dari SPV',
+            title: 'Catatan revisi dari SPV',
             message: notificationMessage,
             jobId: job.id,
             jobTitle: job.title,
