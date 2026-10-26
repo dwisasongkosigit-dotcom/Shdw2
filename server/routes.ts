@@ -2184,6 +2184,8 @@ apiRouter.put(
     mutateDb((database) => {
       const job = database.jobs.find((j) => j.id === id);
       if (!job) throw new Error('Pekerjaan tidak ditemukan.');
+      const previousReviewNotes = job.reviewNotes || '';
+      const previousJobNotes = job.notes || '';
 
       if (currentUser.role === 'Staff Accounting' && (job.division !== 'Accounting' || job.picId !== currentUser.userId)) {
         throw new Error('Akses ditolak: pekerjaan ini bukan tugas Accounting yang ditugaskan kepada Anda.');
@@ -2350,14 +2352,24 @@ apiRouter.put(
       if (updates.status !== undefined) job.status = updates.status;
       if (updates.reviewNotes !== undefined) job.reviewNotes = updates.reviewNotes;
 
+      const isSpv = currentUser.role === 'SPV Accounting' || currentUser.role === 'SPV Tax';
       const reviewMessage = typeof updates.reviewNotes === 'string' ? updates.reviewNotes.trim() : '';
-      if (statusChanged && updates.status === 'Selesai' && updates.reviewNotesAreCustom === true && reviewMessage && job.picId !== currentUser.userId) {
+      const jobMessage = typeof updates.notes === 'string' ? updates.notes.trim() : '';
+      const hasNewReviewNote = Boolean(
+        reviewMessage &&
+        reviewMessage !== previousReviewNotes.trim() &&
+        updates.reviewNotesAreCustom !== false
+      );
+      const hasNewJobNote = Boolean(jobMessage && jobMessage !== previousJobNotes.trim());
+      const notificationMessage = hasNewReviewNote ? reviewMessage : hasNewJobNote ? jobMessage : '';
+
+      if (isSpv && notificationMessage && job.picId && job.picId !== currentUser.userId) {
         const notification: AppNotification = {
           id: randomUUID(),
           recipientId: job.picId,
           kind: 'job-review',
-          title: 'Review selesai dengan catatan',
-          message: reviewMessage,
+          title: 'Catatan baru dari SPV',
+          message: notificationMessage,
           jobId: job.id,
           jobTitle: job.title,
           clientName: database.clients.find((client) => client.id === job.clientId)?.name || job.clientName,
