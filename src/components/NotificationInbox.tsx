@@ -22,7 +22,7 @@ export function NotificationInbox({ userId }: NotificationInboxProps) {
   const { data, error, isLoading, mutate } = useSWR<AppNotification[]>(
     `notifications:${userId}`,
     () => api.getNotifications(),
-    { refreshInterval: 30_000, revalidateOnFocus: true }
+    { refreshInterval: 10_000, revalidateOnFocus: true }
   );
   const notifications = data || [];
   const unreadCount = notifications.filter((notification) => !notification.readAt).length;
@@ -75,7 +75,10 @@ export function NotificationInbox({ userId }: NotificationInboxProps) {
     <div ref={containerRef} className="relative">
       <button
         type="button"
-        onClick={() => setIsOpen((open) => !open)}
+        onClick={() => {
+          if (!isOpen) void mutate();
+          setIsOpen((open) => !open);
+        }}
         aria-label={`Notifikasi${unreadCount ? `, ${unreadCount} belum dibaca` : ''}`}
         aria-expanded={isOpen}
         aria-controls="notification-inbox-panel"

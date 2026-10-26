@@ -2184,6 +2184,7 @@ apiRouter.put(
     mutateDb((database) => {
       const job = database.jobs.find((j) => j.id === id);
       if (!job) throw new Error('Pekerjaan tidak ditemukan.');
+      const previousStatus = job.status;
       const previousReviewNotes = job.reviewNotes || '';
       const previousJobNotes = job.notes || '';
 
@@ -2353,6 +2354,7 @@ apiRouter.put(
       if (updates.reviewNotes !== undefined) job.reviewNotes = updates.reviewNotes;
 
       const isSpv = currentUser.role === 'SPV Accounting' || currentUser.role === 'SPV Tax';
+      const isNewRevisionRequest = updates.status === 'Perlu Revisi' && previousStatus !== 'Perlu Revisi';
       const reviewMessage = typeof updates.reviewNotes === 'string' ? updates.reviewNotes.trim() : '';
       const jobMessage = typeof updates.notes === 'string' ? updates.notes.trim() : '';
       const hasNewReviewNote = Boolean(
@@ -2361,14 +2363,16 @@ apiRouter.put(
         updates.reviewNotesAreCustom !== false
       );
       const hasNewJobNote = Boolean(jobMessage && jobMessage !== previousJobNotes.trim());
-      const notificationMessage = hasNewReviewNote ? reviewMessage : hasNewJobNote ? jobMessage : '';
+      const notificationMessage = isNewRevisionRequest
+        ? reviewMessage || jobMessage
+        : hasNewReviewNote ? reviewMessage : hasNewJobNote ? jobMessage : '';
 
       if (isSpv && notificationMessage && job.picId && job.picId !== currentUser.userId) {
         const notification: AppNotification = {
           id: randomUUID(),
           recipientId: job.picId,
           kind: 'job-review',
-          title: 'Catatan baru dari SPV',
+          title: isNewRevisionRequest ? 'Catatan revisi dari SPV' : 'Catatan baru dari SPV',
           message: notificationMessage,
           jobId: job.id,
           jobTitle: job.title,
