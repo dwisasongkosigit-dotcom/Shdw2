@@ -74,6 +74,16 @@ export function DailyActivitiesView({
     picId: currentUser.id,
     picName: currentUser.name,
   });
+  const availableJobs = useMemo(
+    () => jobs.filter((job) => job.clientId === newActivity.clientId && job.division === newActivity.division),
+    [jobs, newActivity.clientId, newActivity.division]
+  );
+  const availableCases = useMemo(
+    () => cases.filter((item) => item.clientId === newActivity.clientId && item.division === newActivity.division),
+    [cases, newActivity.clientId, newActivity.division]
+  );
+  const selectedActivityJob = availableJobs.find((job) => job.id === newActivity.jobId);
+  const selectedActivityCase = availableCases.find((item) => item.id === newActivity.caseId);
 
   const isReadOnly = currentUser.role === 'Owner' || currentUser.role === 'Manager';
   const currentDivision = currentUser.role.includes('Accounting') ? 'Accounting' : 'Tax';
@@ -476,7 +486,7 @@ export function DailyActivitiesView({
                   <label className="block text-slate-700 font-semibold mb-1">Divisi</label>
                   <select
                     value={newActivity.division}
-                    onChange={(e) => setNewActivity({ ...newActivity, division: e.target.value as any })}
+                    onChange={(e) => setNewActivity({ ...newActivity, division: e.target.value as any, jobId: undefined, caseId: undefined })}
                     disabled={currentUser.role !== 'Admin'}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 disabled:cursor-not-allowed disabled:opacity-70"
                   >
@@ -488,11 +498,11 @@ export function DailyActivitiesView({
 
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">Pilih Klien</label>
-                <select
-                  value={newActivity.clientId}
-                  onChange={(e) => setNewActivity({ ...newActivity, clientId: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 font-medium"
-                >
+                  <select
+                    value={newActivity.clientId}
+                    onChange={(e) => setNewActivity({ ...newActivity, clientId: e.target.value, jobId: undefined, caseId: undefined })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-900 font-medium"
+                  >
                   {clients.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name} ({c.id})
@@ -501,37 +511,41 @@ export function DailyActivitiesView({
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Tautkan ke Job (Opsional)</label>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="min-w-0">
+                  <label className="mb-1 block font-semibold text-slate-700">Tautkan ke Job (Opsional) · {availableJobs.length}</label>
                   <select
                     value={newActivity.jobId || ''}
                     onChange={(e) => setNewActivity({ ...newActivity, jobId: e.target.value || undefined })}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-900"
+                    className="w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-slate-900"
                   >
                     <option value="">-- Tanpa Tautan Job --</option>
-                    {jobs.map((j) => (
-                      <option key={j.id} value={j.id}>
-                        {j.id} - {j.title.substring(0, 25)}...
+                    {availableJobs.map((job) => (
+                      <option key={job.id} value={job.id}>
+                        {job.id} — {job.title} ({job.status})
                       </option>
                     ))}
                   </select>
+                  {selectedActivityJob && <p className="mt-1 break-words text-[11px] leading-4 text-slate-500">{selectedActivityJob.title}</p>}
+                  {!availableJobs.length && <p className="mt-1 text-[11px] leading-4 text-slate-500">Belum ada Job untuk klien dan divisi ini.</p>}
                 </div>
 
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Tautkan ke Case (Opsional)</label>
+                <div className="min-w-0">
+                  <label className="mb-1 block font-semibold text-slate-700">Tautkan ke Case (Opsional) · {availableCases.length}</label>
                   <select
                     value={newActivity.caseId || ''}
                     onChange={(e) => setNewActivity({ ...newActivity, caseId: e.target.value || undefined })}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-900"
+                    className="w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-slate-900"
                   >
                     <option value="">-- Tanpa Tautan Case --</option>
-                    {cases.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.id} - {c.title.substring(0, 25)}...
+                    {availableCases.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.id} — {item.title} ({item.status})
                       </option>
                     ))}
                   </select>
+                  {selectedActivityCase && <p className="mt-1 break-words text-[11px] leading-4 text-slate-500">{selectedActivityCase.title}</p>}
+                  {!availableCases.length && <p className="mt-1 text-[11px] leading-4 text-slate-500">Belum ada Case untuk klien dan divisi ini.</p>}
                 </div>
               </div>
 

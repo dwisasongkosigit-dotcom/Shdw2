@@ -50,6 +50,8 @@ function MainApp() {
   });
 
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
+  const [pendingJobId, setPendingJobId] = useState<string | null>(null);
+  const [pendingCaseId, setPendingCaseId] = useState<string | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof window === 'undefined') return 'light';
@@ -286,6 +288,17 @@ function MainApp() {
     if (currentUser) void loadTabData(currentTab);
   }, [currentUser, currentTab, loadTabData]);
 
+  const openJobFromDashboard = useCallback((jobId: string) => {
+    setPendingJobId(jobId);
+    setCurrentTab('jobs');
+  }, []);
+  const clearPendingJobId = useCallback(() => setPendingJobId(null), []);
+  const openCaseFromDashboard = useCallback((caseId: string) => {
+    setPendingCaseId(caseId);
+    setCurrentTab('cases');
+  }, []);
+  const clearPendingCaseId = useCallback(() => setPendingCaseId(null), []);
+
   const handleLoginSuccess = (user: CurrentUser, brandData: BrandingConfig) => {
     setCurrentUser(user);
     if (brandData) setBranding(brandData);
@@ -386,6 +399,8 @@ function MainApp() {
               meetingMinutes={meetingMinutes}
               currentUser={currentUser}
               onNavigateTab={(tab) => setCurrentTab(tab)}
+              onOpenJob={openJobFromDashboard}
+              onOpenCase={openCaseFromDashboard}
               onRefresh={(division) => loadTabData('dashboard', division)}
               onDivisionChange={async (division) => {
                 try {
@@ -417,6 +432,8 @@ function MainApp() {
               users={users}
               monthlyJobTemplates={monthlyJobTemplates}
               currentUser={currentUser}
+              initialSelectedJobId={pendingJobId}
+              onInitialJobSelected={clearPendingJobId}
               onRefresh={() => loadTabData('jobs')}
             />
           )}
@@ -439,6 +456,8 @@ function MainApp() {
               clients={clients}
               users={users}
               currentUser={currentUser}
+              initialSelectedCaseId={pendingCaseId}
+              onInitialCaseSelected={clearPendingCaseId}
               onRefresh={() => loadTabData('cases')}
             />
           )}

@@ -1582,7 +1582,16 @@ apiRouter.get('/notifications', authenticateToken, (req: AuthenticatedRequest, r
   const notifications = (getDb().notifications || [])
     .filter((notification) => notification.recipientId === currentUser.userId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  res.json(notifications);
+  const recentEvents = new Map<string, number>();
+  const uniqueNotifications = notifications.filter((notification) => {
+    const eventKey = JSON.stringify([notification.jobId, notification.actorName, notification.message]);
+    const createdAt = Date.parse(notification.createdAt);
+    const previousCreatedAt = recentEvents.get(eventKey);
+    if (previousCreatedAt !== undefined && previousCreatedAt - createdAt < 60_000) return false;
+    if (Number.isFinite(createdAt)) recentEvents.set(eventKey, createdAt);
+    return true;
+  });
+  res.json(uniqueNotifications);
 });
 
 apiRouter.put('/notifications/:id/read', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
@@ -2368,20 +2377,32 @@ apiRouter.put(
         : hasNewReviewNote ? reviewMessage : hasNewJobNote ? jobMessage : '';
 
       if (isSpv && notificationMessage && job.picId && job.picId !== currentUser.userId) {
-        const notification: AppNotification = {
-          id: randomUUID(),
-          recipientId: job.picId,
-          kind: 'job-review',
-          title: isNewRevisionRequest ? 'Catatan revisi dari SPV' : 'Catatan baru dari SPV',
-          message: notificationMessage,
-          jobId: job.id,
-          jobTitle: job.title,
-          clientName: database.clients.find((client) => client.id === job.clientId)?.name || job.clientName,
-          actorName: currentUser.name,
-          createdAt: new Date().toISOString(),
-        };
         database.notifications = database.notifications || [];
-        database.notifications.unshift(notification);
+        const hasRecentDuplicate = database.notifications.some((notification) => {
+          const ageMs = Date.now() - Date.parse(notification.createdAt);
+          return ageMs >= 0 && ageMs < 60_000 &&
+            notification.recipientId === job.picId &&
+            notification.kind === 'job-review' &&
+            notification.jobId === job.id &&
+            notification.actorName === currentUser.name &&
+            notification.message === notificationMessage;
+        });
+
+        if (!hasRecentDuplicate) {
+          const notification: AppNotification = {
+            id: randomUUID(),
+            recipientId: job.picId,
+            kind: 'job-review',
+            title: isNewRevisionRequest ? 'Catatan revisi dari SPV' : 'Catatan baru dari SPV',
+            message: notificationMessage,
+            jobId: job.id,
+            jobTitle: job.title,
+            clientName: database.clients.find((client) => client.id === job.clientId)?.name || job.clientName,
+            actorName: currentUser.name,
+            createdAt: new Date().toISOString(),
+          };
+          database.notifications.unshift(notification);
+        }
       }
 
       savedJob = job;

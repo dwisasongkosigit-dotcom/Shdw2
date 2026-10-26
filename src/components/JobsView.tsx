@@ -52,6 +52,8 @@ interface JobsViewProps {
   monthlyJobTemplates: MonthlyJobTemplate[];
   currentUser: CurrentUser;
   onRefresh: () => void;
+  initialSelectedJobId?: string | null;
+  onInitialJobSelected?: () => void;
   isRefreshing?: boolean;
   lastUpdated?: string;
 }
@@ -63,6 +65,8 @@ export function JobsView({
   monthlyJobTemplates,
   currentUser,
   onRefresh,
+  initialSelectedJobId,
+  onInitialJobSelected,
   isRefreshing = false,
   lastUpdated,
 }: JobsViewProps) {
@@ -188,20 +192,16 @@ export function JobsView({
     setProgressPercent(job.progressPercent || 0);
     setActionNotes('');
     setReviewNotes(job.reviewNotes || '');
-    setJobEditData({
-      title: job.title,
-      startDate: job.startDate,
-      deadline: job.deadline,
-      priority: job.priority,
-      description: job.description,
-      spvId: job.spvId,
-      serviceResponsibility: job.serviceResponsibility || 'Tim 3',
-      handoverDestinations: job.handoverDestinations || [],
-      handoverDirectionOverrides: job.handoverDirectionOverrides || {},
-    });
-    setIsEditingDetails(false);
-    setAutoSaveStatus('idle');
   };
+
+  useEffect(() => {
+    if (!initialSelectedJobId) return;
+    const job = jobs.find((item) => item.id === initialSelectedJobId);
+    if (!job) return;
+    handleOpenDetail(job);
+    onInitialJobSelected?.();
+  }, [initialSelectedJobId, jobs, onInitialJobSelected]);
+
 
   const getClientPicAssignment = (client: Client | undefined, division: JobDivision): JobPicAssignment => {
     const spvIsPic = division === 'Accounting' ? client?.accountingSpvIsPic : client?.taxSpvIsPic;
