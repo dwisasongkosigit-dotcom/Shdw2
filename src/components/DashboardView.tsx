@@ -69,6 +69,14 @@ export function DashboardView({
   const [fromMonth, setFromMonth] = useState(currentJakartaMonth);
   const [toMonth, setToMonth] = useState(currentJakartaMonth);
   const validMonthRange = fromMonth <= toMonth;
+  const myRevisionJobs = useMemo(
+    () => currentUser.role.startsWith('Staff')
+      ? allJobs
+          .filter((job) => job.picId === currentUser.id && job.status === 'Perlu Revisi')
+          .sort((a, b) => a.deadline.localeCompare(b.deadline))
+      : [],
+    [allJobs, currentUser.id, currentUser.role]
+  );
   const monthlySummary = useMemo(() => {
     const roleDivision = currentUser.role.includes('Accounting') ? 'Accounting' : currentUser.role.includes('Tax') ? 'Tax' : null;
     const selectedDivision = roleDivision || (divisionFilter === 'All' ? null : divisionFilter);
@@ -107,14 +115,6 @@ export function DashboardView({
   const { clients, jobs, cases, activities, workload } = stats;
   const assignedCases = cases.assigned || [];
   const participantAliases = new Set([currentUser.name, currentUser.username, currentUser.email].filter(Boolean).map(normalizeParticipant));
-  const myRevisionJobs = useMemo(
-    () => currentUser.role.startsWith('Staff')
-      ? allJobs
-          .filter((job) => job.picId === currentUser.id && job.status === 'Perlu Revisi')
-          .sort((a, b) => a.deadline.localeCompare(b.deadline))
-      : [],
-    [allJobs, currentUser.id, currentUser.role]
-  );
   const myUpcomingMeetings = agendaEntries
     .filter((entry) => entry.status === 'Terjadwal' && entry.date >= new Date().toISOString().slice(0, 10))
     .filter((entry) => entry.participantUserIds?.includes(currentUser.id) || entry.participants.some((person) => participantAliases.has(normalizeParticipant(person))))
