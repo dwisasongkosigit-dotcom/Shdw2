@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   AlertCircle,
   Search,
@@ -33,9 +33,11 @@ interface CasesViewProps {
   users: UserAccount[];
   currentUser: CurrentUser;
   onRefresh: () => void;
+  initialSelectedCaseId?: string | null;
+  onInitialCaseSelected?: () => void;
 }
 
-export function CasesView({ cases, clients, users, currentUser, onRefresh }: CasesViewProps) {
+export function CasesView({ cases, clients, users, currentUser, onRefresh, initialSelectedCaseId, onInitialCaseSelected }: CasesViewProps) {
   const { success, error } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [divisionFilter, setDivisionFilter] = useState<'All' | 'Accounting' | 'Tax'>('All');
@@ -148,6 +150,14 @@ export function CasesView({ cases, clients, users, currentUser, onRefresh }: Cas
     setNewTimelineNotes('');
     setNewTimelineNextStep('');
   };
+
+  useEffect(() => {
+    if (!initialSelectedCaseId) return;
+    const item = cases.find((entry) => entry.id === initialSelectedCaseId);
+    if (!item) return;
+    handleOpenDetail(item);
+    onInitialCaseSelected?.();
+  }, [initialSelectedCaseId, cases, onInitialCaseSelected]);
 
   const handleCreateCase = async () => {
     if (!newCaseData.title?.trim() || !newCaseData.clientId || !newCaseData.description?.trim() || !newCaseData.picId) {

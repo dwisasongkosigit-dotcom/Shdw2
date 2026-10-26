@@ -22,6 +22,8 @@ interface DashboardViewProps {
   meetingMinutes: MeetingMinute[];
   currentUser: CurrentUser;
   onNavigateTab: (tab: any) => void;
+  onOpenJob: (jobId: string) => void;
+  onOpenCase: (caseId: string) => void;
   onRefresh: (division?: 'All' | 'Accounting' | 'Tax') => void;
   isRefreshing?: boolean;
   lastUpdated?: string;
@@ -52,6 +54,8 @@ export function DashboardView({
   meetingMinutes,
   currentUser,
   onNavigateTab,
+  onOpenJob,
+  onOpenCase,
   onRefresh,
   isRefreshing = false,
   lastUpdated,
@@ -263,10 +267,16 @@ export function DashboardView({
           {myRevisionJobs.length ? (
             <ul className="mt-3 divide-y divide-rose-100 rounded-lg border border-rose-100 bg-white px-3">
               {myRevisionJobs.slice(0, 5).map((job) => (
-                <li key={job.id} className="py-3 first:pt-3 last:pb-3">
-                  <p className="text-sm font-semibold text-slate-800">{job.title}</p>
-                  <p className="mt-1 text-xs text-slate-500">{job.clientName} · {job.division} · Tenggat {job.deadline || 'belum ditentukan'}</p>
-                  {job.reviewNotes?.trim() && <p className="mt-2 rounded-md bg-rose-50 px-2.5 py-2 text-xs leading-5 text-rose-900"><span className="font-semibold">Catatan SPV:</span> {job.reviewNotes}</p>}
+                <li key={job.id} className="flex flex-col gap-2 py-3 first:pt-3 last:pb-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800">{job.title}</p>
+                    <p className="mt-1 text-xs text-slate-500">{job.clientName} · {job.division} · Tenggat {job.deadline || 'belum ditentukan'}</p>
+                    {job.reviewNotes?.trim() && <p className="mt-2 rounded-md bg-rose-50 px-2.5 py-2 text-xs leading-5 text-rose-900"><span className="font-semibold">Catatan SPV:</span> {job.reviewNotes}</p>}
+                  </div>
+                  <button type="button" onClick={() => onOpenJob(job.id)} className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1 self-start rounded-md border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-800 hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2">
+                    Buka detail
+                    <ArrowUpRight className="size-3.5" aria-hidden="true" />
+                  </button>
                 </li>
               ))}
               {myRevisionJobs.length > 5 && <li className="py-2 text-center text-[11px] font-medium text-rose-700">+{myRevisionJobs.length - 5} pekerjaan revisi lainnya</li>}
@@ -334,6 +344,7 @@ export function DashboardView({
                   <span className={`rounded-full px-2 py-1 font-semibold ${item.priority === 'Tinggi' ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>{item.priority}</span>
                   <span className="rounded-full bg-amber-50 px-2 py-1 font-semibold text-amber-800">{item.status}</span>
                   <span className="text-slate-500">Follow-up {item.nextFollowUpDate || 'belum dijadwalkan'}</span>
+                  <button type="button" onClick={() => onOpenCase(item.id)} className="inline-flex min-h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2">Buka detail <ArrowUpRight className="size-3.5" aria-hidden="true" /></button>
                 </div>
               </li>
             ))}
