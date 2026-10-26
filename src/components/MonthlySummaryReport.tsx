@@ -1,4 +1,5 @@
-import { ArrowLeft, CalendarDays, Download, FileSpreadsheet, Printer } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ArrowLeft, CalendarDays, Download, FileSpreadsheet, Printer, RotateCcw, Search } from 'lucide-react';
 import type { Case, Job } from '../lib/api';
 import { exportToExcel } from '../lib/exportUtils';
 
@@ -58,21 +59,50 @@ export function MonthlySummaryReport({
   onBack,
   onOpenItem,
 }: MonthlySummaryReportProps) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'unfinished'>('all');
+  const [divisionFilter, setDivisionFilter] = useState('all');
+  const [picFilter, setPicFilter] = useState('all');
   const periodLabel = fromMonth === toMonth
     ? monthLabel(fromMonth)
     : `${monthLabel(fromMonth)} – ${monthLabel(toMonth)}`;
-  const total = completedItems.length + unfinishedItems.length;
-  const exportRows = [
-    ...completedItems.map((item) => toExportRow(item, 'Selesai', kind)),
-    ...unfinishedItems.map((item) => toExportRow(item, 'Belum selesai', kind)),
-  ];
+  const allItems = useMemo(() => [
+    ...completedItems.map((item) => ({ item, group: 'Selesai' as const, state: 'completed' as const })),
+    ...unfinishedItems.map((item) => ({ item, group: 'Belum selesai' as const, state: 'unfinished' as const })),
+  ], [completedItems, unfinishedItems]);
+  const divisions = useMemo(() => [...new Set(allItems.map(({ item }) => item.division))].sort((a, b) => a.localeCompare(b, 'id')), [allItems]);
+  const pics = useMemo(() => [...new Set(allItems.map(({ item }) => item.picName.trim() || 'Belum ditentukan'))].sort((a, b) => a.localeCompare(b, 'id')), [allItems]);
+  const normalizedSearch = searchTerm.trim().toLocaleLowerCase('id');
+  const visibleItems = useMemo(() => allItems.filter(({ item, state }) => {
+    if (statusFilter !== 'all' && state !== statusFilter) return false;
+    if (divisionFilter !== 'all' && item.division !== divisionFilter) return false;
+    if (picFilter !== 'all' && (item.picName.trim() || 'Belum ditentukan') !== picFilter) return false;
+    if (normalizedSearch) {
+      const searchableText = [item.title, item.clientName, item.division, item.picName, item.status, item.priority]
+        .join(' ')
+        .toLocaleLowerCase('id');
+      if (!searchableText.includes(normalizedSearch)) return false;
+    }
+    return true;
+  }), [allItems, statusFilter, divisionFilter, picFilter, normalizedSearch]);
+  const filteredCompleted = visibleItems.filter(({ state }) => state === 'completed').map(({ item }) => item);
+  const filteredUnfinished = visibleItems.filter(({ state }) => state === 'unfinished').map(({ item }) => item);
+  const total = visibleItems.length;
+  const hasActiveFilters = Boolean(normalizedSearch) || statusFilter !== 'all' || divisionFilter !== 'all' || picFilter !== 'all';
+  const resetFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('all');
+    setDivisionFilter('all');
+    setPicFilter('all');
+  };
+  const exportRows = visibleItems.map(({ item, group }) => toExportRow(item, group, kind));
 
   const handleExportExcel = async () => {
     await exportToExcel({
-      filename: `Rekap_${title.replace(/[^a-zA-Z0-9]+/g, '_')}`,
+      filename: `Rekap_${title.replace(/[^a-zA-Z0-9]+/g, '_')}_${periodLabel.replace(/[^a-zA-Z0-9]+/g, '_')}`,
       sheetName: 'Rincian Rekap',
       title: `Rekap ${title}`,
-      subtitle: `Periode ${periodLabel} | ${total} item | Selesai ${completedItems.length} | Belum selesai ${unfinishedItems.length}`,
+      subtitle: `Periode ${periodLabel} | ${total} item | Selesai ${filteredCompleted.length} | Belum selesai ${filteredUnfinished.length}`,
       columns: [
         { header: 'Kelompok', key: 'kelompok', width: 18 },
         { header: kind === 'job' ? 'Pekerjaan' : 'Kasus', key: 'judul', width: 42 },
@@ -166,13 +196,62 @@ export function MonthlySummaryReport({
         <p className="mt-2 flex items-center gap-2 text-sm text-slate-500"><CalendarDays className="size-4" aria-hidden="true" /> Periode {periodLabel}</p>
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs font-medium text-slate-500">Total item</p><p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{total}</p></div>
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4"><p className="text-xs font-medium text-emerald-700">Selesai</p><p className="mt-1 text-2xl font-bold tabular-nums text-emerald-800">{completedItems.length}</p></div>
-          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4"><p className="text-xs font-medium text-amber-700">Belum selesai</p><p className="mt-1 text-2xl font-bold tabular-nums text-amber-800">{unfinishedItems.length}</p></div>
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4"><p className="text-xs font-medium text-emerald-700">Selesai</p><p className="mt-1 text-2xl font-bold tabular-nums text-emerald-800">{filteredCompleted.length}</p></div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4"><p className="text-xs font-medium text-amber-700">Belum selesai</p><p className="mt-1 text-2xl font-bold tabular-nums text-amber-800">{filteredUnfinished.length}</p></div>
         </div>
       </header>
 
-      {renderGroup('Selesai', completedItems, 'completed')}
-      {renderGroup('Belum selesai', unfinishedItems, 'unfinished')}
+      <section aria-label="Filter rincian laporan" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Filter rincian</h2>
+            <p className="mt-1 text-xs text-slate-500">Persempit daftar berdasarkan status, divisi, atau PIC.</p>
+          </div>
+          {hasActiveFilters && (
+            <button type="button" onClick={resetFilters} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500">
+              <RotateCcw className="size-3.5" aria-hidden="true" /> Reset filter
+            </button>
+          )}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <label className="flex flex-col gap-1.5 text-xs font-medium text-slate-600">
+            Cari tugas atau klien
+            <span className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <input type="search" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Ketik nama atau kata kunci" className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm font-normal text-slate-800 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100" />
+            </span>
+          </label>
+          <label className="flex flex-col gap-1.5 text-xs font-medium text-slate-600">
+            Status penyelesaian
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100">
+              <option value="all">Semua status</option>
+              <option value="completed">Selesai</option>
+              <option value="unfinished">Belum selesai</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5 text-xs font-medium text-slate-600">
+            Divisi
+            <select value={divisionFilter} onChange={(event) => setDivisionFilter(event.target.value)} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100">
+              <option value="all">Semua divisi</option>
+              {divisions.map((division) => <option key={division} value={division}>{division}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5 text-xs font-medium text-slate-600">
+            PIC
+            <select value={picFilter} onChange={(event) => setPicFilter(event.target.value)} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100">
+              <option value="all">Semua PIC</option>
+              {pics.map((pic) => <option key={pic} value={pic}>{pic}</option>)}
+            </select>
+          </label>
+        </div>
+        <p className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500" aria-live="polite">
+          Menampilkan <strong className="font-semibold text-slate-700">{total}</strong> dari {allItems.length} item
+          {hasActiveFilters ? ' sesuai filter' : ''}.
+        </p>
+      </section>
+
+      {statusFilter !== 'unfinished' && renderGroup('Selesai', filteredCompleted, 'completed')}
+      {statusFilter !== 'completed' && renderGroup('Belum selesai', filteredUnfinished, 'unfinished')}
       <footer className="monthly-report-no-print flex items-center justify-between border-t border-slate-200 pt-4 text-xs text-slate-500">
         <span>Dokumen internal · Rekap berdasarkan status saat ini</span>
         <span className="inline-flex items-center gap-1"><Download className="size-3.5" aria-hidden="true" /> {total} item</span>
