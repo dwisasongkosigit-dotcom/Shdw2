@@ -107,6 +107,14 @@ export function DashboardView({
   const { clients, jobs, cases, activities, workload } = stats;
   const assignedCases = cases.assigned || [];
   const participantAliases = new Set([currentUser.name, currentUser.username, currentUser.email].filter(Boolean).map(normalizeParticipant));
+  const myRevisionJobs = useMemo(
+    () => currentUser.role.startsWith('Staff')
+      ? allJobs
+          .filter((job) => job.picId === currentUser.id && job.status === 'Perlu Revisi')
+          .sort((a, b) => a.deadline.localeCompare(b.deadline))
+      : [],
+    [allJobs, currentUser.id, currentUser.role]
+  );
   const myUpcomingMeetings = agendaEntries
     .filter((entry) => entry.status === 'Terjadwal' && entry.date >= new Date().toISOString().slice(0, 10))
     .filter((entry) => entry.participantUserIds?.includes(currentUser.id) || entry.participants.some((person) => participantAliases.has(normalizeParticipant(person))))
@@ -239,6 +247,35 @@ export function DashboardView({
           ))}
         </div>
       </section>
+
+      {currentUser.role.startsWith('Staff') && (
+        <section aria-labelledby="my-revision-jobs-heading" className="rounded-xl border border-rose-200 bg-rose-50/60 p-4 shadow-sm sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+              <span className="rounded-xl bg-rose-100 p-2.5 text-rose-700"><AlertCircle className="size-4" aria-hidden="true" /></span>
+              <div>
+                <h2 id="my-revision-jobs-heading" className="text-sm font-semibold text-slate-900">Pekerjaan perlu revisi <span className="text-rose-700">({myRevisionJobs.length})</span></h2>
+                <p className="mt-1 text-xs text-slate-600">Catatan SPV untuk pekerjaan yang ditugaskan kepada Anda.</p>
+              </div>
+            </div>
+            <button type="button" onClick={() => onNavigateTab('jobs')} className="inline-flex shrink-0 items-center gap-1 self-start text-xs font-semibold text-rose-700 hover:text-rose-800">Buka pekerjaan <ArrowUpRight className="size-3.5" aria-hidden="true" /></button>
+          </div>
+          {myRevisionJobs.length ? (
+            <ul className="mt-3 divide-y divide-rose-100 rounded-lg border border-rose-100 bg-white px-3">
+              {myRevisionJobs.slice(0, 5).map((job) => (
+                <li key={job.id} className="py-3 first:pt-3 last:pb-3">
+                  <p className="text-sm font-semibold text-slate-800">{job.title}</p>
+                  <p className="mt-1 text-xs text-slate-500">{job.clientName} · {job.division} · Tenggat {job.deadline || 'belum ditentukan'}</p>
+                  {job.reviewNotes?.trim() && <p className="mt-2 rounded-md bg-rose-50 px-2.5 py-2 text-xs leading-5 text-rose-900"><span className="font-semibold">Catatan SPV:</span> {job.reviewNotes}</p>}
+                </li>
+              ))}
+              {myRevisionJobs.length > 5 && <li className="py-2 text-center text-[11px] font-medium text-rose-700">+{myRevisionJobs.length - 5} pekerjaan revisi lainnya</li>}
+            </ul>
+          ) : (
+            <p className="mt-3 rounded-lg border border-dashed border-rose-200 bg-white/80 px-3 py-4 text-center text-xs text-slate-600">Tidak ada pekerjaan yang perlu revisi saat ini.</p>
+          )}
+        </section>
+      )}
 
       <section aria-labelledby="my-meetings-heading" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex items-start justify-between gap-3">
