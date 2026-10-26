@@ -120,7 +120,7 @@ export function MonthlySummaryReport({
 
   const renderGroup = (groupTitle: string, items: ReportItem[], state: 'completed' | 'unfinished') => (
     <section aria-labelledby={`monthly-report-${state}`} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4 sm:px-6">
+      <div className="monthly-report-group-heading flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4 sm:px-6">
         <div>
           <h2 id={`monthly-report-${state}`} className={`text-base font-semibold ${state === 'completed' ? 'text-emerald-700' : 'text-amber-700'}`}>{groupTitle}</h2>
           <p className="mt-0.5 text-xs text-slate-500">{items.length} {kind === 'job' ? 'pekerjaan' : 'kasus'}</p>
