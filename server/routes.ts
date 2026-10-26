@@ -1714,6 +1714,16 @@ apiRouter.post(
       res.status(400).json({ error: 'Divisi assignment tidak valid.' });
       return;
     }
+    const requestedDestination = req.body?.destinationDivision;
+    if (requestedDestination !== undefined && requestedDestination !== 'Accounting' && requestedDestination !== 'Tax') {
+      res.status(400).json({ error: 'Divisi tim tujuan tidak valid.' });
+      return;
+    }
+    const destinationDivision: Job['division'] = requestedDestination || (division === 'Accounting' ? 'Tax' : 'Accounting');
+    if (destinationDivision === division) {
+      res.status(400).json({ error: 'Pilih divisi tujuan yang berbeda dari assignment asal.' });
+      return;
+    }
 
     const client = db.clients.find((candidate) => candidate.id === req.params.clientId);
     if (!client) {
@@ -1744,6 +1754,7 @@ apiRouter.post(
       id: `HDO-${randomUUID()}`,
       clientId: client.id,
       division,
+      destinationDivision,
       sentAt: new Date().toISOString(),
       sentById: currentUser.userId,
       sentByName: currentUser.name,
@@ -1755,7 +1766,7 @@ apiRouter.post(
       logAudit(
         'CLIENT_PROFILE_HANDOVER_RECORDED',
         'Client',
-        `PIC → Tim Internal Lain dicatat untuk assignment ${division} klien ${client.id} (${client.name}).`,
+        `PIC → Tim Internal Lain (${destinationDivision}) dicatat untuk assignment ${division} klien ${client.id} (${client.name}).`,
         { userId: currentUser.userId, name: currentUser.name, role: currentUser.role },
         client.id,
         client.name

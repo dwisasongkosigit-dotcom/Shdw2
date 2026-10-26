@@ -214,6 +214,7 @@ export interface ProfileAssignmentHandoverRecord {
   id: string;
   clientId: string;
   division: JobDivision;
+  destinationDivision?: JobDivision;
   sentAt: string;
   sentById: string;
   sentByName: string;
@@ -626,9 +627,10 @@ export const api = {
   getHandovers: () => request<{ jobRecords: JobHandoverRecord[]; hiddenHandoverJobIds: string[]; profileAssignmentRecords: ProfileAssignmentHandoverRecord[] }>('/api/handovers'),
   removeUnconfiguredJobFromHandoverRecap: (jobId: string) =>
     request<{ success: boolean; message: string }>(`/api/jobs/${encodeURIComponent(jobId)}/handover-recap`, { method: 'DELETE' }),
-  recordProfileAssignmentHandover: (clientId: string, division: JobDivision) =>
+  recordProfileAssignmentHandover: (clientId: string, division: JobDivision, destinationDivision: JobDivision) =>
     request<{ success: boolean; record: ProfileAssignmentHandoverRecord; message: string }>(`/api/clients/${encodeURIComponent(clientId)}/profile-handovers/${division}`, {
       method: 'POST',
+      body: JSON.stringify({ destinationDivision }),
     }),
   cancelProfileAssignmentHandover: (clientId: string, division: JobDivision, recordId: string) =>
     request<{ success: boolean; record: ProfileAssignmentHandoverRecord; message: string }>(`/api/clients/${encodeURIComponent(clientId)}/profile-handovers/${division}/${encodeURIComponent(recordId)}/cancel`, {

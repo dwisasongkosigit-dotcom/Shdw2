@@ -361,6 +361,124 @@ function HandoverChecklistCell({
   );
 }
 
+type ProfileHandoverAssignment = {
+  clientId: string;
+  clientName: string;
+  division: Job['division'];
+  picId: string;
+  picName: string;
+  spvName: string;
+  isSpvPic: boolean;
+};
+
+type ProfileHandoverAssignmentRow = ProfileHandoverAssignment & {
+  record?: ProfileAssignmentHandoverRecord;
+  canceledRecord?: ProfileAssignmentHandoverRecord;
+};
+
+function getProfileHandoverOwner(client: Client, division: Job['division']) {
+  const isSpvPic = isSpvPicForDivision(client, division);
+  if (division === 'Accounting') {
+    return {
+      isSpvPic,
+      picId: isSpvPic ? client.accountingSpvId : client.accountingStaffPicId,
+      picName: isSpvPic ? client.accountingSpvName : client.accountingStaffPicName,
+      spvId: client.accountingSpvId,
+      spvName: client.accountingSpvName,
+    };
+  }
+  return {
+    isSpvPic,
+    picId: isSpvPic ? client.taxSpvId : client.taxStaffPicId,
+    picName: isSpvPic ? client.taxSpvName : client.taxStaffPicName,
+    spvId: client.taxSpvId,
+    spvName: client.taxSpvName,
+  };
+}
+
+function canViewProfileAssignment(client: Client, division: Job['division'], currentUser: CurrentUser) {
+  if (['Admin', 'Owner', 'Manager'].includes(currentUser.role)) return true;
+  const { picId, spvId } = getProfileHandoverOwner(client, division);
+  if (currentUser.role === `Staff ${division}`) return picId === currentUser.id;
+  if (currentUser.role === `SPV ${division}`) return spvId === currentUser.id || picId === currentUser.id;
+  return false;
+}
+
+function ProfileAssignmentHandoverCard({ assignment, currentUser, savingKey, cancelingRecordId, onRecord, onCancel }: {
+  assignment: ProfileHandoverAssignmentRow;
+  currentUser: CurrentUser;
+  savingKey: string | null;
+  cancelingRecordId: string | null;
+  onRecord: (assignment: ProfileHandoverAssignment, destinationDivision: Job['division']) => void;
+  onCancel: (assignment: ProfileHandoverAssignment, record: ProfileAssignmentHandoverRecord) => void;
+}) {
+  const existingRecord = assignment.record;
+  const historyRecord = assignment.canceledRecord;
+  const defaultDestination = existingRecord?.destinationDivision || historyRecord?.destinationDivision ||
+    (assignment.division === 'Accounting' ? 'Tax' : 'Accounting');
+  const [destinationDivision, setDestinationDivision] = useState<Job['division']>(defaultDestination);
+  const key = `profile:${assignment.clientId}:${assignment.division}`;
+  const isSaving = savingKey === key;
+  const busy = Boolean(savingKey);
+  const isCanceling = cancelingRecordId === existingRecord?.id;
+  const canRecord = currentUser.role === 'Admin' || (
+    currentUser.id === assignment.picId &&
+    currentUser.role === `${assignment.isSpvPic ? 'SPV' : 'Staff'} ${assignment.division}`
+  );
+  const canCancel = Boolean(existingRecord && (currentUser.role === 'Admin' || existingRecord.sentById === currentUser.id));
+  const status = existingRecord ? 'Sudah diserahkan' : historyRecord ? 'Catatan dibatalkan' : 'Belum dicatat';
+
+  return (
+    <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between sm:p-5">
+        <div className="min-w-0">
+          <div className="mb-1 flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[10px] font-semibold text-slate-500">{assignment.clientId}</span>
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${assignment.division === 'Tax' ? 'bg-amber-50 text-amber-800' : 'bg-sky-50 text-sky-800'}`}>{assignment.division}</span>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">{assignment.clientName}</span>
+          </div>
+          <h2 className="text-sm font-bold leading-5 text-slate-900">PIC → Tim Internal Lain</h2>
+          <p className="mt-1 text-[11px] text-slate-500">PIC {assignment.picName && assignment.picName !== '-' ? assignment.picName : 'belum ditentukan'} · {assignment.isSpvPic ? 'PIC SPV' : 'PIC staff'}</p>
+        </div>
+        <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${existingRecord ? 'bg-emerald-50 text-emerald-800' : historyRecord ? 'bg-rose-50 text-rose-800' : 'bg-amber-50 text-amber-800'}`}>{status}</span>
+      </div>
+      <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-end sm:justify-between sm:px-5">
+        <div className="flex flex-col gap-1">
+          {existingRecord ? (
+            <p className="text-[10px] leading-4 text-slate-500">Diserahkan ke {existingRecord.destinationDivision || defaultDestination} · {formatDate(existingRecord.sentAt)} oleh {existingRecord.sentByName}</p>
+          ) : historyRecord ? (
+            <p className="text-[10px] leading-4 text-slate-500">Sebelumnya diserahkan ke {historyRecord.destinationDivision || defaultDestination}; dibatalkan {formatDate(historyRecord.canceledAt || '')}.</p>
+          ) : (
+            <p className="text-[10px] leading-4 text-slate-500">Tidak perlu membuat job atau mengisi judul tugas untuk mencatat assignment ini.</p>
+          )}
+          {!existingRecord && (
+            <label className="flex items-center gap-2 text-[10px] font-semibold text-slate-600">
+              Tim tujuan
+              <select value={destinationDivision} onChange={(event) => setDestinationDivision(event.target.value as Job['division'])} className="min-h-9 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-800 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100">
+                <option value="Accounting" disabled={assignment.division === 'Accounting'}>Accounting</option>
+                <option value="Tax" disabled={assignment.division === 'Tax'}>Tax</option>
+              </select>
+            </label>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {!existingRecord && (
+            <button type="button" onClick={() => onRecord(assignment, destinationDivision)} disabled={!canRecord || busy} className="inline-flex min-h-9 items-center justify-center rounded-lg bg-amber-600 px-3 text-[11px] font-semibold text-white transition hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+              {isSaving ? 'Menyimpan…' : 'Catat sudah diserahkan'}
+            </button>
+          )}
+          {canCancel && existingRecord && (
+            <button type="button" onClick={() => onCancel(assignment, existingRecord)} disabled={isCanceling || busy} className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-rose-200 px-3 text-[10px] font-semibold text-rose-700 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 disabled:opacity-50">
+              <Undo2 className="size-3.5" /> {isCanceling ? 'Membatalkan…' : 'Batalkan'}
+            </button>
+          )}
+          {!existingRecord && !canRecord && <span className="text-[10px] text-slate-500">Hanya PIC yang ditugaskan atau Admin dapat mencatat.</span>}
+        </div>
+      </div>
+    </article>
+  );
+}
+
 export function HandoverView({ jobs, clients, records, hiddenHandoverJobIds, profileAssignmentRecords, currentUser, onRefresh }: HandoverViewProps) {
   const { success, error } = useToast();
   const [clientFilter, setClientFilter] = useState('All');
@@ -387,19 +505,49 @@ export function HandoverView({ jobs, clients, records, hiddenHandoverJobIds, pro
   const deleteDialogRef = useRef<HTMLDialogElement>(null);
   const removeFromRecapDialogRef = useRef<HTMLDialogElement>(null);
   const [newlySavedRecords, setNewlySavedRecords] = useState<JobHandoverRecord[]>([]);
+  const [newlySavedProfileRecords, setNewlySavedProfileRecords] = useState<ProfileAssignmentHandoverRecord[]>([]);
+  const [cancelingProfileRecordId, setCancelingProfileRecordId] = useState<string | null>(null);
 
   const hiddenHandoverJobIdSet = useMemo(() => new Set(hiddenHandoverJobIds), [hiddenHandoverJobIds]);
   const visibleJobs = useMemo(() => jobs.filter((job) =>
     canViewJob(job, currentUser) && !hiddenHandoverJobIdSet.has(job.id)
   ), [jobs, currentUser, hiddenHandoverJobIdSet]);
   const clientsById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
+  const jobAssignmentKeys = useMemo(() => new Set(jobs.map((job) => `${job.clientId}:${job.division}`)), [jobs]);
+  const profileAssignments = useMemo(() => clients.flatMap((client) =>
+    (['Accounting', 'Tax'] as const).flatMap((division) => {
+      const responsibility = division === 'Accounting'
+        ? client.accountingServiceResponsibility || 'Tim 3'
+        : client.taxServiceResponsibility || 'Tim 3';
+      if (responsibility !== 'Tim Internal Lain' || jobAssignmentKeys.has(`${client.id}:${division}`) || !canViewProfileAssignment(client, division, currentUser)) return [];
+      const owner = getProfileHandoverOwner(client, division);
+      return [{ clientId: client.id, clientName: client.name, division, picId: owner.picId, picName: owner.picName, spvName: owner.spvName, isSpvPic: owner.isSpvPic }];
+    })
+  ), [clients, jobAssignmentKeys, currentUser]);
+  const profileAssignmentKeys = useMemo(() => new Set(profileAssignments.map((assignment) => `${assignment.clientId}:${assignment.division}`)), [profileAssignments]);
+  const visibleProfileRecords = useMemo(() => {
+    const byId = new Map<string, ProfileAssignmentHandoverRecord>();
+    [...profileAssignmentRecords, ...newlySavedProfileRecords].forEach((record) => {
+      if (profileAssignmentKeys.has(`${record.clientId}:${record.division}`)) byId.set(record.id, record);
+    });
+    return [...byId.values()];
+  }, [profileAssignmentRecords, newlySavedProfileRecords, profileAssignmentKeys]);
+  const profileRecordByKey = useMemo(() => {
+    const active = visibleProfileRecords.filter((record) => !record.canceledAt).sort((a, b) => a.sentAt.localeCompare(b.sentAt));
+    return new Map(active.map((record) => [`${record.clientId}:${record.division}`, record]));
+  }, [visibleProfileRecords]);
+  const canceledProfileRecordByKey = useMemo(() => {
+    const canceled = visibleProfileRecords.filter((record) => record.canceledAt).sort((a, b) => (a.canceledAt || '').localeCompare(b.canceledAt || ''));
+    return new Map(canceled.map((record) => [`${record.clientId}:${record.division}`, record]));
+  }, [visibleProfileRecords]);
   const availablePics = useMemo(() => {
     const picsById = new Map<string, string>();
-    visibleJobs.forEach((job) => {
-      picsById.set(job.picId, job.picName);
+    visibleJobs.forEach((job) => picsById.set(job.picId, job.picName));
+    profileAssignments.forEach((assignment) => {
+      if (assignment.picId) picsById.set(assignment.picId, assignment.picName);
     });
     return [...picsById.entries()].sort((a, b) => a[1].localeCompare(b[1], 'id-ID'));
-  }, [visibleJobs]);
+  }, [visibleJobs, profileAssignments]);
   const visibleJobIds = useMemo(() => new Set(visibleJobs.map((job) => job.id)), [visibleJobs]);
   const visibleRecords = useMemo(() => {
     const byId = new Map<string, JobHandoverRecord>();
@@ -497,6 +645,30 @@ export function HandoverView({ jobs, clients, records, hiddenHandoverJobIds, pro
     periodTo,
     hasPeriodFilter,
   ]);
+  const filteredProfileAssignments = useMemo(() => profileAssignments.filter((assignment) => {
+    if (clientFilter !== 'All' && assignment.clientId !== clientFilter) return false;
+    if (picFilter !== 'All' && assignment.picId !== picFilter) return false;
+    if (directionFilter !== 'All' && directionFilter !== 'staff-to-internal') return false;
+    if (destinationFilter === 'client') return false;
+
+    const key = `${assignment.clientId}:${assignment.division}`;
+    const record = profileRecordByKey.get(key);
+    const canceledRecord = canceledProfileRecordByKey.get(key);
+    const destinationDivision = record?.destinationDivision || canceledRecord?.destinationDivision || (assignment.division === 'Accounting' ? 'Tax' : 'Accounting');
+    if (normalizedSearchTerm && ![assignment.clientId, assignment.clientName, assignment.picName, assignment.spvName, destinationDivision, 'Tim Internal Lain']
+      .some((value) => value.toLocaleLowerCase('id-ID').includes(normalizedSearchTerm))) return false;
+    if (statusFilter === 'review' || statusFilter === 'unconfigured') return false;
+    if (statusFilter === 'handover' && record) return false;
+    if ((statusFilter === 'complete' || statusFilter === 'delivered') && !record) return false;
+    if (statusFilter === 'canceled' && (record || !canceledRecord)) return false;
+    if (hasPeriodFilter) {
+      const hasRecordInPeriod = [record, canceledRecord].some((item) => item && (
+        matchesMonthRange(item.sentAt, periodFrom, periodTo) || matchesMonthRange(item.canceledAt, periodFrom, periodTo)
+      ));
+      if (!hasRecordInPeriod) return false;
+    }
+    return true;
+  }), [profileAssignments, clientFilter, picFilter, directionFilter, destinationFilter, normalizedSearchTerm, profileRecordByKey, canceledProfileRecordByKey, statusFilter, hasPeriodFilter, periodFrom, periodTo]);
 
   const handoverExportRows = useMemo(() => {
     const jobRows = filteredJobs.map((job, index) => {
@@ -527,8 +699,35 @@ export function HandoverView({ jobs, clients, records, hiddenHandoverJobIds, pro
         staffToInternal: exportValue('staff-to-internal'),
       };
     });
-    return jobRows;
-  }, [filteredJobs, clientsById, recordByKey, canceledRecordByKey]);
+    const profileRows = filteredProfileAssignments.map((assignment, index) => {
+      const key = `${assignment.clientId}:${assignment.division}`;
+      const record = profileRecordByKey.get(key);
+      const canceledRecord = canceledProfileRecordByKey.get(key);
+      const destinationDivision = record?.destinationDivision || canceledRecord?.destinationDivision || (assignment.division === 'Accounting' ? 'Tax' : 'Accounting');
+      return {
+        number: jobRows.length + index + 1,
+        jobId: `ASSIGN-${assignment.clientId}-${assignment.division}`,
+        clientName: assignment.clientName,
+        division: assignment.division,
+        title: 'Assignment layanan (tanpa job)',
+        picName: assignment.picName || 'Belum ditentukan',
+        spvName: assignment.spvName || 'Belum ditentukan',
+        serviceResponsibility: 'Tim Internal Lain',
+        handoverDestinations: `Internal (${destinationDivision})`,
+        jobStatus: 'Tidak ada job',
+        staffToClient: '— Tidak berlaku',
+        spvPicToClient: '— Tidak berlaku',
+        accountingToTax: '— Tidak berlaku',
+        taxToAccounting: '— Tidak berlaku',
+        staffToInternal: record
+          ? `✓ Diserahkan ke ${record.destinationDivision || destinationDivision} · ${formatDate(record.sentAt)} · ${record.sentByName}`
+          : canceledRecord
+            ? `☐ Dibatalkan · ${formatDate(canceledRecord.canceledAt || '')} · ${canceledRecord.canceledByName || '—'}`
+            : '☐ Belum dicatat',
+      };
+    });
+    return [...jobRows, ...profileRows];
+  }, [filteredJobs, filteredProfileAssignments, clientsById, recordByKey, canceledRecordByKey, profileRecordByKey, canceledProfileRecordByKey]);
 
   const summaryJobs = useMemo(() => visibleJobs.filter((job) => {
     if (clientFilter !== 'All' && job.clientId !== clientFilter) return false;
@@ -551,6 +750,23 @@ export function HandoverView({ jobs, clients, records, hiddenHandoverJobIds, pro
     }
     return true;
   }), [visibleJobs, clientsById, clientFilter, picFilter, destinationFilter, directionFilter, visibleChecklistOptions, normalizedSearchTerm, periodFrom, periodTo, hasPeriodFilter, recordsByJobId]);
+  const summaryProfileAssignments = useMemo(() => profileAssignments.filter((assignment) => {
+    if (clientFilter !== 'All' && assignment.clientId !== clientFilter) return false;
+    if (picFilter !== 'All' && assignment.picId !== picFilter) return false;
+    if (directionFilter !== 'All' && directionFilter !== 'staff-to-internal') return false;
+    if (destinationFilter === 'client') return false;
+    if (normalizedSearchTerm && ![assignment.clientId, assignment.clientName, assignment.picName, assignment.spvName, 'Tim Internal Lain']
+      .some((value) => value.toLocaleLowerCase('id-ID').includes(normalizedSearchTerm))) return false;
+    if (hasPeriodFilter) {
+      const key = `${assignment.clientId}:${assignment.division}`;
+      const record = profileRecordByKey.get(key);
+      const canceledRecord = canceledProfileRecordByKey.get(key);
+      if (![record, canceledRecord].some((item) => item && (
+        matchesMonthRange(item.sentAt, periodFrom, periodTo) || matchesMonthRange(item.canceledAt, periodFrom, periodTo)
+      ))) return false;
+    }
+    return true;
+  }), [profileAssignments, clientFilter, picFilter, directionFilter, destinationFilter, normalizedSearchTerm, hasPeriodFilter, profileRecordByKey, canceledProfileRecordByKey, periodFrom, periodTo]);
   const summaryJobIds = useMemo(() => new Set(summaryJobs.map((job) => job.id)), [summaryJobs]);
   const summaryJobsById = useMemo(() => new Map(summaryJobs.map((job) => [job.id, job])), [summaryJobs]);
   const summaryRecords = useMemo(() => visibleRecords.filter((record) =>
@@ -566,6 +782,14 @@ export function HandoverView({ jobs, clients, records, hiddenHandoverJobIds, pro
     return Boolean(job && isDirectionApplicable(job, record.direction, clientsById.get(job.clientId)) &&
       record.canceledAt && matchesMonthRange(record.canceledAt, periodFrom, periodTo));
   }), [summaryRecords, summaryJobsById, clientsById, periodFrom, periodTo]);
+  const activeProfileSummaryCount = summaryProfileAssignments.filter((assignment) => {
+    const record = profileRecordByKey.get(`${assignment.clientId}:${assignment.division}`);
+    return Boolean(record && matchesMonthRange(record.sentAt, periodFrom, periodTo));
+  }).length;
+  const canceledProfileSummaryCount = summaryProfileAssignments.filter((assignment) => {
+    const key = `${assignment.clientId}:${assignment.division}`;
+    return !profileRecordByKey.has(key) && Boolean(canceledProfileRecordByKey.get(key)?.canceledAt && matchesMonthRange(canceledProfileRecordByKey.get(key)?.canceledAt, periodFrom, periodTo));
+  }).length;
   const pendingReviewCount = useMemo(
     () => summaryJobs.filter((job) => job.status !== 'Selesai').length,
     [summaryJobs]
@@ -576,7 +800,7 @@ export function HandoverView({ jobs, clients, records, hiddenHandoverJobIds, pro
       isDirectionRequired(job, option.direction, clientsById.get(job.clientId)) &&
       !recordByKey.has(`${job.id}:${option.direction}`)
     ).length;
-  }, 0), [summaryJobs, visibleChecklistOptions, recordByKey, clientsById]);
+  }, 0) + summaryProfileAssignments.filter((assignment) => !profileRecordByKey.has(`${assignment.clientId}:${assignment.division}`)).length, [summaryJobs, visibleChecklistOptions, recordByKey, clientsById, summaryProfileAssignments, profileRecordByKey]);
   const unconfiguredJobCount = useMemo(
     () => summaryJobs.filter((job) => !isHandoverConfigured(job, clientsById.get(job.clientId))).length,
     [summaryJobs]
@@ -584,12 +808,14 @@ export function HandoverView({ jobs, clients, records, hiddenHandoverJobIds, pro
   const activeCountByDirection = useMemo(() => {
     const counts = new Map<JobHandoverDirection, number>();
     activeSummaryRecords.forEach((record) => counts.set(record.direction, (counts.get(record.direction) || 0) + 1));
+    counts.set('staff-to-internal', (counts.get('staff-to-internal') || 0) + activeProfileSummaryCount);
     return counts;
-  }, [activeSummaryRecords]);
+  }, [activeSummaryRecords, activeProfileSummaryCount]);
   const directionSummary = useMemo(() => visibleChecklistOptions
-    .filter((option) => summaryJobs.some((job) => isDirectionRequired(job, option.direction, clientsById.get(job.clientId))))
+    .filter((option) => summaryJobs.some((job) => isDirectionRequired(job, option.direction, clientsById.get(job.clientId))) ||
+      (option.direction === 'staff-to-internal' && summaryProfileAssignments.length > 0))
     .map((option) => ({ ...option, count: activeCountByDirection.get(option.direction) || 0 })),
-  [visibleChecklistOptions, summaryJobs, activeCountByDirection, clientsById]);
+  [visibleChecklistOptions, summaryJobs, summaryProfileAssignments, activeCountByDirection, clientsById]);
 
   const handleRecordHandover = async (job: Job, direction: ActiveJobHandoverDirection) => {
     const key = `${job.id}:${direction}`;
@@ -604,6 +830,43 @@ export function HandoverView({ jobs, clients, records, hiddenHandoverJobIds, pro
       error('Gagal Mencatat Serah Terima', err.message || 'Periksa koneksi lalu coba kembali.');
     } finally {
       setSavingKey(null);
+    }
+  };
+
+  const handleRecordProfileAssignment = async (assignment: ProfileHandoverAssignment, destinationDivision: Job['division']) => {
+    const key = `profile:${assignment.clientId}:${assignment.division}`;
+    if (savingKey || profileRecordByKey.has(`${assignment.clientId}:${assignment.division}`) || destinationDivision === assignment.division) return;
+    const canRecord = currentUser.role === 'Admin' || (
+      currentUser.id === assignment.picId &&
+      currentUser.role === `${assignment.isSpvPic ? 'SPV' : 'Staff'} ${assignment.division}`
+    );
+    if (!canRecord) return;
+
+    setSavingKey(key);
+    try {
+      const response = await api.recordProfileAssignmentHandover(assignment.clientId, assignment.division, destinationDivision);
+      setNewlySavedProfileRecords((previous) => [...previous.filter((record) => record.id !== response.record.id), response.record]);
+      success('Serah Terima Dicatat', `${response.message} ${formatDate(response.record.sentAt)} · ${response.record.sentByName}.`);
+      await onRefresh();
+    } catch (err: any) {
+      error('Gagal Mencatat Serah Terima', err.message || 'Periksa koneksi lalu coba kembali.');
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const handleCancelProfileAssignment = async (assignment: ProfileHandoverAssignment, record: ProfileAssignmentHandoverRecord) => {
+    if (cancelingProfileRecordId || !window.confirm(`Batalkan serah terima ${assignment.division} untuk ${assignment.clientName}? Riwayat awal tetap tersimpan.`)) return;
+    setCancelingProfileRecordId(record.id);
+    try {
+      const response = await api.cancelProfileAssignmentHandover(assignment.clientId, assignment.division, record.id);
+      setNewlySavedProfileRecords((previous) => [...previous.filter((item) => item.id !== response.record.id), response.record]);
+      success('Catatan Dibatalkan', `${response.message} ${formatDate(response.record.canceledAt || '')} · ${response.record.canceledByName}.`);
+      await onRefresh();
+    } catch (err: any) {
+      error('Gagal Membatalkan Catatan', err.message || 'Periksa koneksi lalu coba kembali.');
+    } finally {
+      setCancelingProfileRecordId(null);
     }
   };
 
@@ -702,16 +965,16 @@ export function HandoverView({ jobs, clients, records, hiddenHandoverJobIds, pro
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
             <h2 id="handover-summary-title" className="text-sm font-bold text-slate-900">Ringkasan Rekap</h2>
-            <p className="mt-1 text-[11px] text-slate-500">Mengikuti filter klien, periode, dan tujuan untuk tugas/job yang tersedia.</p>
+            <p className="mt-1 text-[11px] text-slate-500">Mengikuti filter klien, PIC, periode, dan tujuan untuk job serta assignment tanpa job.</p>
           </div>
-          <span className="text-[10px] font-medium text-slate-400">{summaryJobs.length} job</span>
+          <span className="text-[10px] font-medium text-slate-400">{summaryJobs.length + summaryProfileAssignments.length} item</span>
         </div>
         <div className="grid grid-cols-2 gap-2 xl:grid-cols-5">
           {[
-            { key: 'delivered' as const, label: 'Terkirim / Diserahkan', count: activeSummaryRecords.length, color: 'emerald' },
+            { key: 'delivered' as const, label: 'Terkirim / Diserahkan', count: activeSummaryRecords.length + activeProfileSummaryCount, color: 'emerald' },
             { key: 'handover' as const, label: 'Checklist Terbuka', count: pendingHandoverCount, color: 'sky' },
             { key: 'review' as const, label: 'Menunggu Review', count: pendingReviewCount, color: 'amber' },
-            { key: 'canceled' as const, label: 'Catatan Dibatalkan', count: canceledSummaryRecords.length, color: 'rose' },
+            { key: 'canceled' as const, label: 'Catatan Dibatalkan', count: canceledSummaryRecords.length + canceledProfileSummaryCount, color: 'rose' },
             { key: 'unconfigured' as const, label: 'Tujuan Belum Diatur', count: unconfiguredJobCount, color: 'amber' },
           ].map((item) => (
             <button
@@ -812,23 +1075,23 @@ export function HandoverView({ jobs, clients, records, hiddenHandoverJobIds, pro
               filename="Rekap_Serah_Terima_TMM_BMA"
               sheetName="Rekap Serah Terima"
               title="REKAP SERAH TERIMA PEKERJAAN"
-              subtitle={`Filter: ${statusFilter} · Klien: ${clientFilter === 'All' ? 'Semua klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} · PIC: ${picFilter === 'All' ? 'Semua PIC' : availablePics.find(([id]) => id === picFilter)?.[1] || 'PIC'} · Periode: ${periodLabel} · Tujuan: ${destinationFilter === 'All' ? 'Semua tujuan' : destinationFilter === 'client' ? 'Klien' : 'Internal'} · Arah: ${directionFilter === 'All' ? 'Semua arah' : HANDOVER_OPTIONS.find((option) => option.direction === directionFilter)?.label || 'Arah'} · ${filteredJobs.length} tugas`}
+              subtitle={`Filter: ${statusFilter} · Klien: ${clientFilter === 'All' ? 'Semua klien' : clients.find((client) => client.id === clientFilter)?.name || 'Klien'} · PIC: ${picFilter === 'All' ? 'Semua PIC' : availablePics.find(([id]) => id === picFilter)?.[1] || 'PIC'} · Periode: ${periodLabel} · Tujuan: ${destinationFilter === 'All' ? 'Semua tujuan' : destinationFilter === 'client' ? 'Klien' : 'Internal'} · Arah: ${directionFilter === 'All' ? 'Semua arah' : HANDOVER_OPTIONS.find((option) => option.direction === directionFilter)?.label || 'Arah'} · ${filteredJobs.length + filteredProfileAssignments.length} item`}
               columns={handoverExportColumns}
               data={handoverExportRows}
               label="Ekspor Rekap"
               className="ml-auto"
             />
-            <span className="text-[11px] tabular-nums text-slate-400">{filteredJobs.length} tugas</span>
+            <span className="text-[11px] tabular-nums text-slate-400">{filteredJobs.length + filteredProfileAssignments.length} item</span>
           </div>
         </div>
       </div>
 
       <div className="flex flex-col gap-3" aria-label="Daftar rekap serah terima">
-        {filteredJobs.length === 0 && (
+        {filteredJobs.length === 0 && filteredProfileAssignments.length === 0 && (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-12 text-center">
             <ClipboardCheck className="mx-auto size-8 text-slate-300" />
-            <h2 className="mt-3 text-sm font-semibold text-slate-800">Tidak ada tugas yang cocok</h2>
-            <p className="mt-1 text-xs text-slate-500">Ubah filter klien, PIC, tujuan, arah, periode, atau pencarian untuk menemukan tugas.</p>
+            <h2 className="mt-3 text-sm font-semibold text-slate-800">Tidak ada item yang cocok</h2>
+            <p className="mt-1 text-xs text-slate-500">Ubah filter klien, PIC, tujuan, arah, periode, atau pencarian untuk menemukan job maupun assignment.</p>
           </div>
         )}
         {filteredJobs.map((job, index) => {
@@ -998,6 +1261,22 @@ export function HandoverView({ jobs, clients, records, hiddenHandoverJobIds, pro
                 )}
               </div>
             </article>
+          );
+        })}
+        {filteredProfileAssignments.map((assignment) => {
+          const key = `${assignment.clientId}:${assignment.division}`;
+          const record = profileRecordByKey.get(key);
+          const canceledRecord = canceledProfileRecordByKey.get(key);
+          return (
+            <ProfileAssignmentHandoverCard
+              key={`${key}:${record?.id || canceledRecord?.id || 'pending'}`}
+              assignment={{ ...assignment, record, canceledRecord }}
+              currentUser={currentUser}
+              savingKey={savingKey}
+              cancelingRecordId={cancelingProfileRecordId}
+              onRecord={(target, destinationDivision) => void handleRecordProfileAssignment(target, destinationDivision)}
+              onCancel={(target, targetRecord) => void handleCancelProfileAssignment(target, targetRecord)}
+            />
           );
         })}
       </div>
