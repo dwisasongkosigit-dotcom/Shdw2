@@ -269,11 +269,23 @@
     background: #fff !important;
   }
 
-  .monthly-report-print section,
-  .monthly-report-print header,
-  .monthly-report-print table,
-  .monthly-report-print tr {
+  .monthly-report-print header {
     break-inside: avoid;
+  }
+
+  .monthly-report-print section {
+    break-inside: auto !important;
+    overflow: visible !important;
+  }
+
+  .monthly-report-print .overflow-x-auto {
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  .monthly-report-group-heading {
+    break-after: avoid-page;
+    page-break-after: avoid;
   }
 
   .monthly-report-print thead {
@@ -281,7 +293,15 @@
   }
 
   .monthly-report-print table {
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed;
     font-size: 8pt !important;
+  }
+
+  .monthly-report-print tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 
   .monthly-report-print th,
