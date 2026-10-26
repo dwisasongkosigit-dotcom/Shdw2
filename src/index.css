@@ -232,3 +232,60 @@
 :root[data-theme='dark'] [class~='border-indigo-200'] {
   border-color: #4c426e !important;
 }
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .monthly-report-print,
+  .monthly-report-print * {
+    visibility: visible !important;
+  }
+
+  .monthly-report-print {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    color: #0f172a !important;
+    background: #fff !important;
+    font-size: 10pt !important;
+  }
+
+  .monthly-report-no-print {
+    display: none !important;
+  }
+
+  .monthly-report-print [class~='bg-white'],
+  .monthly-report-print [class~='bg-slate-50'],
+  .monthly-report-print [class~='bg-slate-50/80'],
+  .monthly-report-print [class~='bg-emerald-50/60'],
+  .monthly-report-print [class~='bg-amber-50/60'] {
+    background: #fff !important;
+  }
+
+  .monthly-report-print section,
+  .monthly-report-print header,
+  .monthly-report-print table,
+  .monthly-report-print tr {
+    break-inside: avoid;
+  }
+
+  .monthly-report-print thead {
+    display: table-header-group;
+  }
+
+  .monthly-report-print table {
+    font-size: 8pt !important;
+  }
+
+  .monthly-report-print th,
+  .monthly-report-print td {
+    padding: 5px 7px !important;
+  }
+}
