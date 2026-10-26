@@ -22,7 +22,7 @@ export function NotificationInbox({ userId }: NotificationInboxProps) {
   const { data, error, isLoading, mutate } = useSWR<AppNotification[]>(
     `notifications:${userId}`,
     () => api.getNotifications(),
-    { refreshInterval: 10_000, revalidateOnFocus: true }
+    { refreshInterval: isOpen ? 30_000 : 0, revalidateOnFocus: true }
   );
   const notifications = data || [];
   const unreadCount = notifications.filter((notification) => !notification.readAt).length;
