@@ -46,6 +46,14 @@ function currentJakartaMonth() {
   return `${values.year}-${values.month}`;
 }
 
+type MonthlySummary<T> = {
+  total: number;
+  completed: number;
+  unfinished: number;
+  completedItems: T[];
+  unfinishedItems: T[];
+};
+
 export function DashboardView({
   stats,
   jobs: allJobs,
@@ -72,6 +80,7 @@ export function DashboardView({
   };
   const [fromMonth, setFromMonth] = useState(currentJakartaMonth);
   const [toMonth, setToMonth] = useState(currentJakartaMonth);
+  const [expandedMonthlyCard, setExpandedMonthlyCard] = useState<string | null>(null);
   const validMonthRange = fromMonth <= toMonth;
   const myRevisionJobs = useMemo(
     () => currentUser.role.startsWith('Staff')
@@ -96,9 +105,16 @@ export function DashboardView({
       const month = item.createdAt.slice(0, 7);
       return validMonthRange && month >= fromMonth && month <= toMonth;
     });
-    const summarize = <T,>(items: T[], isDone: (item: T) => boolean) => {
-      const completed = items.filter(isDone).length;
-      return { total: items.length, completed, unfinished: items.length - completed };
+    const summarize = <T,>(items: T[], isDone: (item: T) => boolean): MonthlySummary<T> => {
+      const completedItems = items.filter(isDone);
+      const unfinishedItems = items.filter((item) => !isDone(item));
+      return {
+        total: items.length,
+        completed: completedItems.length,
+        unfinished: unfinishedItems.length,
+        completedItems,
+        unfinishedItems,
+      };
     };
     return {
       continuing: summarize(scopedJobs.filter((job) => job.jobType === 'Continuing'), (job) => job.status === 'Selesai'),
@@ -236,19 +252,72 @@ export function DashboardView({
         {!validMonthRange && <p role="alert" className="mt-3 text-xs font-medium text-rose-600">Rentang bulan tidak valid. Pilih bulan akhir yang sama atau setelah bulan awal.</p>}
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           {([
-            { title: 'Job berkelanjutan', summary: monthlySummary.continuing, icon: CalendarDays, accent: 'text-sky-700 bg-sky-50' },
-            { title: 'Job Management tambahan', summary: monthlySummary.additional, icon: Briefcase, accent: 'text-amber-700 bg-amber-50' },
-            { title: 'Case Register', summary: monthlySummary.cases, icon: ShieldAlert, accent: 'text-rose-700 bg-rose-50' },
-          ] as const).map(({ title, summary, icon: Icon, accent }) => (
-            <article key={title} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3.5">
-              <div className="flex items-center gap-2"><span className={`rounded-lg p-2 ${accent}`}><Icon className="size-4" /></span><h3 className="text-xs font-semibold text-slate-800">{title}</h3></div>
-              <p className="mt-3 text-2xl font-bold tabular-nums text-slate-900">{summary.total}<span className="ml-1.5 text-[11px] font-medium text-slate-500">total tugas</span></p>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-200 pt-2 text-[11px]">
-                <span className="text-emerald-700">Selesai <strong className="tabular-nums">{summary.completed}</strong></span>
-                <span className="text-amber-700">Belum selesai <strong className="tabular-nums">{summary.unfinished}</strong></span>
-              </div>
-            </article>
-          ))}
+            { key: 'continuing', title: 'Job berkelanjutan', summary: monthlySummary.continuing, icon: CalendarDays, accent: 'text-sky-700 bg-sky-50', kind: 'job' as const },
+            { key: 'additional', title: 'Job Management tambahan', summary: monthlySummary.additional, icon: Briefcase, accent: 'text-amber-700 bg-amber-50', kind: 'job' as const },
+            { key: 'cases', title: 'Case Register', summary: monthlySummary.cases, icon: ShieldAlert, accent: 'text-rose-700 bg-rose-50', kind: 'case' as const },
+          ]).map(({ key, title, summary, icon: Icon, accent, kind }) => {
+            const isExpanded = expandedMonthlyCard === key;
+            const groups = kind === 'job'
+              ? [
+                  { label: 'Selesai', items: summary.completedItems as Job[], color: 'text-emerald-700', empty: 'Belum ada tugas selesai.' },
+                  { label: 'Belum selesai', items: summary.unfinishedItems as Job[], color: 'text-amber-700', empty: 'Semua tugas sudah selesai.' },
+                ]
+              : [
+                  { label: 'Selesai', items: summary.completedItems as Case[], color: 'text-emerald-700', empty: 'Belum ada kasus selesai.' },
+                  { label: 'Belum selesai', items: summary.unfinishedItems as Case[], color: 'text-amber-700', empty: 'Semua kasus sudah selesai.' },
+                ];
+
+            return (
+              <article key={key} className={`overflow-hidden rounded-lg border bg-slate-50/70 transition-colors ${isExpanded ? 'border-slate-300' : 'border-slate-200'}`}>
+                <button
+                  type="button"
+                  aria-expanded={isExpanded}
+                  aria-controls={`monthly-details-${key}`}
+                  onClick={() => setExpandedMonthlyCard(isExpanded ? null : key)}
+                  className="w-full p-3.5 text-left transition-colors hover:bg-slate-100/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-inset"
+                >
+                  <span className="flex items-center gap-2"><span className={`rounded-lg p-2 ${accent}`}><Icon className="size-4" aria-hidden="true" /></span><span className="text-xs font-semibold text-slate-800">{title}</span></span>
+                  <span className="mt-3 block text-2xl font-bold tabular-nums text-slate-900">{summary.total}<span className="ml-1.5 text-[11px] font-medium text-slate-500">total tugas</span></span>
+                  <span className="mt-2 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-200 pt-2 text-[11px]">
+                    <span className="text-emerald-700">Selesai <strong className="tabular-nums">{summary.completed}</strong></span>
+                    <span className="text-amber-700">Belum selesai <strong className="tabular-nums">{summary.unfinished}</strong></span>
+                    <span className="ml-auto text-slate-500">{isExpanded ? 'Tutup rincian' : 'Lihat rincian'}</span>
+                  </span>
+                </button>
+                {isExpanded && (
+                  <div id={`monthly-details-${key}`} className="grid gap-3 border-t border-slate-200 p-3.5 sm:grid-cols-2">
+                    {groups.map((group) => (
+                      <section key={group.label} aria-label={`${group.label}: ${group.items.length}`}>
+                        <h4 className={`mb-2 text-[11px] font-bold ${group.color}`}>{group.label} <span className="tabular-nums">({group.items.length})</span></h4>
+                        {group.items.length ? (
+                          <ul className="max-h-64 space-y-1.5 overflow-y-auto">
+                            {group.items.map((item) => (
+                              <li key={item.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => kind === 'job' ? onOpenJob(item.id) : onOpenCase(item.id)}
+                                  className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-2 text-left transition-colors hover:border-amber-300 hover:bg-amber-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                                >
+                                  <span className="block truncate text-[11px] font-semibold text-slate-800">{item.title}</span>
+                                  <span className="mt-1 flex flex-wrap items-center gap-x-1 text-[10px] text-slate-500">
+                                    <span>{item.clientName}</span><span aria-hidden="true">·</span>
+                                    <span>{kind === 'job' ? (item as Job).status : (item as Case).status}</span>
+                                    {kind === 'job' && (item as Job).deadline && <><span aria-hidden="true">·</span><span>Tenggat {(item as Job).deadline}</span></>}
+                                  </span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="rounded-md border border-dashed border-slate-200 px-2.5 py-3 text-[10px] text-slate-500">{group.empty}</p>
+                        )}
+                      </section>
+                    ))}
+                  </div>
+                )}
+              </article>
+            );
+          })}
         </div>
       </section>
 
