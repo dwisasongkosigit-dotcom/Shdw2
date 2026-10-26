@@ -466,6 +466,7 @@ function MainApp() {
           {currentTab === 'mom' && (
             <MeetingMinutesView
               meetings={meetingMinutes}
+              clients={clients}
               users={users}
               currentUser={currentUser}
               companyName={branding.companyName}

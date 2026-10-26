@@ -87,6 +87,7 @@ export async function downloadMeetingMinuteWord(meeting: MeetingMinute, companyN
     label('Jenis rapat', meeting.meetingType),
     label('Tanggal', formatDate(meeting.meetingDate)),
     label('Waktu', `${meeting.startTime || '—'}${meeting.endTime ? ` – ${meeting.endTime}` : ''}`),
+    label('Klien terkait', meeting.clientName || 'Tidak terkait klien'),
     label('Lokasi', meeting.location),
     label('Pimpinan rapat', meeting.chairperson),
     label('Notulis', meeting.recorder),
@@ -202,6 +203,7 @@ export function printMeetingMinutePdf(meeting: MeetingMinute, companyName: strin
       <dl class="meta">
         <div><dt>Jenis rapat</dt><dd>${escapeHtml(meeting.meetingType || '—')}</dd></div>
         <div><dt>Tanggal & waktu</dt><dd>${escapeHtml(formatDate(meeting.meetingDate))}　${escapeHtml(meeting.startTime || '—')}${meeting.endTime ? `–${escapeHtml(meeting.endTime)}` : ''}</dd></div>
+        <div><dt>Klien terkait</dt><dd>${escapeHtml(meeting.clientName || 'Tidak terkait klien')}</dd></div>
         <div><dt>Lokasi</dt><dd>${escapeHtml(meeting.location || '—')}</dd></div>
         <div><dt>Pimpinan rapat</dt><dd>${escapeHtml(meeting.chairperson || '—')}</dd></div>
         <div><dt>Notulis</dt><dd>${escapeHtml(meeting.recorder || '—')}</dd></div>
