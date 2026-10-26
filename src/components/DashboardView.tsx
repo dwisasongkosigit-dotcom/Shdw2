@@ -21,7 +21,7 @@ interface DashboardViewProps {
   agendaEntries: TeamAgendaEntry[];
   meetingMinutes: MeetingMinute[];
   currentUser: CurrentUser;
-  onNavigateTab: (tab: any) => void;
+  onNavigateTab: (tab: any, filter?: { status?: string; followUp?: 'Overdue' }) => void;
   onOpenJob: (jobId: string) => void;
   onOpenCase: (caseId: string) => void;
   onRefresh: (division?: 'All' | 'Accounting' | 'Tax') => void;
@@ -376,100 +376,100 @@ export function DashboardView({
 
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Klien Aktif */}
-        <div
+        <button
+          type="button"
           onClick={() => onNavigateTab('clients')}
-          className="p-5 bg-white border border-slate-200/90 rounded-xl hover:border-slate-300 transition-all cursor-pointer shadow-sm group"
+          className="group w-full rounded-xl border border-slate-200/90 bg-white p-5 text-left shadow-sm transition-all hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
+          aria-label={`Buka daftar klien aktif, ${clients.active} dari ${clients.total} klien terdaftar`}
         >
-          <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+          <span className="flex items-center justify-between text-xs font-medium text-slate-500">
             <span>Basis Klien Aktif</span>
-            <Building2 className="w-4 h-4 text-slate-400 group-hover:text-amber-600 transition-colors" />
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-slate-900 font-mono tabular-nums">
-              {clients.active}
-            </span>
+            <Building2 className="size-4 text-slate-400 transition-colors group-hover:text-amber-600" aria-hidden="true" />
+          </span>
+          <span className="mt-3 flex items-baseline gap-2">
+            <span className="font-mono text-3xl font-extrabold tabular-nums text-slate-900">{clients.active}</span>
             <span className="text-xs text-slate-500">/ {clients.total} Terdaftar</span>
-          </div>
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-            <span>Badan: <strong className="text-slate-800 font-mono tabular-nums">{clients.badan}</strong></span>
-            <span>·</span>
-            <span>OP: <strong className="text-slate-800 font-mono tabular-nums">{clients.op}</strong></span>
-            <span>·</span>
-            <span>PKP: <strong className="text-slate-800 font-mono tabular-nums">{clients.pkp}</strong></span>
-          </div>
-        </div>
+          </span>
+          <span className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-[11px] text-slate-500">
+            <span>Badan: <strong className="font-mono tabular-nums text-slate-800">{clients.badan}</strong></span>
+            <span aria-hidden="true">·</span>
+            <span>OP: <strong className="font-mono tabular-nums text-slate-800">{clients.op}</strong></span>
+            <span aria-hidden="true">·</span>
+            <span>PKP: <strong className="font-mono tabular-nums text-slate-800">{clients.pkp}</strong></span>
+          </span>
+        </button>
 
-        {/* Pekerjaan Aktif & Review */}
-        <div
-          onClick={() => onNavigateTab('jobs')}
-          className="p-5 bg-white border border-slate-200/90 rounded-xl hover:border-slate-300 transition-all cursor-pointer shadow-sm group"
+        <button
+          type="button"
+          onClick={() => onNavigateTab('jobs', { status: 'Siap Direview' })}
+          className="group w-full rounded-xl border border-slate-200/90 bg-white p-5 text-left shadow-sm transition-all hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
+          aria-label={`Buka ${jobs.readyForReview} pekerjaan yang menunggu review SPV`}
         >
-          <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+          <span className="flex items-center justify-between text-xs font-medium text-slate-500">
             <span>Pekerjaan Siap Review SPV</span>
-            <Briefcase className="w-4 h-4 text-slate-400 group-hover:text-amber-600 transition-colors" />
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-amber-600 font-mono tabular-nums">
-              {jobs.readyForReview}
-            </span>
+            <Briefcase className="size-4 text-slate-400 transition-colors group-hover:text-amber-600" aria-hidden="true" />
+          </span>
+          <span className="mt-3 flex items-baseline gap-2">
+            <span className="font-mono text-3xl font-extrabold tabular-nums text-amber-600">{jobs.readyForReview}</span>
             <span className="text-xs text-slate-500">Menunggu Approval</span>
-          </div>
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-            <span>Proses: <strong className="text-slate-800 font-mono tabular-nums">{jobs.inProgress}</strong></span>
-            <span>·</span>
-            <span>Revisi: <strong className="text-rose-600 font-mono tabular-nums">{jobs.needsRevision}</strong></span>
-            <span>·</span>
-            <span>Selesai: <strong className="text-emerald-600 font-mono tabular-nums">{jobs.completed}</strong></span>
-          </div>
-        </div>
+          </span>
+          <span className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-[11px] text-slate-500">
+            <span>Proses: <strong className="font-mono tabular-nums text-slate-800">{jobs.inProgress}</strong></span>
+            <span aria-hidden="true">·</span>
+            <span>Revisi: <strong className="font-mono tabular-nums text-rose-600">{jobs.needsRevision}</strong></span>
+            <span aria-hidden="true">·</span>
+            <span>Selesai: <strong className="font-mono tabular-nums text-emerald-600">{jobs.completed}</strong></span>
+          </span>
+        </button>
 
-        {/* Overdue Jobs Alert */}
-        <div
-          onClick={() => onNavigateTab('jobs')}
-          className={`p-5 rounded-xl border transition-all cursor-pointer shadow-sm group ${
-            jobs.overdue > 0
-              ? 'bg-rose-50/50 border-rose-200 hover:border-rose-300'
-              : 'bg-white border-slate-200 hover:border-slate-300'
-          }`}
-        >
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-            <span>Pekerjaan Jatuh Tempo</span>
-            <Clock className={`w-4 h-4 ${jobs.overdue > 0 ? 'text-rose-500' : 'text-slate-400'}`} />
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className={`text-3xl font-extrabold font-mono tabular-nums ${jobs.overdue > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
-              {jobs.overdue}
+        <div className="group flex w-full flex-col rounded-xl border border-rose-200 bg-white shadow-sm transition-colors hover:border-rose-300">
+          <button
+            type="button"
+            onClick={() => onNavigateTab('jobs', { status: 'Terlambat' })}
+            className="w-full flex-1 rounded-t-xl p-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-inset"
+            aria-label={`Buka ${jobs.overdue} pekerjaan yang terlambat`}
+          >
+            <span className="flex items-center justify-between text-xs font-medium text-slate-500">
+              <span>Pekerjaan Jatuh Tempo</span>
+              <Clock className={`size-4 ${jobs.overdue > 0 ? 'text-rose-500' : 'text-slate-400'}`} aria-hidden="true" />
             </span>
-            <span className="text-xs text-slate-500">Terlambat</span>
-          </div>
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-            <span>Follow-up lewat batas:</span>
-            <strong className="text-rose-600 font-mono tabular-nums">{cases.overdueFollowUps}</strong>
-          </div>
+            <span className="mt-3 flex items-baseline gap-2">
+              <span className={`font-mono text-3xl font-extrabold tabular-nums ${jobs.overdue > 0 ? 'text-rose-600' : 'text-slate-900'}`}>{jobs.overdue}</span>
+              <span className="text-xs text-slate-500">Terlambat</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigateTab('followup', { followUp: 'Overdue' })}
+            disabled={cases.overdueFollowUps === 0}
+            className="mx-5 mb-4 flex min-h-9 items-center justify-between gap-2 border-t border-slate-100 pt-3 text-left text-[11px] text-slate-500 transition-colors enabled:hover:text-rose-600 enabled:focus-visible:outline-none enabled:focus-visible:ring-2 enabled:focus-visible:ring-rose-500 disabled:cursor-not-allowed disabled:opacity-70"
+            aria-label={`Buka ${cases.overdueFollowUps} follow-up lewat batas`}
+          >
+            <span>Follow-up lewat batas</span>
+            <strong className="font-mono tabular-nums text-rose-600">{cases.overdueFollowUps}</strong>
+          </button>
         </div>
 
-        {/* Eksposur Kasus & Risiko */}
-        <div
-          onClick={() => onNavigateTab('cases')}
-          className="p-5 bg-white border border-slate-200/90 rounded-xl hover:border-slate-300 transition-all cursor-pointer shadow-sm group"
+        <button
+          type="button"
+          onClick={() => onNavigateTab('cases', { status: 'Terbuka' })}
+          className="group w-full rounded-xl border border-slate-200/90 bg-white p-5 text-left shadow-sm transition-all hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
+          aria-label={`Buka ${cases.open} kasus terbuka dan risiko`}
         >
-          <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+          <span className="flex items-center justify-between text-xs font-medium text-slate-500">
             <span>Kasus Terbuka & Risiko</span>
-            <ShieldAlert className="w-4 h-4 text-slate-400 group-hover:text-amber-600 transition-colors" />
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-slate-900 font-mono tabular-nums">
-              {cases.open}
-            </span>
+            <ShieldAlert className="size-4 text-slate-400 transition-colors group-hover:text-amber-600" aria-hidden="true" />
+          </span>
+          <span className="mt-3 flex items-baseline gap-2">
+            <span className="font-mono text-3xl font-extrabold tabular-nums text-slate-900">{cases.open}</span>
             <span className="text-xs text-slate-500">Kasus Terbuka</span>
-          </div>
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-            <span>High Tax: <strong className="text-amber-700 font-mono tabular-nums">{clients.taxRisks.High}</strong></span>
-            <span>·</span>
-            <span>High Acc: <strong className="text-amber-700 font-mono tabular-nums">{clients.accRisks.High}</strong></span>
-          </div>
-        </div>
+          </span>
+          <span className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-[11px] text-slate-500">
+            <span>High Tax: <strong className="font-mono tabular-nums text-amber-700">{clients.taxRisks.High}</strong></span>
+            <span aria-hidden="true">·</span>
+            <span>High Acc: <strong className="font-mono tabular-nums text-amber-700">{clients.accRisks.High}</strong></span>
+          </span>
+        </button>
       </div>
 
       {/* Two Column Layout: Compliance Distribution & Separate Risk Matrices */}

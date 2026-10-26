@@ -54,6 +54,8 @@ interface JobsViewProps {
   onRefresh: () => void;
   initialSelectedJobId?: string | null;
   onInitialJobSelected?: () => void;
+  initialStatusFilter?: string | null;
+  onInitialStatusFilterApplied?: () => void;
   isRefreshing?: boolean;
   lastUpdated?: string;
 }
@@ -67,6 +69,8 @@ export function JobsView({
   onRefresh,
   initialSelectedJobId,
   onInitialJobSelected,
+  initialStatusFilter,
+  onInitialStatusFilterApplied,
   isRefreshing = false,
   lastUpdated,
 }: JobsViewProps) {
@@ -77,7 +81,7 @@ export function JobsView({
   const [picFilter, setPicFilter] = useState('All');
   const [monthFrom, setMonthFrom] = useState('');
   const [monthTo, setMonthTo] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('All');
+  const [statusFilter, setStatusFilter] = useState<string>(initialStatusFilter || 'All');
   const [priorityFilter, setPriorityFilter] = useState<string>('All');
   const [jobTypeFilter, setJobTypeFilter] = useState<'All' | 'Continuing' | 'Additional'>('All');
   const [activePanel, setActivePanel] = useState<'jobs' | 'templates'>('jobs');
@@ -169,7 +173,7 @@ export function JobsView({
       if (!matchesMonthRange(j.startDate || j.createdAt, monthFrom, monthTo)) return false;
       if (statusFilter !== 'All') {
         if (statusFilter === 'Terlambat') {
-          if (j.status === 'Selesai' || j.deadline >= today) return false;
+          if (j.status === 'Selesai' || !j.deadline || j.deadline >= today) return false;
         } else if (j.status !== statusFilter) {
           return false;
         }
@@ -213,6 +217,11 @@ export function JobsView({
     onInitialJobSelected?.();
   }, [initialSelectedJobId, jobs, onInitialJobSelected]);
 
+  useEffect(() => {
+    if (!initialStatusFilter) return;
+    setStatusFilter(initialStatusFilter);
+    onInitialStatusFilterApplied?.();
+  }, [initialStatusFilter, onInitialStatusFilterApplied]);
 
   const getClientPicAssignment = (client: Client | undefined, division: JobDivision): JobPicAssignment => {
     const spvIsPic = division === 'Accounting' ? client?.accountingSpvIsPic : client?.taxSpvIsPic;

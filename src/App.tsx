@@ -52,6 +52,9 @@ function MainApp() {
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [pendingJobId, setPendingJobId] = useState<string | null>(null);
   const [pendingCaseId, setPendingCaseId] = useState<string | null>(null);
+  const [pendingJobStatusFilter, setPendingJobStatusFilter] = useState<string | null>(null);
+  const [pendingCaseStatusFilter, setPendingCaseStatusFilter] = useState<string | null>(null);
+  const [pendingFollowUpFilter, setPendingFollowUpFilter] = useState<'Overdue' | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof window === 'undefined') return 'light';
@@ -298,6 +301,9 @@ function MainApp() {
     setCurrentTab('cases');
   }, []);
   const clearPendingCaseId = useCallback(() => setPendingCaseId(null), []);
+  const clearPendingJobStatusFilter = useCallback(() => setPendingJobStatusFilter(null), []);
+  const clearPendingCaseStatusFilter = useCallback(() => setPendingCaseStatusFilter(null), []);
+  const clearPendingFollowUpFilter = useCallback(() => setPendingFollowUpFilter(null), []);
 
   const handleLoginSuccess = (user: CurrentUser, brandData: BrandingConfig) => {
     setCurrentUser(user);
@@ -398,7 +404,12 @@ function MainApp() {
               agendaEntries={agendaEntries}
               meetingMinutes={meetingMinutes}
               currentUser={currentUser}
-              onNavigateTab={(tab) => setCurrentTab(tab)}
+              onNavigateTab={(tab, filter) => {
+                setPendingJobStatusFilter(tab === 'jobs' ? filter?.status || null : null);
+                setPendingCaseStatusFilter(tab === 'cases' ? filter?.status || null : null);
+                setPendingFollowUpFilter(tab === 'followup' ? filter?.followUp || null : null);
+                setCurrentTab(tab);
+              }}
               onOpenJob={openJobFromDashboard}
               onOpenCase={openCaseFromDashboard}
               onRefresh={(division) => loadTabData('dashboard', division)}
@@ -434,6 +445,8 @@ function MainApp() {
               currentUser={currentUser}
               initialSelectedJobId={pendingJobId}
               onInitialJobSelected={clearPendingJobId}
+              initialStatusFilter={pendingJobStatusFilter}
+              onInitialStatusFilterApplied={clearPendingJobStatusFilter}
               onRefresh={() => loadTabData('jobs')}
             />
           )}
@@ -458,6 +471,8 @@ function MainApp() {
               currentUser={currentUser}
               initialSelectedCaseId={pendingCaseId}
               onInitialCaseSelected={clearPendingCaseId}
+              initialStatusFilter={pendingCaseStatusFilter}
+              onInitialStatusFilterApplied={clearPendingCaseStatusFilter}
               onRefresh={() => loadTabData('cases')}
             />
           )}
@@ -468,6 +483,8 @@ function MainApp() {
               currentUser={currentUser}
               onRefresh={() => loadTabData('followup')}
               onOpenCaseDetail={() => setCurrentTab('cases')}
+              initialFilter={pendingFollowUpFilter}
+              onInitialFilterApplied={clearPendingFollowUpFilter}
             />
           )}
 
