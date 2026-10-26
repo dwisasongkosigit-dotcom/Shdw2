@@ -945,8 +945,21 @@ export function JobsView({
                 {isAssignedReviewer(selectedJob) && (
                   <button
                     type="button"
-                    onClick={() => setIsEditingDetails(true)}
-                    className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 sm:px-3"
+                  onClick={() => {
+                    setJobEditData({
+                      title: selectedJob.title,
+                      startDate: selectedJob.startDate,
+                      deadline: selectedJob.deadline,
+                      priority: selectedJob.priority,
+                      description: selectedJob.description,
+                      spvId: selectedJob.spvId,
+                      serviceResponsibility: selectedJob.serviceResponsibility || 'Tim 3',
+                      handoverDestinations: selectedJob.handoverDestinations || [],
+                      handoverDirectionOverrides: selectedJob.handoverDirectionOverrides || {},
+                    });
+                    setIsEditingDetails(true);
+                  }}
+                  className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 sm:px-3"
                     aria-label="Edit tugas"
                   >
                     <Edit className="size-4" />
