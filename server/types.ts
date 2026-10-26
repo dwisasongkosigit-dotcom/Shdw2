@@ -257,6 +257,7 @@ export interface ProfileAssignmentHandoverRecord {
   id: string;
   clientId: string;
   division: JobDivision;
+  destinationDivision?: JobDivision;
   sentAt: string;
   sentById: string;
   sentByName: string;
