@@ -201,6 +201,13 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
     return items;
   }, [incompletePicClients.length, overdueCases.length, overdueJobs, readyForReview.length, riskCounts.High]);
 
+  const actionItems = [
+    overdueJobs.length ? { priority: 'Segera', label: 'Pulihkan pekerjaan terlambat', detail: `${overdueJobs[0].clientName} · ${overdueJobs[0].title}`, owner: overdueJobs[0].picName || 'PIC belum ditentukan', tone: 'rose' } : null,
+    overdueCases.length ? { priority: 'Tindak lanjut', label: 'Kejar follow-up kasus', detail: `${overdueCases.length} kasus melewati tanggal rencana`, owner: overdueCases[0].followUpPicName || overdueCases[0].picName || 'PIC belum ditentukan', tone: 'amber' } : null,
+    readyForReview.length ? { priority: 'Keputusan SPV', label: 'Selesaikan antrean review', detail: `${readyForReview.length} pekerjaan siap direview`, owner: readyForReview[0].spvName || 'SPV belum ditentukan', tone: 'sky' } : null,
+    incompletePicClients.length ? { priority: 'Kelengkapan', label: 'Lengkapi penugasan PIC', detail: `${incompletePicClients.length} klien aktif belum lengkap`, owner: 'Admin / SPV', tone: 'slate' } : null,
+  ].filter(Boolean) as Array<{ priority: string; label: string; detail: string; owner: string; tone: string }>;
+
   const operations: OperationsExportRow[] = [
     ...overdueJobs.map((job) => ({ clientId: job.clientId, category: 'Pekerjaan terlambat', reference: job.id, client: job.clientName, division: job.division, owner: job.picName, status: job.status, deadline: formatDate(job.deadline), summary: job.title || job.description || 'Tinjau progres dan rencana pemulihan tenggat.' })),
     ...readyForReview.map((job) => ({ clientId: job.clientId, category: 'Menunggu review SPV', reference: job.id, client: job.clientName, division: job.division, owner: job.spvName || 'Belum ditentukan', status: job.status, deadline: formatDate(job.deadline), summary: job.title || job.description || 'Pekerjaan menunggu keputusan review.' })),
@@ -364,6 +371,27 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
         <MetricCard label="Pekerjaan terlambat" value={overdueJobs.length} note="Pekerjaan aktif melewati tenggat" icon={<Clock3 />} tone="amber" onClick={() => onNavigateTab('jobs')} />
         <MetricCard label="Menunggu review SPV" value={readyForReview.length} note="Status Siap Direview" icon={<Briefcase />} tone="sky" onClick={() => onNavigateTab('jobs')} />
         <MetricCard label="Selesai bulan ini" value={completedInPeriod} note={`Pekerjaan selesai · ${periodLabel}`} icon={<CheckCircle2 />} tone="emerald" onClick={() => onNavigateTab('jobs')} />
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" aria-labelledby="action-plan-title">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">Action plan</p>
+            <h2 id="action-plan-title" className="mt-1 text-base font-semibold text-slate-900">Yang perlu diputuskan minggu ini</h2>
+            <p className="mt-1 text-xs text-slate-500">Urutan tindakan berdasarkan dampak dan urgensi operasional.</p>
+          </div>
+          <span className="text-[11px] font-medium text-slate-400">{actionItems.length ? `${actionItems.length} tindakan terbuka` : 'Tidak ada tindakan mendesak'}</span>
+        </div>
+        {actionItems.length ? (
+          <div className="mt-4 grid grid-cols-1 gap-2 lg:grid-cols-2">
+            {actionItems.map((item) => (
+              <div key={item.label} className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                <span className={`mt-0.5 shrink-0 rounded-full border px-2 py-1 text-[9px] font-semibold ${item.tone === 'rose' ? 'border-rose-200 bg-rose-50 text-rose-700' : item.tone === 'amber' ? 'border-amber-200 bg-amber-50 text-amber-700' : item.tone === 'sky' ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-600'}`}>{item.priority}</span>
+                <div className="min-w-0 flex-1"><p className="text-xs font-semibold text-slate-900">{item.label}</p><p className="mt-1 truncate text-[11px] text-slate-600">{item.detail}</p><p className="mt-2 text-[10px] text-slate-400">Owner: <span className="font-medium text-slate-600">{item.owner}</span></p></div>
+              </div>
+            ))}
+          </div>
+        ) : <p className="mt-4 rounded-xl bg-emerald-50/60 px-3 py-3 text-xs text-emerald-800">Portofolio terkendali. Tidak ada tindakan mendesak berdasarkan data saat ini.</p>}
       </section>
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
