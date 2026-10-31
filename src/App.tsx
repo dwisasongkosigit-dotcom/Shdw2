@@ -29,6 +29,7 @@ const DailyActivitiesView = lazy(() => import('./components/DailyActivitiesView'
 const MeetingMinutesView = lazy(() => import('./components/MeetingMinutesView').then(({ MeetingMinutesView }) => ({ default: MeetingMinutesView })));
 const TeamAgendaView = lazy(() => import('./components/TeamAgendaView').then(({ TeamAgendaView }) => ({ default: TeamAgendaView })));
 const ExecutiveSummaryView = lazy(() => import('./components/ExecutiveSummaryView').then(({ ExecutiveSummaryView }) => ({ default: ExecutiveSummaryView })));
+const ClientServiceReviewView = lazy(() => import('./components/ClientServiceReviewView').then(({ ClientServiceReviewView }) => ({ default: ClientServiceReviewView })));
 const ReportsView = lazy(() => import('./components/ReportsView').then(({ ReportsView }) => ({ default: ReportsView })));
 const BackupRestoreView = lazy(() => import('./components/BackupRestoreView').then(({ BackupRestoreView }) => ({ default: BackupRestoreView })));
 const AuditLogView = lazy(() => import('./components/AuditLogView').then(({ AuditLogView }) => ({ default: AuditLogView })));
@@ -257,6 +258,16 @@ function MainApp() {
           setActivities(activitiesData);
           setAgendaEntries(agendaData);
           setDbHealth(healthData);
+          break;
+        }
+        case 'client-review': {
+          const [clientsData, jobsData, casesData, activitiesData] = await Promise.all([
+            api.getClients(), api.getJobs(), api.getCases(), api.getDailyActivities(),
+          ]);
+          setClients(clientsData);
+          setJobs(jobsData);
+          setCases(casesData);
+          setActivities(activitiesData);
           break;
         }
         case 'reports': {
@@ -531,6 +542,17 @@ function MainApp() {
               currentUser={currentUser}
               lastUpdated={dbHealth?.lastSaved}
               onNavigateTab={(tab) => setCurrentTab(tab)}
+            />
+          )}
+
+          {currentTab === 'client-review' && (
+            <ClientServiceReviewView
+              clients={clients}
+              jobs={jobs}
+              cases={cases}
+              activities={activities}
+              currentUser={currentUser}
+              onRefresh={() => loadTabData('client-review')}
             />
           )}
 

@@ -9,6 +9,7 @@ import {
   CalendarCheck,
   CalendarDays,
   BarChart3,
+  ClipboardPenLine,
   FileSpreadsheet,
   ClipboardList,
   Settings,
@@ -32,6 +33,7 @@ export type NavTab =
   | 'mom'
   | 'agenda'
   | 'executive-summary'
+  | 'client-review'
   | 'reports'
   | 'backup'
   | 'audit'
@@ -84,6 +86,7 @@ export function Sidebar({
     { id: 'mom', label: 'Minutes of Meeting', icon: ClipboardList },
     { id: 'agenda', label: 'Agenda Tim', icon: CalendarDays },
     { id: 'executive-summary', label: 'Executive Summary', icon: BarChart3, managementOnly: true },
+    { id: 'client-review', label: 'Client Service Review', icon: ClipboardPenLine },
     { id: 'reports', label: 'Laporan & Audit', icon: FileSpreadsheet },
     { id: 'backup', label: 'Cadangan & Pemulihan', icon: Database, adminOnly: true },
     { id: 'audit', label: 'Audit Log Sistem', icon: ShieldCheck, auditOnly: true },
