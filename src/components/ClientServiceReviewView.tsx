@@ -59,8 +59,9 @@ export function ClientServiceReviewView({ clients, jobs, cases, activities, curr
   const exportColumns: ColumnDef<ReviewRow>[] = [
     { header: 'No', key: 'no', width: 8, align: 'center', render: (row) => filteredRows.indexOf(row) + 1 },
     { header: 'ACCT & TAX', key: 'division', width: 14, align: 'center', render: (row) => row.job.division === 'Accounting' ? 'ACCT' : 'TAX' },
-    { header: 'CLIENT / JOB', key: 'job', width: 32, render: (row) => `${row.job.clientName} · ${row.job.title}` },
-    { header: 'FINDING / PENDING ITEM', key: 'finding', width: 42 },
+  { header: 'CLIENT', key: 'client', width: 28, render: (row) => row.job.clientName },
+  { header: 'JOB / PEKERJAAN', key: 'job', width: 32, render: (row) => row.job.title },
+  { header: 'FINDING / PENDING ITEM', key: 'finding', width: 42 },
     { header: 'DATE', key: 'date', width: 14, align: 'center', render: (row) => row.job.deadline },
     { header: 'INTERNAL ACTION / FOLLOW-UP', key: 'action', width: 42 },
     { header: 'CLIENT RESPONSE', key: 'response', width: 36 },
