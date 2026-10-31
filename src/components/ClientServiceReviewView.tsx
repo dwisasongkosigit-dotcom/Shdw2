@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Download, FileText, RefreshCw, Search, X } from 'lucide-react';
+import { Download, RefreshCw, Search, X } from 'lucide-react';
 import { api, type Case, type Client, type CurrentUser, type DailyActivity, type Job } from '../lib/api';
 import { exportToExcel, type ColumnDef } from '../lib/exportUtils';
 import { useToast } from './Toast';
@@ -17,17 +17,36 @@ export function ClientServiceReviewView({ clients, jobs, cases, activities, curr
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const rows = useMemo<ReviewRow[]>(() => jobs.map((job) => {
-    const jobActivities = activities.filter((item) => item.jobId === job.id);
-    const jobCases = cases.filter((item) => item.clientId === job.clientId && item.division === job.division && item.status !== 'Closed');
-    const latestActivity = [...jobActivities].sort((a, b) => b.date.localeCompare(a.date))[0];
-    return { job, client: clients.find((item) => item.id === job.clientId), activities: jobActivities, cases: jobCases, finding: latestActivity?.obstacles || (job.status === 'Selesai' ? 'Tidak ada pending item' : job.description || 'Review pekerjaan berjalan'), action: latestActivity?.followUp || job.notes || 'Tinjau progres pekerjaan dan tindak lanjut klien', response: latestActivity?.resultProgress || (job.status === 'Menunggu Klien' ? 'Menunggu respons klien' : '-'), note: job.reviewNotes || '-', status: job.status };
-  }), [activities, cases, clients, jobs]);
+  const rows = useMemo<ReviewRow[]>(() => {
+    const clientById = new Map(clients.map((client) => [client.id, client]));
+    const activitiesByJob = new Map<string, DailyActivity[]>();
+    const openCasesByClientDivision = new Map<string, Case[]>();
+    for (const activity of activities) {
+      if (!activity.jobId) continue;
+      const current = activitiesByJob.get(activity.jobId) || [];
+      current.push(activity);
+      activitiesByJob.set(activity.jobId, current);
+    }
+    for (const caseItem of cases) {
+      if (caseItem.status === 'Closed' || !caseItem.clientId || !caseItem.division) continue;
+      const key = `${caseItem.clientId}:${caseItem.division}`;
+      const current = openCasesByClientDivision.get(key) || [];
+      current.push(caseItem);
+      openCasesByClientDivision.set(key, current);
+    }
+    return jobs.map((job) => {
+      const jobActivities = activitiesByJob.get(job.id) || [];
+      const latestActivity = jobActivities.reduce<DailyActivity | undefined>((latest, activity) => !latest || activity.date > latest.date ? activity : latest, undefined);
+      const jobCases = openCasesByClientDivision.get(`${job.clientId}:${job.division}`) || [];
+      return { job, client: clientById.get(job.clientId), activities: jobActivities, cases: jobCases, finding: latestActivity?.obstacles || (job.status === 'Selesai' ? 'Tidak ada pending item' : job.description || 'Review pekerjaan berjalan'), action: latestActivity?.followUp || job.notes || 'Tinjau progres pekerjaan dan tindak lanjut klien', response: latestActivity?.resultProgress || (job.status === 'Menunggu Klien' ? 'Menunggu respons klien' : '-'), note: job.reviewNotes || '-', status: job.status };
+    });
+  }, [activities, cases, clients, jobs]);
 
-  const filteredRows = rows.filter((row) => {
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredRows = useMemo(() => rows.filter((row) => {
     const text = `${row.job.title} ${row.job.clientName} ${row.job.picName} ${row.finding}`.toLowerCase();
-    return (!query || text.includes(query.toLowerCase())) && (clientFilter === 'All' || row.job.clientId === clientFilter) && (jobFilter === 'All' || row.job.id === jobFilter) && (divisionFilter === 'All' || row.job.division === divisionFilter) && (statusFilter === 'All' || row.status === statusFilter);
-  });
+    return (!normalizedQuery || text.includes(normalizedQuery)) && (clientFilter === 'All' || row.job.clientId === clientFilter) && (jobFilter === 'All' || row.job.id === jobFilter) && (divisionFilter === 'All' || row.job.division === divisionFilter) && (statusFilter === 'All' || row.status === statusFilter);
+  }), [clientFilter, divisionFilter, jobFilter, normalizedQuery, rows, statusFilter]);
   const selected = rows.find((row) => row.job.id === selectedId);
 
   const saveReview = async () => {
