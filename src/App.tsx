@@ -51,6 +51,7 @@ function MainApp() {
   });
 
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
+  const monthlyJobsSyncStartedRef = useRef(false);
   const [pendingJobId, setPendingJobId] = useState<string | null>(null);
   const [pendingJobReturnReport, setPendingJobReturnReport] = useState<{ report: 'continuing' | 'additional'; fromMonth: string; toMonth: string } | null>(null);
   const [dashboardReportToRestore, setDashboardReportToRestore] = useState<{ report: 'continuing' | 'additional' | 'cases'; fromMonth: string; toMonth: string } | null>(null);
@@ -190,20 +191,25 @@ function MainApp() {
           break;
         }
         case 'jobs': {
-  const [jobsData, clientsData, usersData, templatesData] = await Promise.all([
-  api.getJobs(), api.getClients(), api.getUsers(), api.getMonthlyJobTemplates(),
-  ]);
-  const assignedClients = clientsData.filter((client) => (client.monthlyJobTemplateIds || []).length > 0);
-  if (assignedClients.length > 0) {
-    await Promise.allSettled(assignedClients.map((client) => api.updateClientMonthlyJobs(client.id, client.monthlyJobTemplateIds || [])));
-    const refreshedJobs = await api.getJobs();
-    setJobs(refreshedJobs);
-  } else {
-    setJobs(jobsData);
-  }
-  setClients(clientsData);
+          const [jobsData, clientsData, usersData, templatesData] = await Promise.all([
+            api.getJobs(), api.getClients(), api.getUsers(), api.getMonthlyJobTemplates(),
+          ]);
+          setJobs(jobsData);
+          setClients(clientsData);
           setUsers(usersData);
           setMonthlyJobTemplates(templatesData);
+
+          // Render the existing list immediately; monthly generation runs in the background.
+          if (!monthlyJobsSyncStartedRef.current) {
+            monthlyJobsSyncStartedRef.current = true;
+            const assignedClients = clientsData.filter((client) => (client.monthlyJobTemplateIds || []).length > 0);
+            if (assignedClients.length > 0) {
+              void Promise.allSettled(assignedClients.map((client) => api.updateClientMonthlyJobs(client.id, client.monthlyJobTemplateIds || [])))
+                .then(() => api.getJobs())
+                .then(setJobs)
+                .catch(() => undefined);
+            }
+          }
           break;
         }
         case 'handover': {
