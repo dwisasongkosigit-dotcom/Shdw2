@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Building2,
   Briefcase,
@@ -24,7 +24,10 @@ interface DashboardViewProps {
   currentUser: CurrentUser;
   onNavigateTab: (tab: any, filter?: { status?: string; followUp?: 'Overdue' }) => void;
   onOpenJob: (jobId: string) => void;
+  onOpenJobFromReport: (jobId: string, report: 'continuing' | 'additional') => void;
   onOpenCase: (caseId: string) => void;
+  initialMonthlyReport?: 'continuing' | 'additional' | 'cases' | null;
+  onClearMonthlyReportRestore?: () => void;
   onRefresh: (division?: 'All' | 'Accounting' | 'Tax') => void;
   isRefreshing?: boolean;
   lastUpdated?: string;
@@ -77,7 +80,10 @@ export function DashboardView({
   currentUser,
   onNavigateTab,
   onOpenJob,
+  onOpenJobFromReport,
   onOpenCase,
+  initialMonthlyReport,
+  onClearMonthlyReportRestore,
   onRefresh,
   isRefreshing = false,
   lastUpdated,
@@ -94,7 +100,10 @@ export function DashboardView({
   };
   const [fromMonth, setFromMonth] = useState(currentJakartaMonth);
   const [toMonth, setToMonth] = useState(currentJakartaMonth);
-  const [activeMonthlyReport, setActiveMonthlyReport] = useState<'continuing' | 'additional' | 'cases' | null>(null);
+  const [activeMonthlyReport, setActiveMonthlyReport] = useState<'continuing' | 'additional' | 'cases' | null>(initialMonthlyReport || null);
+  useEffect(() => {
+    if (initialMonthlyReport) setActiveMonthlyReport(initialMonthlyReport);
+  }, [initialMonthlyReport]);
   const validMonthRange = fromMonth <= toMonth;
   const myRevisionJobs = useMemo(
     () => currentUser.role.startsWith('Staff')
@@ -186,8 +195,8 @@ export function DashboardView({
         toMonth={toMonth}
         completedItems={report.summary.completedItems}
         unfinishedItems={report.summary.unfinishedItems}
-        onBack={() => setActiveMonthlyReport(null)}
-        onOpenItem={(id) => report.kind === 'job' ? onOpenJob(id) : onOpenCase(id)}
+        onBack={() => { setActiveMonthlyReport(null); onClearMonthlyReportRestore?.(); }}
+        onOpenItem={(id) => report.kind === 'job' ? onOpenJobFromReport(id, activeMonthlyReport as 'continuing' | 'additional') : onOpenCase(id)}
       />
     );
   }

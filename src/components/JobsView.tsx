@@ -56,6 +56,7 @@ interface JobsViewProps {
   onInitialJobSelected?: () => void;
   initialStatusFilter?: string | null;
   onInitialStatusFilterApplied?: () => void;
+  onCloseDetail?: () => void;
   isRefreshing?: boolean;
   lastUpdated?: string;
 }
@@ -71,6 +72,7 @@ export function JobsView({
   onInitialJobSelected,
   initialStatusFilter,
   onInitialStatusFilterApplied,
+  onCloseDetail,
   isRefreshing = false,
   lastUpdated,
 }: JobsViewProps) {
@@ -986,7 +988,7 @@ export function JobsView({
                 )}
                 <button
                   type="button"
-                  onClick={() => { setSelectedJob(null); setIsEditingDetails(false); }}
+                  onClick={() => { setSelectedJob(null); setIsEditingDetails(false); onCloseDetail?.(); }}
                   aria-label="Tutup detail tugas"
                   className="min-h-10 min-w-10 p-1.5 text-slate-400 hover:text-slate-700 rounded-md"
                 >
