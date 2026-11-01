@@ -52,8 +52,8 @@ function MainApp() {
 
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [pendingJobId, setPendingJobId] = useState<string | null>(null);
-  const [pendingJobReturnReport, setPendingJobReturnReport] = useState<'continuing' | 'additional' | null>(null);
-  const [dashboardReportToRestore, setDashboardReportToRestore] = useState<'continuing' | 'additional' | 'cases' | null>(null);
+  const [pendingJobReturnReport, setPendingJobReturnReport] = useState<{ report: 'continuing' | 'additional'; fromMonth: string; toMonth: string } | null>(null);
+  const [dashboardReportToRestore, setDashboardReportToRestore] = useState<{ report: 'continuing' | 'additional' | 'cases'; fromMonth: string; toMonth: string } | null>(null);
   const [pendingCaseId, setPendingCaseId] = useState<string | null>(null);
   const [pendingJobStatusFilter, setPendingJobStatusFilter] = useState<string | null>(null);
   const [pendingCaseStatusFilter, setPendingCaseStatusFilter] = useState<string | null>(null);
@@ -309,15 +309,15 @@ function MainApp() {
     setCurrentTab('jobs');
   }, []);
   const clearPendingJobId = useCallback(() => setPendingJobId(null), []);
-  const openJobFromMonthlyReport = useCallback((jobId: string, report: 'continuing' | 'additional') => {
+  const openJobFromMonthlyReport = useCallback((jobId: string, report: 'continuing' | 'additional', fromMonth: string, toMonth: string) => {
     setPendingJobId(jobId);
-    setPendingJobReturnReport(report);
+    setPendingJobReturnReport({ report, fromMonth, toMonth });
     setCurrentTab('jobs');
   }, []);
   const closeJobFromMonthlyReport = useCallback(() => {
     if (!pendingJobReturnReport) return;
     setPendingJobReturnReport(null);
-    setDashboardReportToRestore(pendingJobReturnReport);
+    setDashboardReportToRestore({ ...pendingJobReturnReport });
     setCurrentTab('dashboard');
   }, [pendingJobReturnReport]);
   const openCaseFromDashboard = useCallback((caseId: string) => {

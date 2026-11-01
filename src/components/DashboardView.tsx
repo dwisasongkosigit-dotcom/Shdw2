@@ -24,9 +24,9 @@ interface DashboardViewProps {
   currentUser: CurrentUser;
   onNavigateTab: (tab: any, filter?: { status?: string; followUp?: 'Overdue' }) => void;
   onOpenJob: (jobId: string) => void;
-  onOpenJobFromReport: (jobId: string, report: 'continuing' | 'additional') => void;
+  onOpenJobFromReport: (jobId: string, report: 'continuing' | 'additional', fromMonth: string, toMonth: string) => void;
   onOpenCase: (caseId: string) => void;
-  initialMonthlyReport?: 'continuing' | 'additional' | 'cases' | null;
+  initialMonthlyReport?: { report: 'continuing' | 'additional' | 'cases'; fromMonth: string; toMonth: string } | null;
   onClearMonthlyReportRestore?: () => void;
   onRefresh: (division?: 'All' | 'Accounting' | 'Tax') => void;
   isRefreshing?: boolean;
@@ -98,11 +98,14 @@ export function DashboardView({
     setDivisionFilter(division);
     onDivisionChange(division);
   };
-  const [fromMonth, setFromMonth] = useState(currentJakartaMonth);
-  const [toMonth, setToMonth] = useState(currentJakartaMonth);
-  const [activeMonthlyReport, setActiveMonthlyReport] = useState<'continuing' | 'additional' | 'cases' | null>(initialMonthlyReport || null);
+  const [fromMonth, setFromMonth] = useState(initialMonthlyReport?.fromMonth || currentJakartaMonth);
+  const [toMonth, setToMonth] = useState(initialMonthlyReport?.toMonth || currentJakartaMonth);
+  const [activeMonthlyReport, setActiveMonthlyReport] = useState<'continuing' | 'additional' | 'cases' | null>(initialMonthlyReport?.report || null);
   useEffect(() => {
-    if (initialMonthlyReport) setActiveMonthlyReport(initialMonthlyReport);
+    if (!initialMonthlyReport) return;
+    setFromMonth(initialMonthlyReport.fromMonth);
+    setToMonth(initialMonthlyReport.toMonth);
+    setActiveMonthlyReport(initialMonthlyReport.report);
   }, [initialMonthlyReport]);
   const validMonthRange = fromMonth <= toMonth;
   const myRevisionJobs = useMemo(
@@ -196,7 +199,7 @@ export function DashboardView({
         completedItems={report.summary.completedItems}
         unfinishedItems={report.summary.unfinishedItems}
         onBack={() => { setActiveMonthlyReport(null); onClearMonthlyReportRestore?.(); }}
-        onOpenItem={(id) => report.kind === 'job' ? onOpenJobFromReport(id, activeMonthlyReport as 'continuing' | 'additional') : onOpenCase(id)}
+        onOpenItem={(id) => report.kind === 'job' ? onOpenJobFromReport(id, activeMonthlyReport as 'continuing' | 'additional', fromMonth, toMonth) : onOpenCase(id)}
       />
     );
   }
