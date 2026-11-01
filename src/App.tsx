@@ -190,11 +190,18 @@ function MainApp() {
           break;
         }
         case 'jobs': {
-          const [jobsData, clientsData, usersData, templatesData] = await Promise.all([
-            api.getJobs(), api.getClients(), api.getUsers(), api.getMonthlyJobTemplates(),
-          ]);
-          setJobs(jobsData);
-          setClients(clientsData);
+  const [jobsData, clientsData, usersData, templatesData] = await Promise.all([
+  api.getJobs(), api.getClients(), api.getUsers(), api.getMonthlyJobTemplates(),
+  ]);
+  const assignedClients = clientsData.filter((client) => (client.monthlyJobTemplateIds || []).length > 0);
+  if (assignedClients.length > 0) {
+    await Promise.allSettled(assignedClients.map((client) => api.updateClientMonthlyJobs(client.id, client.monthlyJobTemplateIds || [])));
+    const refreshedJobs = await api.getJobs();
+    setJobs(refreshedJobs);
+  } else {
+    setJobs(jobsData);
+  }
+  setClients(clientsData);
           setUsers(usersData);
           setMonthlyJobTemplates(templatesData);
           break;
