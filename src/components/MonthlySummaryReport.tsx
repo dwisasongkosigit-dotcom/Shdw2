@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, CalendarDays, Download, FileSpreadsheet, Printer, RotateCcw, Search } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Download, FileSpreadsheet, Printer, RotateCcw, Search, X } from 'lucide-react';
 import type { Case, Job } from '../lib/api';
 import { exportToExcel } from '../lib/exportUtils';
 
@@ -57,12 +57,12 @@ export function MonthlySummaryReport({
   completedItems,
   unfinishedItems,
   onBack,
-  onOpenItem,
 }: MonthlySummaryReportProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'unfinished'>('all');
   const [divisionFilter, setDivisionFilter] = useState('all');
   const [picFilter, setPicFilter] = useState('all');
+  const [selectedItem, setSelectedItem] = useState<ReportItem | null>(null);
   const periodLabel = fromMonth === toMonth
     ? monthLabel(fromMonth)
     : `${monthLabel(fromMonth)} – ${monthLabel(toMonth)}`;
@@ -159,7 +159,7 @@ export function MonthlySummaryReport({
                   </td>
                   <td className="px-4 py-4 align-top text-slate-600">{kind === 'job' ? (item as Job).deadline || 'Belum ditentukan' : (item as Case).nextFollowUpDate || 'Belum ditentukan'}</td>
                   <td className="px-5 py-4 text-right align-top">
-                    <button type="button" onClick={() => onOpenItem(item.id)} className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition-colors hover:border-amber-300 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500">
+                    <button type="button" onClick={() => setSelectedItem(item)} className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition-colors hover:border-amber-300 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500">
                       Buka
                     </button>
                   </td>
@@ -256,6 +256,19 @@ export function MonthlySummaryReport({
         <span>Dokumen internal · Rekap berdasarkan status saat ini</span>
         <span className="inline-flex items-center gap-1"><Download className="size-3.5" aria-hidden="true" /> {total} item</span>
       </footer>
+      {selectedItem && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-4 sm:items-center" role="presentation" onMouseDown={() => setSelectedItem(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="monthly-item-detail-title" className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700">Review detail</p><h2 id="monthly-item-detail-title" className="mt-1 text-lg font-bold text-slate-950">{selectedItem.title}</h2><p className="mt-1 text-xs text-slate-500">{selectedItem.clientName} · {selectedItem.division} · PIC {selectedItem.picName || 'Belum ditentukan'}</p></div>
+              <button type="button" onClick={() => setSelectedItem(null)} aria-label="Tutup detail" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="size-4" /></button>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2"><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Status</p><p className="mt-1 text-sm font-semibold text-slate-800">{selectedItem.status}</p></div><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{kind === 'job' ? 'Deadline' : 'Follow-up berikutnya'}</p><p className="mt-1 text-sm font-semibold text-slate-800">{kind === 'job' ? (selectedItem as Job).deadline || 'Belum ditentukan' : (selectedItem as Case).nextFollowUpDate || 'Belum ditentukan'}</p></div></div>
+            <div className="mt-4 rounded-xl border border-slate-200 p-3"><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Deskripsi</p><p className="mt-1 text-sm leading-6 text-slate-700">{selectedItem.description || 'Belum ada deskripsi.'}</p></div>
+            <div className="mt-5 flex justify-end"><button type="button" onClick={() => setSelectedItem(null)} className="rounded-lg bg-slate-950 px-4 py-2 text-xs font-semibold text-white">Tutup & tetap di laporan</button></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
