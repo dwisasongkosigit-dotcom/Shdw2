@@ -47,6 +47,19 @@ function currentJakartaMonth() {
   return `${values.year}-${values.month}`;
 }
 
+function normalizeJobMonth(value: string | undefined, fallbackMonth: string) {
+  if (!value) return fallbackMonth;
+  const normalized = value.trim().toLocaleLowerCase('id-ID');
+  if (/^\d{4}-\d{2}/.test(normalized)) return normalized.slice(0, 7);
+  const numeric = normalized.match(/^(\d{1,2})[/-](\d{4})$/);
+  if (numeric) return `${numeric[2]}-${numeric[1].padStart(2, '0')}`;
+  const monthNames = ['januari', 'februari', 'maret', 'april', 'mei', 'juni', 'juli', 'agustus', 'september', 'oktober', 'november', 'desember'];
+  const monthIndex = monthNames.findIndex((month) => normalized.includes(month));
+  if (monthIndex < 0) return value.slice(0, 7);
+  const year = normalized.match(/20\d{2}/)?.[0] || fallbackMonth.slice(0, 4);
+  return `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+}
+
 type MonthlySummary<T> = {
   total: number;
   completed: number;
@@ -97,7 +110,9 @@ export function DashboardView({
     const scopedJobs = allJobs.filter((job) => {
       if (selectedDivision && job.division !== selectedDivision) return false;
       if (currentUser.role.startsWith('Staff') && job.picId !== currentUser.id) return false;
-      const month = job.recurringMonth || job.startDate?.slice(0, 7) || job.createdAt.slice(0, 7);
+      const month = job.jobType === 'Continuing'
+        ? normalizeJobMonth(job.recurringMonth, job.startDate?.slice(0, 7) || fromMonth)
+        : job.startDate?.slice(0, 7) || job.createdAt.slice(0, 7);
       return validMonthRange && month >= fromMonth && month <= toMonth;
     });
     const scopedCases = allCases.filter((item) => {
