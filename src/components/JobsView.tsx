@@ -153,12 +153,24 @@ export function JobsView({
     [clients, selectedJob]
   );
 
-  const pendingReviewCount = jobs.filter((job) => job.status === 'Siap Direview' && isAssignedReviewer(job)).length;
+  const normalizedJobs = useMemo(() => jobs.map((job) => {
+    if (job.picId && job.picName) return job;
+    const client = clients.find((item) => item.id === job.clientId);
+    const spvIsPic = job.division === 'Accounting' ? client?.accountingSpvIsPic : client?.taxSpvIsPic;
+    const fallbackPicId = spvIsPic
+      ? job.division === 'Accounting' ? client?.accountingSpvId : client?.taxSpvId
+      : job.division === 'Accounting' ? client?.accountingStaffPicId : client?.taxStaffPicId;
+    const fallbackPicName = spvIsPic
+      ? job.division === 'Accounting' ? client?.accountingSpvName : client?.taxSpvName
+      : job.division === 'Accounting' ? client?.accountingStaffPicName : client?.taxStaffPicName;
+    return fallbackPicId ? { ...job, picId: job.picId || fallbackPicId, picName: job.picName || fallbackPicName || '' } : job;
+  }), [clients, jobs]);
+  const pendingReviewCount = normalizedJobs.filter((job) => job.status === 'Siap Direview' && isAssignedReviewer(job)).length;
   const availablePics = useMemo(() => {
     const picsById = new Map<string, string>();
-    jobs.forEach((job) => picsById.set(job.picId, job.picName));
+    normalizedJobs.forEach((job) => { if (job.picId) picsById.set(job.picId, job.picName); });
     return [...picsById.entries()].sort((a, b) => a[1].localeCompare(b[1], 'id-ID'));
-  }, [jobs]);
+  }, [normalizedJobs]);
   const availableJobTitles = useMemo(() =>
     [...new Set(jobs.map((job) => job.title.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'id-ID')),
     [jobs]
@@ -167,7 +179,7 @@ export function JobsView({
   // Filtered jobs
   const filteredJobs = useMemo(() => {
     const query = deferredSearchTerm.trim().toLocaleLowerCase('id-ID');
-    return jobs.filter((j) => {
+    return normalizedJobs.filter((j) => {
       if (divisionFilter !== 'All' && j.division !== divisionFilter) return false;
       if (titleFilter !== 'All' && j.title.trim() !== titleFilter) return false;
       if (clientFilter !== 'All' && j.clientId !== clientFilter) return false;
@@ -190,7 +202,7 @@ export function JobsView({
       }
       return true;
     });
-  }, [jobs, divisionFilter, titleFilter, clientFilter, picFilter, monthFrom, monthTo, statusFilter, priorityFilter, jobTypeFilter, deferredSearchTerm, today]);
+  }, [normalizedJobs, divisionFilter, titleFilter, clientFilter, picFilter, monthFrom, monthTo, statusFilter, priorityFilter, jobTypeFilter, deferredSearchTerm, today]);
 
   const cancelPendingProgressAutoSave = () => {
     if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
