@@ -45,7 +45,8 @@ export function ClientServiceReviewView({ clients, jobs, cases, activities, curr
   }, [activities, cases, clients, jobs]);
 
   const monthOptions = useMemo(() => {
-    const months = new Set(rows.map(({ job }) => getReviewMonth(job)).filter(Boolean));
+    const currentMonth = getCurrentReviewMonth();
+    const months = new Set(rows.map(({ job }) => getReviewMonth(job)).filter((month) => month && month <= currentMonth));
     return [...months].sort().reverse().map((month) => [month, formatReviewMonth(month)]);
   }, [rows]);
   const normalizedQuery = query.trim().toLowerCase();
@@ -68,6 +69,7 @@ export function ClientServiceReviewView({ clients, jobs, cases, activities, curr
   { header: 'JOB / PEKERJAAN', key: 'job', width: 32, render: (row) => row.job.title },
   { header: 'FINDING / PENDING ITEM', key: 'finding', width: 42 },
     { header: 'DATE', key: 'date', width: 14, align: 'center', render: (row) => row.job.deadline },
+    { header: 'SPV APPROVED AT', key: 'spvApprovedAt', width: 20, align: 'center', render: (row) => getSpvApprovalDate(row.job) },
     { header: 'INTERNAL ACTION / FOLLOW-UP', key: 'action', width: 42 },
     { header: 'CLIENT RESPONSE', key: 'response', width: 36 },
     { header: 'ADDITIONAL NOTE', key: 'note', width: 28 },
@@ -85,6 +87,14 @@ export function ClientServiceReviewView({ clients, jobs, cases, activities, curr
   </div>;
 }
 
+function getSpvApprovalDate(job: Job) {
+  const approvalHistory = [...(job.history || [])].reverse().find((entry) => entry.toStatus === 'Selesai' || /disetujui|persetujuan approval/i.test(`${entry.action} ${entry.notes || ''}`));
+  const timestamp = approvalHistory?.timestamp || (job.status === 'Selesai' ? job.completedAt : undefined);
+  if (!timestamp) return '-';
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? timestamp : date.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 function getReviewMonth(job: Job) {
   const value = job.deadline || job.startDate || job.createdAt || job.recurringMonth || '';
   const isoMatch = value.match(/\d{4}-\d{2}/);
@@ -99,6 +109,12 @@ function getReviewMonth(job: Job) {
 function formatReviewMonth(value: string) {
   const date = new Date(`${value}-01T00:00:00`);
   return date.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+}
+
+function getCurrentReviewMonth() {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}`;
 }
 
 function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[][] }) { return <label><span className="mb-1 block text-[11px] font-semibold text-slate-600">{label}</span><select value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-amber-500">{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></label>; }
