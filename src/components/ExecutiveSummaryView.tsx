@@ -253,6 +253,12 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
       taxReview: exportDivision === 'Accounting' ? '' : formatDate(client.taxRiskReviewDate),
     };
   });
+  const reportRiskRows = selectedRiskRows.filter((client) => {
+    if (client.overallRisk === riskLabel.High) return true;
+    if (client.overallRisk !== riskLabel.Medium) return false;
+    const reasons = exportDivision === 'Accounting' ? [client.accountingReason] : exportDivision === 'Tax' ? [client.taxReason] : [client.accountingReason, client.taxReason];
+    return reasons.some((reason) => reason && reason !== 'Belum ada alasan asesmen yang dicatat.');
+  });
   const selectedRiskCounts = {
     High: selectedRiskRows.filter((client) => client.overallRisk === riskLabel.High).length,
     Medium: selectedRiskRows.filter((client) => client.overallRisk === riskLabel.Medium).length,
@@ -322,7 +328,7 @@ export function ExecutiveSummaryView({ clients, jobs, cases, activities, agendaE
     divisionScope: exportDivision,
     overallStatus: selectedOverallStatus,
     metrics: exportMetrics,
-    risks: selectedRiskRows,
+    risks: reportRiskRows,
     investments: capitalExportRows,
     operations: selectedOperations,
     agenda: agendaRows,

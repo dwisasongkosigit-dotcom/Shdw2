@@ -150,13 +150,6 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
     const tone = riskTone(metric.metric);
     return `<div class="metric ${tone ? `metric-${tone}` : ''}"${tone ? ` style="${riskMetricStyle(tone)}"` : ''}><dt>${escapeHtml(metric.metric)}</dt><dd${tone ? ` style="color:${riskColors[tone]?.text}!important;"` : ''}>${escapeHtml(metric.value)}</dd><small>${escapeHtml(metric.note)}</small></div>`;
   }).join('');
-  const investmentColumns: Array<{ key: keyof CapitalExportRow; label: string }> = [
-    { key: 'clientId', label: 'ID' }, { key: 'clientName', label: 'Klien' },
-    { key: 'investmentCategory', label: 'PMA/PMDN' }, { key: 'deedNumber', label: 'Nomor akta' },
-    { key: 'deedDate', label: 'Tanggal akta' }, { key: 'authorizedCapital', label: 'Modal dasar (akta)' },
-    { key: 'issuedCapital', label: 'Modal ditempatkan' }, { key: 'paidUpCapital', label: 'Modal disetor' },
-    { key: 'paidInPercent', label: 'Disetor / dasar' },
-  ];
   const operationColumns: Array<{ key: keyof OperationsExportRow; label: string }> = [
     { key: 'category', label: 'Jenis' }, { key: 'reference', label: 'Referensi' },
     { key: 'client', label: 'Klien' }, { key: 'division', label: 'Divisi' },
@@ -172,6 +165,10 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
   ];
   const orientation = data.divisionScope === 'Both' ? 'landscape' : 'portrait';
   const highlights = data.highlights.map((item) => `<li>${escapeHtml(item)}</li>`).join('') || '<li>Tidak ada sorotan khusus pada cakupan ini.</li>';
+  const completeCapitalRows = data.investments.filter((row) => row.paidInPercent !== 'Belum cukup data');
+  const capitalSummary = `<div class="summary-grid"><div><strong>${completeCapitalRows.length}</strong><span>klien dengan data modal lengkap</span></div><div><strong>${data.investments.length - completeCapitalRows.length}</strong><span>klien belum cukup data</span></div><div><strong>${escapeHtml(data.investments.filter((row) => row.investmentCategory === 'PMA').length)}</strong><span>klien PMA</span></div><div><strong>${escapeHtml(data.investments.filter((row) => row.investmentCategory === 'PMDN').length)}</strong><span>klien PMDN</span></div></div><p class="note">Rincian modal lengkap tersedia pada workbook Excel. Dokumen ini menampilkan ringkasan agar fokus pada perhatian manajemen.</p>`;
+  const operationRows = data.operations.slice(0, 14);
+  const operationNote = data.operations.length > operationRows.length ? `<p class="note">Menampilkan ${operationRows.length} dari ${data.operations.length} item prioritas. Rincian lengkap tersedia pada workbook Excel.</p>` : '';
   const footer = `<footer>${escapeHtml(data.scopeLabel || 'Executive Summary')}　·　Dokumen internal　·　TMM &amp; BMA Advisory</footer>`;
 
   printWindow.document.open();
@@ -227,6 +224,11 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
       .risk-meta { border-top: 1px solid #e2e8f0; display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 4px 8px; padding-top: 7px; }
       .risk-meta dd { font-size: 7pt; }
       .empty-card { border: 1px dashed #dce1e8; border-radius: 8px; color: #718096; padding: 18px; text-align: center; }
+      .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+      .summary-grid > div { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 7px; padding: 10px; }
+      .summary-grid strong { color: #101b34; display: block; font-size: 16pt; }
+      .summary-grid span { color: #64748b; display: block; font-size: 7pt; margin-top: 3px; }
+      .note { color: #718096; font-size: 7.5pt; margin: 8px 0 0; }
       .table-wrap { max-width: 100%; overflow-x: auto; }
       .section { break-inside: auto; }
       .page-break { break-before: page; }
@@ -239,9 +241,9 @@ export function printExecutiveSummaryPdf(data: ExecutiveSummaryExportData) {
       <header><div class="brand">TMM &amp; BMA Advisory · Management Office</div><h1>Executive Summary</h1><p class="subtitle">Periode ${escapeHtml(data.period)} · ${escapeHtml(data.scopeLabel || 'Semua cakupan')}</p><span class="status">Status: ${escapeHtml(data.overallStatus)}</span><dl class="meta"><div><dt>Periode laporan</dt><dd>${escapeHtml(data.period)}</dd></div><div><dt>Dibuat pada</dt><dd>${escapeHtml(data.generatedAt)}</dd></div><div><dt>Data terakhir tersimpan</dt><dd>${escapeHtml(data.sourceUpdatedAt)}</dd></div><div><dt>Cakupan</dt><dd>${escapeHtml(data.scopeLabel || 'Semua cakupan')}</dd></div></dl><p class="scope">${escapeHtml(data.scopeNote)}</p></header>
       <section class="section"><h2><span>01</span>Ikhtisar periode</h2><dl class="metrics">${metricCards}</dl><h2><span>02</span>Sorotan untuk manajemen</h2><ul class="highlights">${highlights}</ul></section>
       <section class="section page-break"><h2><span>03</span>Portofolio risiko klien</h2>${riskCardMarkup(data.risks, data.divisionScope)}</section>
-      <section class="section page-break"><h2><span>04</span>Investasi & modal sesuai akta</h2><p>Persentase dihitung dari modal disetor dibagi modal dasar yang tercantum dalam akta.</p><div class="table-wrap"><table><thead><tr>${investmentColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.investments, investmentColumns)}</tbody></table></div></section>
-      <section class="section page-break"><h2><span>05</span>Pekerjaan, kasus, dan tindak lanjut</h2><div class="table-wrap"><table><thead><tr>${operationColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.operations, operationColumns)}</tbody></table></div></section>
-      <section class="section page-break"><h2><span>06</span>Agenda meeting</h2><div class="table-wrap"><table><thead><tr>${agendaColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(data.agenda, agendaColumns)}</tbody></table></div>${footer}</section>
+      <section class="section"><h2><span>04</span>Compliance & modal sesuai akta</h2><p>Ringkasan kelengkapan data modal berdasarkan dokumen sumber.</p>${capitalSummary}</section>
+      <section class="section page-break"><h2><span>05</span>Operational monitoring</h2><div class="table-wrap"><table><thead><tr>${operationColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${tableRows(operationRows, operationColumns)}</tbody></table></div>${operationNote}</section>
+      <section class="section page-break"><h2><span>06</span>Management attention & action plan</h2><ul class="highlights">${highlights}</ul><h3>Management Attention Required</h3><p class="note">Persetujuan, arahan, atau eskalasi manajemen belum tercatat secara eksplisit dalam data sumber. Item di atas merupakan rekomendasi tindak lanjut berbasis kondisi tercatat.</p>${footer}</section>
       <script>window.addEventListener('load', () => setTimeout(() => window.print(), 250));</script>
     </body></html>`);
   printWindow.document.close();
